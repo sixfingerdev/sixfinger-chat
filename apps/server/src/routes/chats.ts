@@ -161,7 +161,8 @@ export function chatRoutes(ctx: AppContext, guard: Guard) {
          returning slug`,
         [slug, chat.id, user.id, chat.title, JSON.stringify(snapshot)],
       );
-      return reply.code(201).send({ slug: r.rows[0]!.slug });
+      const slugOut = r.rows[0]!.slug;
+      return reply.code(201).send({ slug: slugOut, url: `${ctx.config.PUBLIC_WEB_URL.replace(/\/$/, '')}/s/${slugOut}` });
     });
 
     app.delete<{ Params: { id: string } }>('/chats/:id/share', async (req, reply) => {

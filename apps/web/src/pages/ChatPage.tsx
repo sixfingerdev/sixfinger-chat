@@ -42,7 +42,7 @@ function TopBar({ chatId }: { chatId: string | undefined }) {
   const features = useUi((s) => s.config?.limits.features);
   const collapsed = useUi((s) => s.sidebarCollapsed);
   const toggleSidebar = useUi((s) => s.toggleSidebar);
-  const [shareSlug, setShareSlug] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
 
   const chat = detail?.chat;
   const personaId = chat?.personaId ?? draftPersona ?? 'default';
@@ -81,11 +81,11 @@ function TopBar({ chatId }: { chatId: string | undefined }) {
       return;
     }
     try {
-      const { slug } = await api.share(chat.id);
+      const { slug, url } = await api.share(chat.id);
       useChats.setState({
         detail: { ...useChats.getState().detail, [chat.id]: { ...detail!, chat: { ...chat, shareSlug: slug } } },
       });
-      setShareSlug(slug);
+      setShareUrl(url);
     } catch (err) {
       reportError(err);
     }
@@ -247,7 +247,7 @@ function TopBar({ chatId }: { chatId: string | undefined }) {
           </>
         )}
       </div>
-      {chat && shareSlug && <ShareDialog chatId={chat.id} slug={shareSlug} onClose={() => setShareSlug(null)} />}
+      {chat && shareUrl && <ShareDialog chatId={chat.id} url={shareUrl} onClose={() => setShareUrl(null)} />}
     </header>
   );
 }

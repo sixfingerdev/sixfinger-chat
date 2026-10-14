@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Effort } from '../lib/types.ts';
 import type { FullConfig } from '../lib/api.ts';
 import type { UsageDTO } from '@sixfinger/shared';
+import { setStatusBar } from '../lib/native.ts';
 
 export type ThemePref = 'dark' | 'light' | 'system';
 export type SettingsTab = 'general' | 'personal' | 'memory' | 'data' | 'account';
@@ -31,6 +32,7 @@ const write = (k: string, v: string) => {
 
 export function applyTheme(pref: ThemePref): void {
   const dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  void setStatusBar(dark);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#0b0b0c' : '#fafaf9');
 }

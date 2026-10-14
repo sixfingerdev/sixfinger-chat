@@ -586,3 +586,25 @@
     white-space: nowrap;
   }
 }
+
+.splash.connect {
+  align-content: center;
+  width: min(420px, 100%);
+  margin: 0 auto;
+}
+.splash.connect h2 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.025em;
+}
+.splash.connect .server-form {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 14px;
+}
+.server-form {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}

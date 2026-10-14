@@ -2,6 +2,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { ZodError } from 'zod';
 import type { ErrorCode } from '@sixfinger/shared';
 import { loadConfig, type Config } from './config.ts';
@@ -95,9 +98,31 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     req.log.error({ err: err as Error }, 'beklenmeyen hata');
     return reply.code(500).send({ error: { code: 'internal', message: 'Sunucu hatası.' } });
   });
-  app.setNotFoundHandler((_req, reply) =>
-    reply.code(404).send({ error: { code: 'not_found', message: 'Böyle bir adres yok.' } }),
-  );
+  const webDist = config.WEB_DIST ? resolve(config.WEB_DIST) : '';
+  const serveWeb = Boolean(webDist) && existsSync(resolve(webDist, 'index.html'));
+  if (serveWeb) {
+    await app.register(fastifyStatic, {
+      root: webDist,
+      wildcard: false,
+      cacheControl: false,
+      // Hash'li varlıklar sonsuza dek önbelleğe alınır; HTML ve servis çalışanı asla.
+      setHeaders(res, filePath) {
+        if (/[\\/]assets[\\/]/.test(filePath)) res.setHeader('cache-control', 'public, max-age=31536000, immutable');
+        else res.setHeader('cache-control', 'no-cache');
+      },
+    });
+  }
+  app.setNotFoundHandler((req, reply) => {
+    const isApi = req.url.startsWith('/api/') || req.url === '/api';
+    if (serveWeb && !isApi && req.method === 'GET') {
+      // SPA: bilinmeyen yollar index.html'e düşer (/c/:id, /s/:slug ...)
+      if (/\.[a-z0-9]{2,5}$/i.test(req.url.split('?')[0]!)) {
+        return reply.code(404).send({ error: { code: 'not_found', message: 'Dosya bulunamadı.' } });
+      }
+      return reply.header('cache-control', 'no-cache').sendFile('index.html');
+    }
+    return reply.code(404).send({ error: { code: 'not_found', message: 'Böyle bir adres yok.' } });
+  });
 
   await app.register(
     async (api) => {

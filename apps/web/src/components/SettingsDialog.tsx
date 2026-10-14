@@ -27,6 +27,9 @@ import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi, type SettingsTab, type ThemePref } from '../store/ui.ts';
 import { Modal } from './Modal.tsx';
+import { ServerForm } from './ServerForm.tsx';
+import { isNative } from '../lib/native.ts';
+import { getApiBase } from '../lib/api.ts';
 
 function Row({ title, hint, children, stack }: { title: string; hint?: string; children: ReactNode; stack?: boolean }) {
   return (
@@ -50,6 +53,22 @@ function Locked({ guest, onAction }: { guest: boolean; onAction: () => void }) {
         {guest ? t('limits.upgrade') : t('limits.verify')}
       </button>
     </div>
+  );
+}
+
+function ServerRow() {
+  const t = useT();
+  const [editing, setEditing] = useState(false);
+  return (
+    <Row title={t('server.current')} hint={getApiBase()} stack={editing}>
+      {editing ? (
+        <ServerForm onDone={() => window.location.reload()} />
+      ) : (
+        <button className="btn btn-outline btn-sm" onClick={() => setEditing(true)}>
+          {t('server.change')}
+        </button>
+      )}
+    </Row>
   );
 }
 
@@ -100,6 +119,7 @@ function GeneralTab() {
           </button>
         </div>
       </Row>
+      {isNative && <ServerRow />}
       <Row title={t('settings.plan')}>
         <span className={clsx('chip', user.tier === 'member' && 'success', user.tier === 'guest' && 'accent')}>
           {t(`settings.tier.${user.tier}` as 'settings.tier.guest')}

@@ -242,6 +242,14 @@ export const tr = {
   'tier.unverified': 'Doğrulanmamış',
   'tier.member': 'Üye',
 
+  'server.title': 'Sunucuya bağlan',
+  'server.sub': 'SixFinger sunucunun adresini gir. Kendi sunucunu kurduysan onun adresi.',
+  'server.url': 'Sunucu adresi',
+  'server.connect': 'Bağlan',
+  'server.invalid': 'Geçerli bir https:// adresi gir.',
+  'server.failed': 'Bu adrese bağlanılamadı. Adresi ve sunucunun çalıştığını kontrol et.',
+  'server.current': 'Sunucu',
+  'server.change': 'Değiştir',
   'error.generic': 'Bir şeyler ters gitti.',
   'error.busy': 'Şu an çok yoğunuz. Birkaç saniye sonra tekrar dene.',
 } as const;

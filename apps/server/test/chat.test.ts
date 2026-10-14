@@ -348,6 +348,7 @@ describe('üye özellikleri', () => {
     const sh = await env.app.inject({ method: 'POST', url: `/api/chats/${c.id}/share`, headers: auth(m) });
     expect(sh.statusCode).toBe(201);
     const slug = sh.json().slug as string;
+    expect(sh.json().url).toMatch(new RegExp(`/s/${slug}$`));
     const pub = await env.app.inject({ method: 'GET', url: `/api/public/shares/${slug}` });
     expect(pub.statusCode).toBe(200);
     expect(pub.json().messages.map((x: { role: string }) => x.role)).toEqual(['user', 'assistant']);

@@ -163,7 +163,6 @@ export const useChats = create<ChatsState>((set, get) => {
           useUi.getState().setUsage(e.usage);
           break;
         case 'error':
-          reportError(Object.assign(new Error(e.message), { name: 'ApiError' }) as never);
           useUi.getState().toast({ kind: 'error', text: e.message });
           break;
         case 'done':
@@ -198,7 +197,7 @@ export const useChats = create<ChatsState>((set, get) => {
       }
       if (get().generating?.abort === abort) set({ generating: null });
       // Sunucu ile kesin eşitleme (gerçek kimlikler, durum).
-      if (!tmp.assistantId.startsWith('tmp-') || assistantId !== tmp.assistantId) void get().openChat(chatId, true);
+      void get().openChat(chatId, true);
     }
   }
 
@@ -235,7 +234,7 @@ export const useChats = create<ChatsState>((set, get) => {
     },
 
     async openChat(id: string, silent = false) {
-      set({ activeId: id });
+      if (!silent) set({ activeId: id });
       if (get().generating?.chatId === id) return;
       if (!silent) set({ loadingId: get().detail[id] ? null : id, loadError: null });
       try {
@@ -258,13 +257,11 @@ export const useChats = create<ChatsState>((set, get) => {
       let id = chatId ?? null;
       try {
         if (!id) {
-          const ui = useUi.getState();
           const persona = get().draftPersona ?? undefined;
           const { chat } = await api.createChat({ personaId: persona && persona !== 'default' ? persona : undefined });
           id = chat.id;
           set({ detail: { ...get().detail, [id]: { chat, messages: [] } }, activeId: id });
           onChatCreated?.(id);
-          void ui;
         }
       } catch (err) {
         reportError(err);
@@ -272,7 +269,6 @@ export const useChats = create<ChatsState>((set, get) => {
       }
 
       const detail = get().detail[id]!;
-      const idx = indexMessages(detail.messages);
       const parent = parentId === undefined ? detail.chat.leafId : parentId;
       const userTmp = blankMessage({
         id: tmpId('u'),
@@ -283,7 +279,6 @@ export const useChats = create<ChatsState>((set, get) => {
         attachments: attachments.map((a) => ({ name: a.name, mime: a.mime, text: a.text })),
       });
       const asstTmp = blankMessage({ id: tmpId('a'), chatId: id, role: 'assistant', parentId: userTmp.id, status: 'streaming' });
-      void idx;
       patchDetail(id, (d) => ({
         ...d,
         messages: [...d.messages, userTmp, asstTmp],

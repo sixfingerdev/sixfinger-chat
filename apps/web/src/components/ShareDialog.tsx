@@ -2,17 +2,15 @@ import { useState } from 'react';
 import { Check, Copy, Link2Off } from 'lucide-react';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
-import { PUBLIC_URL } from '../lib/export.ts';
 import { copyText } from '../lib/format.ts';
 import { useT } from '../lib/i18n/index.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi } from '../store/ui.ts';
 import { Modal } from './Modal.tsx';
 
-export function ShareDialog({ chatId, slug, onClose }: { chatId: string; slug: string; onClose: () => void }) {
+export function ShareDialog({ chatId, url, onClose }: { chatId: string; url: string; onClose: () => void }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
-  const url = `${PUBLIC_URL}/s/${slug}`;
 
   return (
     <Modal title={t('chat.shareLink')} onClose={onClose}>

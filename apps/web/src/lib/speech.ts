@@ -32,7 +32,7 @@ export function plainTextForSpeech(markdown: string): string {
     .trim();
 }
 
-let currentUtterance: SpeechSynthesisUtterance | null = null;
+let _currentUtterance: SpeechSynthesisUtterance | null = null;
 
 export function speak(text: string, lang: 'tr' | 'en', onEnd: () => void): void {
   if (!ttsSupported()) return onEnd();
@@ -41,13 +41,13 @@ export function speak(text: string, lang: 'tr' | 'en', onEnd: () => void): void 
   u.lang = lang === 'tr' ? 'tr-TR' : 'en-US';
   u.onend = onEnd;
   u.onerror = onEnd;
-  currentUtterance = u;
+  _currentUtterance = u;
   window.speechSynthesis.speak(u);
 }
 
 export function stopSpeaking(): void {
   if (!ttsSupported()) return;
-  currentUtterance = null;
+  _currentUtterance = null;
   window.speechSynthesis.cancel();
 }
 

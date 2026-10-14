@@ -15,7 +15,29 @@ import type {
   UsageDTO,
 } from '@sixfinger/shared';
 
-export const API_BASE: string = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+/** Derleme sırasında verilen varsayılan sunucu (VITE_API_URL). Web'de boş: aynı kaynak (/api). */
+export const DEFAULT_API_BASE: string = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+const API_BASE_KEY = 'sf.apiBase';
+
+export function getApiBase(): string {
+  try {
+    const saved = localStorage.getItem(API_BASE_KEY);
+    if (saved) return saved.replace(/\/$/, '');
+  } catch {
+    /* yoksay */
+  }
+  return DEFAULT_API_BASE;
+}
+
+/** Android uygulamasında kullanıcı kendi sunucusunu girebilir. */
+export function setApiBase(url: string): void {
+  try {
+    if (url) localStorage.setItem(API_BASE_KEY, url.replace(/\/$/, ''));
+    else localStorage.removeItem(API_BASE_KEY);
+  } catch {
+    /* yoksay */
+  }
+}
 
 export class ApiError extends Error {
   constructor(
@@ -85,7 +107,7 @@ async function doRefresh(failedToken: string | undefined): Promise<boolean> {
     // Başka bir sekme bu arada yenilediyse tekrar yenileme.
     if (failedToken && current.accessToken !== failedToken) return true;
     try {
-      const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+      const res = await fetch(`${getApiBase()}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ refreshToken: current.refreshToken }),
@@ -135,7 +157,7 @@ interface ReqOptions {
 }
 
 function buildUrl(path: string, query?: ReqOptions['query']): string {
-  const url = `${API_BASE}/api${path}`;
+  const url = `${getApiBase()}/api${path}`;
   if (!query) return url;
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== '') qs.set(k, String(v));
@@ -250,7 +272,7 @@ export const api = {
   updateChat: (id: string, p: object) => request<{ chat: ChatDTO }>('PATCH', `/chats/${id}`, p),
   deleteChat: (id: string) => request<void>('DELETE', `/chats/${id}`),
   deleteAllChats: () => request<void>('DELETE', '/chats'),
-  share: (id: string) => request<{ slug: string }>('POST', `/chats/${id}/share`),
+  share: (id: string) => request<{ slug: string; url: string }>('POST', `/chats/${id}/share`),
   unshare: (id: string) => request<void>('DELETE', `/chats/${id}/share`),
   feedback: (messageId: string, value: 1 | -1 | null) =>
     request<{ message: MessageDTO }>('PUT', `/messages/${messageId}/feedback`, { value }),

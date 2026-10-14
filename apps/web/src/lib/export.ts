@@ -22,5 +22,3 @@ export function exportJson(title: string, path: MessageDTO[]): void {
   };
   downloadFile(`${slugify(title)}.json`, JSON.stringify(data, null, 2), 'application/json');
 }
-
-export const PUBLIC_URL: string = (import.meta.env.VITE_PUBLIC_URL ?? '').replace(/\/$/, '') || window.location.origin;

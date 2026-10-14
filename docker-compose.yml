@@ -1,0 +1,42 @@
+# Yerelde tek komutla çalıştır:  docker compose up --build
+# Ardından http://localhost:8787 adresini aç.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sixfinger
+      POSTGRES_PASSWORD: sixfinger
+      POSTGRES_DB: sixfinger
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sixfinger']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '8787:8787'
+    environment:
+      DATABASE_URL: postgres://sixfinger:sixfinger@db:5432/sixfinger
+      # Üretimde mutlaka değiştir: openssl rand -base64 48
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-dev-only-secret-change-me}
+      PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8787}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8787}
+      TRUST_PROXY: 'false'
+      AI_API_KEY: ${AI_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-SixFinger <no-reply@localhost>}
+
+volumes:
+  pgdata:

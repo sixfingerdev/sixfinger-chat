@@ -12,6 +12,8 @@ const schema = z.object({
   LOG_LEVEL: z.string().default('info'),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
   PUBLIC_WEB_URL: z.string().url().default('http://localhost:5173'),
+  /** Derlenmiş web arayüzünün klasörü. Verilirse sunucu arayüzü de yayınlar (tek servis dağıtımı). */
+  WEB_DIST: z.string().optional().default(''),
   TRUST_PROXY: bool,
 
   DATABASE_URL: z.string().min(1),
