@@ -30,7 +30,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-dev-only-secret-change-me}
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8787}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8787}
-      TRUST_PROXY: 'false'
+      # Cloudflare/Tailscale gibi bir tünel ya da reverse proxy arkasındaysan .env'de TRUST_PROXY=true yap
+      TRUST_PROXY: ${TRUST_PROXY:-false}
       AI_API_KEY: ${AI_API_KEY:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

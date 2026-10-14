@@ -83,6 +83,7 @@ docker compose up --build        # http://localhost:8787
 ```
 
 Dağıtım (Render, Docker, kendi sunucun) için → [docs/deploy.md](docs/deploy.md).
+Raspberry Pi'ye adım adım kurulum → [docs/raspberry-pi.md](docs/raspberry-pi.md).
 
 ## Android
 
