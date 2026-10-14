@@ -1,0 +1,35 @@
+{
+  "name": "sixfinger-chat",
+  "private": true,
+  "version": "0.1.0",
+  "description": "SixFinger Chat — full-stack AI sohbet uygulaması (web, PWA, Android)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c gray,white \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev -w @sixfinger/server",
+    "dev:web": "npm run dev -w @sixfinger/web",
+    "build": "npm run build -w @sixfinger/shared && npm run build -w @sixfinger/server && npm run build -w @sixfinger/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.0"
+  }
+}
