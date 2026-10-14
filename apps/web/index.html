@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="tr" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <title>SixFinger</title>
+    <meta name="description" content="SixFinger AI — hızlı, sade ve güçlü sohbet asistanı." />
+    <meta name="theme-color" content="#0b0b0c" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <script>
+      // Temayı ilk boyamadan önce uygula (parlama olmasın).
+      (function () {
+        try {
+          var pref = localStorage.getItem('sf.theme') || 'dark';
+          var dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          document.querySelector('meta[name=theme-color]').setAttribute('content', dark ? '#0b0b0c' : '#fafaf9');
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

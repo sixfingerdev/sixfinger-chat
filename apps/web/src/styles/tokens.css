@@ -1,0 +1,91 @@
+:root {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+
+  --sidebar-w: 288px;
+  --content-w: 760px;
+  --topbar-h: 56px;
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 120ms;
+  --t-med: 220ms;
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0b0b0c;
+  --bg-elev: #0f0f11;
+  --surface: #151517;
+  --surface-2: #1b1b1e;
+  --surface-3: #242428;
+  --line: #26262a;
+  --line-strong: #37373d;
+  --text: #f4f4f5;
+  --text-2: #a1a1aa;
+  --text-3: #71717a;
+  --accent: #ff6a1a;
+  --accent-hover: #ff8643;
+  --accent-soft: rgba(255, 106, 26, 0.14);
+  --on-accent: #0b0b0c;
+  --inverse: #f4f4f5;
+  --on-inverse: #0b0b0c;
+  --danger: #f2554d;
+  --danger-soft: rgba(242, 85, 77, 0.14);
+  --success: #3ccf7e;
+  --warning: #f5b53d;
+  --overlay: rgba(0, 0, 0, 0.62);
+  --shadow-pop: 0 18px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--line);
+  --code-bg: #101012;
+  --code-head: #17171a;
+  --hl-comment: #6b6b75;
+  --hl-keyword: #ff8a4c;
+  --hl-string: #8fd3a4;
+  --hl-number: #e6c07b;
+  --hl-title: #7ab7ff;
+  --hl-type: #c9a8ff;
+  --hl-attr: #f0b27a;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #fafaf9;
+  --bg-elev: #f3f3f1;
+  --surface: #ffffff;
+  --surface-2: #f0f0ee;
+  --surface-3: #e7e7e4;
+  --line: #e3e3df;
+  --line-strong: #cfcfc9;
+  --text: #0b0b0c;
+  --text-2: #52525b;
+  --text-3: #8b8b94;
+  --accent: #e4510a;
+  --accent-hover: #c24407;
+  --accent-soft: rgba(228, 81, 10, 0.1);
+  --on-accent: #ffffff;
+  --inverse: #0b0b0c;
+  --on-inverse: #fafaf9;
+  --danger: #d6372f;
+  --danger-soft: rgba(214, 55, 47, 0.1);
+  --success: #1c9a58;
+  --warning: #b97a06;
+  --overlay: rgba(20, 20, 22, 0.42);
+  --shadow-pop: 0 18px 50px -14px rgba(20, 20, 22, 0.28), 0 0 0 1px var(--line);
+  --code-bg: #f6f6f4;
+  --code-head: #ececea;
+  --hl-comment: #8b8b94;
+  --hl-keyword: #c2410c;
+  --hl-string: #17803f;
+  --hl-number: #a16207;
+  --hl-title: #1d63c9;
+  --hl-type: #7a3fd0;
+  --hl-attr: #b45309;
+}

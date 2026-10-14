@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SixFinger</string>
+    <string name="title_activity_main">SixFinger</string>
+    <string name="package_name">live.sixfinger.chat</string>
+    <string name="custom_url_scheme">live.sixfinger.chat</string>
+</resources>
