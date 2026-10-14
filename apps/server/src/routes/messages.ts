@@ -303,7 +303,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           userMessage: toMessageDTO(userRow),
           assistantId,
           history,
-          effort: body.effort ?? 'medium',
+          effort: body.effort ?? 'low',
           isFirstExchange,
           userText: body.content,
         });
@@ -355,7 +355,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           userMessage: null,
           assistantId,
           history,
-          effort: body.effort ?? 'medium',
+          effort: body.effort ?? 'low',
           isFirstExchange: false,
           userText: lastUser?.content ?? '',
         });
