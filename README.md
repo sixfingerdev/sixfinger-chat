@@ -70,6 +70,11 @@ cp apps/server/.env.example apps/server/.env         # DATABASE_URL ve JWT_SECRE
 npm run dev                                          # API :8787, web :5173
 ```
 
+Sistemde Postgres kurulu değilse paketle gelen gömülü sürümü kullanabilirsin: `npm run dev:db -w
+@sixfinger/server` (veriler `apps/server/.dev-data/pg`, `sixfinger` + `sixfinger_test` veritabanları
+otomatik oluşur). Yapay zekâya erişim olmayan ortamlarda arayüzü denemek için: `npm run mock-ai -w
+@sixfinger/server` + `AI_BASE_URL=http://127.0.0.1:8790/openai`.
+
 SMTP ayarlı değilse doğrulama kodları sunucu loguna yazılır.
 
 ```bash
