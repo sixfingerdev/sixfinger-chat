@@ -33,6 +33,13 @@ services:
       # Cloudflare/Tailscale gibi bir tünel ya da reverse proxy arkasındaysan .env'de TRUST_PROXY=true yap
       TRUST_PROXY: ${TRUST_PROXY:-false}
       AI_API_KEY: ${AI_API_KEY:-}
+      # Yedek model (Amazon Bedrock'ta Claude): diğer sağlayıcılar hata verirse devreye girer. Boşsa kapalı (bkz. docs/bedrock.md).
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
+      BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
+      BEDROCK_API_KEY: ${BEDROCK_API_KEY:-}
+      BEDROCK_ACCESS_KEY_ID: ${BEDROCK_ACCESS_KEY_ID:-}
+      BEDROCK_SECRET_ACCESS_KEY: ${BEDROCK_SECRET_ACCESS_KEY:-}
+      BEDROCK_SESSION_TOKEN: ${BEDROCK_SESSION_TOKEN:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}

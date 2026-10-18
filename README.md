@@ -69,6 +69,8 @@ Yapay zekâ sağlayıcıları (çalışma moduna göre, `apps/server/src/service
 Hepsi OpenAI uyumlu uçlardır (Dengeli `reasoning_effort` gönderir; Derin göndermez — Qwen bununla boş yanıt verir, o yüzden Derin'e başka bir model koyarsan `ai.ts`'teki bayrağı gözden geçir). Dengeli/Derin sağlayıcı yanıt vermeye başlamadan hata verirse istek otomatik olarak Hızlı
 sağlayıcıya düşer; `AI_BALANCED_BASE_URL=` (boş) vermek o modu doğrudan Hızlı'ya yönlendirir.
 Başlık üretimi ve hafıza gibi arka plan işleri Hızlı sağlayıcıyı kullanır.
+**Yedek:** bunlardan biri hata verir, hız sınırına takılır ya da boş yanıt dönerse istek otomatik olarak Amazon Bedrock'taki
+Claude'a düşer (isteğe bağlı; bkz. [docs/bedrock.md](docs/bedrock.md)).
 
 İstemci iki ayrı değer gönderir: `mode` (`fast`/`balanced`/`deep`, hangi model) ve `effort` (`low`/`medium`/`high`, düşünme düzeyi).
 Düşünme düzeyi Hızlı ve Dengeli'de uygulanır; Derin'de menüde gizlenir. `mode` göndermeyen eski istemcilerde `effort` modu belirler.

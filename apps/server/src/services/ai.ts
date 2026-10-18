@@ -1,6 +1,7 @@
 import type { Config } from '../config.ts';
 import type { ChatMode } from '@sixfinger/shared';
 import { HttpError } from '../lib/errors.ts';
+import { bedrockConfigured, createBedrock } from './bedrock.ts';
 
 /** Modelin istediği bir araç çağrısı (OpenAI uyumlu biçim). `arguments` JSON metnidir. */
 export interface AiToolCall {
@@ -35,6 +36,8 @@ export interface AiRequest {
   temperature?: number;
   maxTokens?: number;
   tools?: AiToolSpec[];
+  /** Dahili: arkasında yedek sağlayıcı olduğunda bekleyip yeniden denemek yerine hemen başarısız ol. */
+  failFast?: boolean;
   /** Araç turlarının devamında: hız sınırına takılınca daha uzun beklemeyi göze al. */
   patient?: boolean;
 }
@@ -186,7 +189,7 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
           throw new HttpError(502, 'upstream_unavailable', `Yapay zekâ servisi hata verdi (${res.status}).`);
         }
         const throttleStatus = res.status === 402 || res.status === 429;
-        const throttleDelays = req.patient ? PATIENT_THROTTLE_DELAYS : THROTTLE_DELAYS;
+        const throttleDelays = req.failFast ? [] : req.patient ? PATIENT_THROTTLE_DELAYS : THROTTLE_DELAYS;
         delay = throttleStatus ? throttleDelays[throttled++] : ERROR_DELAYS[failed++];
         if (delay !== undefined && Number.isFinite(retryAfter) && retryAfter > 0) {
           delay = Math.max(delay, Math.min(retryAfter * 1_000, req.patient ? 20_000 : 10_000));
@@ -194,6 +197,8 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
       } else {
         delay = ERROR_DELAYS[failed++];
       }
+      // Yedek varsa tek bir kısa yeniden denemeden sonra pes et.
+      if (req.failFast && failed + throttled > 1) delay = undefined;
       if (delay === undefined) break;
       await sleep(delay + Math.floor(Math.random() * 250), req.signal);
     }
@@ -291,12 +296,14 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
 
 /**
  * Çalışma moduna göre sağlayıcı seçer: fast → Pollinations, balanced → gpt-oss-120b, deep → Qwen3.8.
- * Dengeli/Derin sağlayıcı yanıt vermeye başlamadan hata verirse istek Hızlı sağlayıcıya düşer.
+ * Seçilen sağlayıcı yanıt vermeye başlamadan başarısız olursa (200 dışı yanıt, hız sınırı, kesinti, boş yanıt) sırayla
+ * Bedrock'taki Claude'a (yapılandırıldıysa), sonra Hızlı sağlayıcıya düşülür.
  */
 export function createAi(
   config: Config,
   log: Logger = { warn: () => {} },
   fetchImpl: typeof fetch = fetch,
+  bedrockImpl?: AiProvider,
 ): AiProvider {
   const fast = createEndpoint({ baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, apiKey: config.AI_API_KEY, sendEffort: true }, config, log, fetchImpl);
   const make = (baseUrl: string, model: string, apiKey: string, sendEffort: boolean) =>
@@ -304,37 +311,56 @@ export function createAi(
   // gpt-oss `reasoning_effort` ister; Qwen3.8 bununla boş yanıt döner.
   const balanced = make(config.AI_BALANCED_BASE_URL, config.AI_BALANCED_MODEL, config.AI_BALANCED_API_KEY, true);
   const deep = make(config.AI_DEEP_BASE_URL, config.AI_DEEP_MODEL, config.AI_DEEP_API_KEY, false);
+  const backup = bedrockImpl ?? (bedrockConfigured(config) ? createBedrock(config) : undefined);
 
-  const pick = (mode: ChatMode | undefined): AiProvider | undefined => (mode === 'deep' ? deep : mode === 'balanced' ? balanced : undefined);
+  /** Bu mod için denenecek sağlayıcılar, sırayla: seçilen model → Bedrock (varsa) → Hızlı. */
+  const chain = (mode: ChatMode | undefined): Array<{ name: string; ai: AiProvider }> => {
+    const main = mode === 'deep' ? deep : mode === 'balanced' ? balanced : undefined;
+    const all = [
+      main && { name: mode ?? 'main', ai: main },
+      { name: 'fast', ai: fast },
+      backup && { name: 'bedrock', ai: backup },
+    ].filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
+    // Seçilen model Hızlı değilse Bedrock, Hızlı'dan önce gelir (daha güçlü yedek).
+    if (main && backup) [all[1], all[2]] = [all[2]!, all[1]!];
+    return all;
+  };
   const aborted = (req: AiRequest, err: unknown) => req.signal?.aborted || (err as Error)?.name === 'AbortError';
 
   return {
     async *stream(req) {
-      const main = pick(req.mode);
-      if (!main) return yield* fast.stream(req);
-      let started = false;
-      try {
-        for await (const chunk of main.stream(req)) {
-          started = true;
-          yield chunk;
+      const list = chain(req.mode);
+      for (const [i, p] of list.entries()) {
+        const last = i === list.length - 1;
+        let started = false;
+        try {
+          for await (const chunk of p.ai.stream(last ? req : { ...req, failFast: true })) {
+            started = true;
+            yield chunk;
+          }
+          if (started) return;
+          if (last) return;
+          log.warn({ mode: req.mode, provider: p.name }, 'sağlayıcı boş yanıt verdi, yedeğe düşülüyor');
+        } catch (err) {
+          if (started || last || aborted(req, err)) throw err;
+          log.warn({ mode: req.mode, provider: p.name, err: String(err) }, 'sağlayıcı yanıt vermedi, yedeğe düşülüyor');
         }
-        return;
-      } catch (err) {
-        if (started || aborted(req, err)) throw err;
-        log.warn({ mode: req.mode, err: String(err) }, 'ana sağlayıcı yanıt vermedi, Hızlı sağlayıcıya düşülüyor');
       }
-      yield* fast.stream(req);
     },
     async complete(req) {
-      const main = pick(req.mode);
-      if (!main) return fast.complete(req);
-      try {
-        return await main.complete(req);
-      } catch (err) {
-        if (aborted(req, err)) throw err;
-        log.warn({ mode: req.mode, err: String(err) }, 'ana sağlayıcı yanıt vermedi, Hızlı sağlayıcıya düşülüyor');
-        return fast.complete(req);
+      const list = chain(req.mode);
+      for (const [i, p] of list.entries()) {
+        const last = i === list.length - 1;
+        try {
+          const out = await p.ai.complete(last ? req : { ...req, failFast: true });
+          if (out || last) return out;
+          log.warn({ mode: req.mode, provider: p.name }, 'sağlayıcı boş yanıt verdi, yedeğe düşülüyor');
+        } catch (err) {
+          if (last || aborted(req, err)) throw err;
+          log.warn({ mode: req.mode, provider: p.name, err: String(err) }, 'sağlayıcı yanıt vermedi, yedeğe düşülüyor');
+        }
       }
+      return '';
     },
   };
 }

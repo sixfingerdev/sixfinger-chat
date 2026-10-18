@@ -36,6 +36,16 @@ const schema = z.object({
   AI_DEEP_BASE_URL: z.string().default('https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions'),
   AI_DEEP_MODEL: z.string().default('Qwen3.8-27B'),
   AI_DEEP_API_KEY: z.string().optional().default(''),
+  /**
+   * Yedek: Amazon Bedrock'taki Claude (Converse API). Diğer sağlayıcılar hata verirse (hız sınırı, kesinti, 200 dışı yanıt,
+   * boş yanıt) istek buraya düşer. `BEDROCK_MODEL_ID` ve bir kimlik bilgisi (API anahtarı ya da IAM anahtarı) verilmezse kapalıdır.
+   */
+  BEDROCK_MODEL_ID: z.string().optional().default(''),
+  BEDROCK_REGION: z.string().optional().default('us-east-1'),
+  BEDROCK_API_KEY: z.string().optional().default(''),
+  BEDROCK_ACCESS_KEY_ID: z.string().optional().default(''),
+  BEDROCK_SECRET_ACCESS_KEY: z.string().optional().default(''),
+  BEDROCK_SESSION_TOKEN: z.string().optional().default(''),
   AI_MAX_CONCURRENCY: z.coerce.number().int().min(1).default(2),
   AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).default(120_000),
   /** Model araç (web arama vb.) kullanabilsin mi? Kapalıysa yalnızca düz sohbet. */
