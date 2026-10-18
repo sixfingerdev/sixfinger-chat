@@ -1,4 +1,5 @@
 import type { Config } from '../config.ts';
+import type { ChatMode } from '@sixfinger/shared';
 import { HttpError } from '../lib/errors.ts';
 
 /** Modelin istediği bir araç çağrısı (OpenAI uyumlu biçim). `arguments` JSON metnidir. */
@@ -27,6 +28,9 @@ export type Effort = 'low' | 'medium' | 'high';
 export interface AiRequest {
   messages: AiMessage[];
   signal?: AbortSignal;
+  /** Hangi modelin yanıtlayacağı. Verilmezse Hızlı. */
+  mode?: ChatMode;
+  /** Düşünme düzeyi; yalnızca bunu destekleyen modele gönderilir. */
   effort?: Effort;
   temperature?: number;
   maxTokens?: number;
@@ -109,7 +113,7 @@ interface Profile {
   baseUrl: string;
   model: string;
   apiKey: string;
-  /** `reasoning_effort` yalnızca bunu destekleyen sağlayıcıya gönderilir (Llama reddediyor, Qwen boş yanıt veriyor). */
+  /** `reasoning_effort` yalnızca bunu destekleyen modele gönderilir (Llama reddediyor, Qwen boş yanıt veriyor). */
   sendEffort: boolean;
 }
 
@@ -286,7 +290,7 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
 }
 
 /**
- * Çalışma moduna göre sağlayıcı seçer: low → Hızlı (Pollinations), medium → Dengeli, high → Derin.
+ * Çalışma moduna göre sağlayıcı seçer: fast → Pollinations, balanced → gpt-oss-120b, deep → Qwen3.8.
  * Dengeli/Derin sağlayıcı yanıt vermeye başlamadan hata verirse istek Hızlı sağlayıcıya düşer.
  */
 export function createAi(
@@ -295,18 +299,18 @@ export function createAi(
   fetchImpl: typeof fetch = fetch,
 ): AiProvider {
   const fast = createEndpoint({ baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, apiKey: config.AI_API_KEY, sendEffort: true }, config, log, fetchImpl);
-  const make = (baseUrl: string, model: string, apiKey: string) =>
-    baseUrl ? createEndpoint({ baseUrl, model, apiKey, sendEffort: false }, config, log, fetchImpl) : undefined;
-  const balanced = make(config.AI_BALANCED_BASE_URL, config.AI_BALANCED_MODEL, config.AI_BALANCED_API_KEY);
-  const deep = make(config.AI_DEEP_BASE_URL, config.AI_DEEP_MODEL, config.AI_DEEP_API_KEY);
+  const make = (baseUrl: string, model: string, apiKey: string, sendEffort: boolean) =>
+    baseUrl ? createEndpoint({ baseUrl, model, apiKey, sendEffort }, config, log, fetchImpl) : undefined;
+  // gpt-oss `reasoning_effort` ister; Qwen3.8 bununla boş yanıt döner.
+  const balanced = make(config.AI_BALANCED_BASE_URL, config.AI_BALANCED_MODEL, config.AI_BALANCED_API_KEY, true);
+  const deep = make(config.AI_DEEP_BASE_URL, config.AI_DEEP_MODEL, config.AI_DEEP_API_KEY, false);
 
-  const pick = (effort: Effort | undefined): AiProvider | undefined =>
-    effort === 'high' ? deep : effort === 'low' ? undefined : balanced;
+  const pick = (mode: ChatMode | undefined): AiProvider | undefined => (mode === 'deep' ? deep : mode === 'balanced' ? balanced : undefined);
   const aborted = (req: AiRequest, err: unknown) => req.signal?.aborted || (err as Error)?.name === 'AbortError';
 
   return {
     async *stream(req) {
-      const main = pick(req.effort);
+      const main = pick(req.mode);
       if (!main) return yield* fast.stream(req);
       let started = false;
       try {
@@ -317,18 +321,18 @@ export function createAi(
         return;
       } catch (err) {
         if (started || aborted(req, err)) throw err;
-        log.warn({ effort: req.effort, err: String(err) }, 'ana sağlayıcı yanıt vermedi, Hızlı sağlayıcıya düşülüyor');
+        log.warn({ mode: req.mode, err: String(err) }, 'ana sağlayıcı yanıt vermedi, Hızlı sağlayıcıya düşülüyor');
       }
       yield* fast.stream(req);
     },
     async complete(req) {
-      const main = pick(req.effort);
+      const main = pick(req.mode);
       if (!main) return fast.complete(req);
       try {
         return await main.complete(req);
       } catch (err) {
         if (aborted(req, err)) throw err;
-        log.warn({ effort: req.effort, err: String(err) }, 'ana sağlayıcı yanıt vermedi, Hızlı sağlayıcıya düşülüyor');
+        log.warn({ mode: req.mode, err: String(err) }, 'ana sağlayıcı yanıt vermedi, Hızlı sağlayıcıya düşülüyor');
         return fast.complete(req);
       }
     },

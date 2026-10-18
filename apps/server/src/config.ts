@@ -31,7 +31,7 @@ const schema = z.object({
    * `*_BASE_URL` boş bırakılırsa o mod Hızlı sağlayıcıya düşer.
    */
   AI_BALANCED_BASE_URL: z.string().default('https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions'),
-  AI_BALANCED_MODEL: z.string().default('Meta-Llama-3_3-70B-Instruct'),
+  AI_BALANCED_MODEL: z.string().default('gpt-oss-120b'),
   AI_BALANCED_API_KEY: z.string().optional().default(''),
   AI_DEEP_BASE_URL: z.string().default('https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions'),
   AI_DEEP_MODEL: z.string().default('Qwen3.8-27B'),

@@ -315,6 +315,7 @@ export const useChats = create<ChatsState>((set, get) => {
         {
           content,
           parentId: parent,
+          mode: useUi.getState().mode,
           effort: useUi.getState().effort,
           attachments: attachments.length ? attachments.map(({ name, mime, text }) => ({ name, mime, text })) : undefined,
         },
@@ -332,7 +333,7 @@ export const useChats = create<ChatsState>((set, get) => {
       await runStream(
         chatId,
         `/chats/${chatId}/regenerate`,
-        { messageId, effort: useUi.getState().effort },
+        { messageId, mode: useUi.getState().mode, effort: useUi.getState().effort },
         { assistantId: asstTmp.id },
       );
     },

@@ -72,11 +72,16 @@ export const attachmentSchema = z.object({
 });
 export type AttachmentInput = z.infer<typeof attachmentSchema>;
 
+/** Düşünme düzeyi (`reasoning_effort`). */
 export const effortSchema = z.enum(['low', 'medium', 'high']);
+/** Çalışma modu: hangi model yanıtlar. */
+export const modeSchema = z.enum(['fast', 'balanced', 'deep']);
 
 export const sendMessageSchema = z.object({
   content: z.string().trim().min(1),
-  /** Düşünme derinliği: hızlı / dengeli / derin. */
+  /** Çalışma modu. Eski istemcilerde yoktur; o zaman `effort` modu belirler. */
+  mode: modeSchema.optional(),
+  /** Düşünme düzeyi (modu destekliyorsa). */
   effort: effortSchema.optional(),
   /** Yeni mesajın bağlanacağı mesaj. Verilmezse sohbetin aktif ucu. Düzenlemede, düzenlenen mesajın üstü. */
   parentId: z.string().uuid().nullable().optional(),
@@ -85,6 +90,7 @@ export const sendMessageSchema = z.object({
 export const regenerateSchema = z.object({
   /** Yeniden üretilecek asistan mesajı. */
   messageId: z.string().uuid(),
+  mode: modeSchema.optional(),
   effort: effortSchema.optional(),
 });
 export const feedbackSchema = z.object({ value: z.union([z.literal(1), z.literal(-1), z.null()]) });

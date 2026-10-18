@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Brain, Check, FileText, Lock, Mic, MicOff, Paperclip, Square, X } from 'lucide-react';
+import { ArrowUp, Brain, Check, ChevronUp, FileText, Lock, Mic, MicOff, Paperclip, Square, X } from 'lucide-react';
+import { CHAT_MODES, THINKING_LEVELS, modeSupportsThinkingLevel, type ChatMode } from '@sixfinger/shared';
 import type { Effort, PendingAttachment } from '../lib/types.ts';
 import { clsx, timeUntil } from '../lib/format.ts';
 import { ACCEPT_ATTR, readTextFile } from '../lib/files.ts';
@@ -26,8 +27,11 @@ export function Composer({
   const locale = useLocale();
   const user = useAuth((s) => s.user);
   const config = useUi((s) => s.config);
+  const mode = useUi((s) => s.mode);
+  const setMode = useUi((s) => s.setMode);
   const effort = useUi((s) => s.effort);
   const setEffort = useUi((s) => s.setEffort);
+  const [thinkingOpen, setThinkingOpen] = useState(true);
   const generating = useChats((s) => s.generating);
   const prefill = useUi((s) => s.prefill);
   const draftKey = chatId ?? 'new';
@@ -147,12 +151,9 @@ export function Composer({
     }
   };
 
-  const efforts: Array<{ id: Effort; label: string; hint: string }> = [
-    { id: 'low', label: t('composer.effort.low'), hint: t('composer.effort.lowHint') },
-    { id: 'medium', label: t('composer.effort.medium'), hint: t('composer.effort.mediumHint') },
-    { id: 'high', label: t('composer.effort.high'), hint: t('composer.effort.highHint') },
-  ];
-  const currentEffort = efforts.find((e) => e.id === effort) ?? efforts[1]!;
+  const modes: Array<{ id: ChatMode; label: string; hint: string }> = CHAT_MODES.map((id) => ({ id, label: t(`composer.mode.${id}`), hint: t(`composer.mode.${id}Hint`) }));
+  const levels: Array<{ id: Effort; label: string; hint: string }> = THINKING_LEVELS.map((id) => ({ id, label: t(`composer.thinking.${id}`), hint: t(`composer.thinking.${id}Hint`) }));
+  const currentMode = modes.find((m) => m.id === mode) ?? modes[0]!;
   const over = value.length > maxChars;
   const showCounter = value.length > maxChars * 0.8;
   const lowQuota = remaining !== null && (user?.isGuest || remaining <= 5);
@@ -238,31 +239,49 @@ export function Composer({
               trigger={({ toggle, open }) => (
                 <button className={clsx('effort-btn', open && 'is-active')} onClick={toggle} aria-haspopup="menu" aria-expanded={open}>
                   <Brain size={15} />
-                  <span>{currentEffort.label}</span>
+                  <span>{currentMode.label}</span>
                 </button>
               )}
             >
               {(close) => (
                 <>
-                  <div className="menu-label">{t('composer.effort')}</div>
-                  {efforts.map((e) => (
-                    <button
-                      key={e.id}
-                      className="menu-item"
-                      role="menuitemradio"
-                      aria-checked={effort === e.id}
-                      onClick={() => {
-                        setEffort(e.id);
-                        close();
-                      }}
-                    >
+                  {modes.map((m) => (
+                    <button key={m.id} className="menu-item" role="menuitemradio" aria-checked={mode === m.id} onClick={() => setMode(m.id)}>
                       <span className="grow">
-                        {e.label}
-                        <small>{e.hint}</small>
+                        {m.label}
+                        <small>{m.hint}</small>
                       </span>
-                      {effort === e.id && <Check size={16} />}
+                      {mode === m.id && <Check size={16} />}
                     </button>
                   ))}
+                  {modeSupportsThinkingLevel(mode) && (
+                    <>
+                      <div className="menu-sep" />
+                      <button className="menu-section" aria-expanded={thinkingOpen} onClick={() => setThinkingOpen((v) => !v)}>
+                        <span>{t('composer.thinking')}</span>
+                        <ChevronUp size={16} className={clsx('chev', !thinkingOpen && 'is-closed')} />
+                      </button>
+                      {thinkingOpen &&
+                        levels.map((l) => (
+                          <button
+                            key={l.id}
+                            className="menu-item"
+                            role="menuitemradio"
+                            aria-checked={effort === l.id}
+                            onClick={() => {
+                              setEffort(l.id);
+                              close();
+                            }}
+                          >
+                            <span className="grow">
+                              {l.label}
+                              <small>{l.hint}</small>
+                            </span>
+                            {effort === l.id && <Check size={16} />}
+                          </button>
+                        ))}
+                    </>
+                  )}
                 </>
               )}
             </Popover>

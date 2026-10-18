@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { UsageDTO } from '@sixfinger/shared';
+import { legacyModeFromEffort, type ChatMode } from '@sixfinger/shared';
 import type { Effort } from '../lib/types.ts';
 import type { FullConfig } from '../lib/api.ts';
 import { kv } from '../lib/storage.ts';
@@ -25,6 +26,10 @@ interface UiState {
   setConfig: (c: FullConfig | null) => void;
   setUsage: (u: UsageDTO) => void;
 
+  /** Hangi modelin yanıtlayacağı (Hızlı / Dengeli / Derin). */
+  mode: ChatMode;
+  setMode: (m: ChatMode) => void;
+  /** Düşünme düzeyi; Derin mod desteklemez. */
   effort: Effort;
   setEffort: (e: Effort) => void;
 
@@ -46,9 +51,17 @@ let toastId = 0;
 
 /** Depo (kv) yüklendikten sonra çağrılır; başlangıç değerlerini okur. */
 export function hydrateUi(): void {
+  const isEffort = (v: string | null): v is Effort => v === 'low' || v === 'medium' || v === 'high';
+  const savedMode = kv.get('sf.mode');
+  const legacy = kv.get('sf.effort');
+  // Eski sürümde `sf.effort` modu belirliyordu; ilk açılışta oradan taşınır.
+  const mode: ChatMode =
+    savedMode === 'fast' || savedMode === 'balanced' || savedMode === 'deep' ? savedMode : legacyModeFromEffort(isEffort(legacy) ? legacy : undefined);
+  const thinking = kv.get('sf.thinking');
   useUi.setState({
     theme: (kv.get('sf.theme') as ThemePref | null) ?? 'dark',
-    effort: (kv.get('sf.effort') as Effort | null) ?? 'low',
+    mode,
+    effort: isEffort(thinking) ? thinking : 'medium',
   });
 }
 
@@ -74,9 +87,14 @@ export const useUi = create<UiState>((set, get) => ({
     if (c) set({ config: { ...c, usage } });
   },
 
-  effort: 'low',
+  mode: 'fast',
+  setMode: (mode) => {
+    kv.set('sf.mode', mode);
+    set({ mode });
+  },
+  effort: 'medium',
   setEffort: (effort) => {
-    kv.set('sf.effort', effort);
+    kv.set('sf.thinking', effort);
     set({ effort });
   },
 

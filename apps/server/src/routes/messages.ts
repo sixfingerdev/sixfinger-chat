@@ -1,9 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   ATTACHMENT_MAX_CHARS,
+  DEFAULT_THINKING_LEVEL,
   feedbackSchema,
+  legacyModeFromEffort,
   regenerateSchema,
   sendMessageSchema,
+  type ChatMode,
   type MessageDTO,
   type MessagePartDTO,
   type StreamEvent,
@@ -37,6 +40,12 @@ import {
 } from '../services/prompt.ts';
 import { findUserById, settingsOf } from '../services/users.ts';
 
+/** İstekten çalışma modunu ve düşünme düzeyini çıkarır; `mode` göndermeyen eski istemcilerde `effort` modu belirler. */
+function chosenMode(body: { mode?: ChatMode; effort?: Effort }): { mode: ChatMode; effort: Effort } {
+  if (body.mode) return { mode: body.mode, effort: body.effort ?? DEFAULT_THINKING_LEVEL };
+  return { mode: legacyModeFromEffort(body.effort), effort: DEFAULT_THINKING_LEVEL };
+}
+
 const MEMORY_TRIGGER = /(hatırla|hatirla|aklında tut|aklinda tut|unutma|remember (that|this|me|my)|keep in mind)/i;
 
 interface GenerationInput {
@@ -47,6 +56,7 @@ interface GenerationInput {
   assistantId: string;
   /** Modele gidecek geçmiş (son eleman kullanıcı mesajı). */
   history: HistoryItem[];
+  mode: ChatMode;
   effort: Effort;
   isFirstExchange: boolean;
   userText: string;
@@ -178,6 +188,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         for await (const chunk of ai.stream({
           messages,
           signal: stream.signal,
+          mode: g.mode,
           effort: g.effort,
           tools: defs.length && !lastStep ? specs : undefined,
           patient: step > 0,
@@ -400,7 +411,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           userMessage: toMessageDTO(userRow),
           assistantId,
           history,
-          effort: body.effort ?? 'low',
+          ...chosenMode(body),
           isFirstExchange,
           userText: body.content,
         });
@@ -453,7 +464,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           userMessage: null,
           assistantId,
           history,
-          effort: body.effort ?? 'low',
+          ...chosenMode(body),
           isFirstExchange: false,
           userText: lastUser?.content ?? '',
         });

@@ -70,7 +70,7 @@ describe('Pollinations sağlayıcısı', () => {
     };
     const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
     let text = '';
-    for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }], effort: 'low' })) if (c.type === 'content') text += c.text;
+    for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' })) if (c.type === 'content') text += c.text;
     expect(text).toBe('tamam');
     expect(calls).toBe(2);
   });
@@ -82,7 +82,7 @@ describe('Pollinations sağlayıcısı', () => {
       return new Response('{}', { status: 400 });
     };
     const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
-    await expect(ai.complete({ messages: [{ role: 'user', content: 'x' }], effort: 'low' })).rejects.toMatchObject({
+    await expect(ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' })).rejects.toMatchObject({
       code: 'upstream_unavailable',
     });
     expect(calls).toBe(1);
@@ -95,7 +95,7 @@ describe('Pollinations sağlayıcısı', () => {
       return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
     };
     const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
-    expect(await ai.complete({ messages: [{ role: 'user', content: 'x' }], effort: 'low' })).toBe('ok');
+    expect(await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' })).toBe('ok');
     expect(sent).toMatchObject({ model: 'openai-fast', stream: false, reasoning_effort: 'low' });
   });
 
@@ -113,7 +113,7 @@ describe('Pollinations sağlayıcısı', () => {
 
   describe('moda göre sağlayıcı', () => {
     const ok = () => new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
-    const run = async (effort: 'low' | 'medium' | 'high', handler: (url: string, body: any) => Response) => {
+    const run = async (mode: 'fast' | 'balanced' | 'deep', handler: (url: string, body: any) => Response) => {
       const calls: Array<{ url: string; body: any }> = [];
       const fetchMock = async (url: string, init: RequestInit) => {
         const body = JSON.parse(String(init.body));
@@ -121,24 +121,23 @@ describe('Pollinations sağlayıcısı', () => {
         return handler(url, body);
       };
       const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
-      const text = await ai.complete({ messages: [{ role: 'user', content: 'x' }], effort });
+      const text = await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode, effort: 'medium' });
       return { calls, text };
     };
 
-    it('low Pollinations, medium Llama, high Qwen kullanır; düşünme derinliği yalnızca Pollinations\'a gider', async () => {
-      const low = await run('low', ok);
-      expect(low.calls[0]).toMatchObject({ url: config.AI_BASE_URL, body: { model: 'openai-fast', reasoning_effort: 'low' } });
-      const mid = await run('medium', ok);
+    it('fast Pollinations, balanced gpt-oss-120b, deep Qwen kullanır; düşünme derinliği Qwen\'e gitmez', async () => {
+      const low = await run('fast', ok);
+      expect(low.calls[0]).toMatchObject({ url: config.AI_BASE_URL, body: { model: 'openai-fast', reasoning_effort: 'medium' } });
+      const mid = await run('balanced', ok);
       expect(mid.calls[0]!.url).toBe(config.AI_BALANCED_BASE_URL);
-      expect(mid.calls[0]!.body.model).toBe('Meta-Llama-3_3-70B-Instruct');
-      expect(mid.calls[0]!.body).not.toHaveProperty('reasoning_effort');
-      const high = await run('high', ok);
+      expect(mid.calls[0]!.body).toMatchObject({ model: 'gpt-oss-120b', reasoning_effort: 'medium' });
+      const high = await run('deep', ok);
       expect(high.calls[0]!.body.model).toBe('Qwen3.8-27B');
       expect(high.calls[0]!.body).not.toHaveProperty('reasoning_effort');
     });
 
     it('Dengeli/Derin sağlayıcı hata verirse Hızlı sağlayıcıya düşer', async () => {
-      const r = await run('high', (url) => (url === config.AI_DEEP_BASE_URL ? new Response('{}', { status: 400 }) : ok()));
+      const r = await run('deep', (url) => (url === config.AI_DEEP_BASE_URL ? new Response('{}', { status: 400 }) : ok()));
       expect(r.text).toBe('ok');
       expect(r.calls.map((c) => c.body.model)).toEqual(['Qwen3.8-27B', 'openai-fast']);
     });

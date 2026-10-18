@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { legacyModeFromEffort, type ChatMode } from '@sixfinger/shared';
 import type { Effort } from '../lib/types.ts';
 import type { FullConfig } from '../lib/api.ts';
 import type { UsageDTO } from '@sixfinger/shared';
@@ -65,6 +66,10 @@ interface UiState {
   setConfig: (c: FullConfig | null) => void;
   setUsage: (u: UsageDTO) => void;
 
+  /** Hangi modelin yanıtlayacağı (Hızlı / Dengeli / Derin). */
+  mode: ChatMode;
+  setMode: (m: ChatMode) => void;
+  /** Düşünme düzeyi; Derin mod desteklemez. */
   effort: Effort;
   setEffort: (e: Effort) => void;
 
@@ -81,7 +86,13 @@ interface UiState {
 }
 
 let toastId = 0;
-const initialEffort = (read('sf.effort') as Effort | null) ?? 'low';
+const isMode = (v: string | null): v is ChatMode => v === 'fast' || v === 'balanced' || v === 'deep';
+const isEffort = (v: string | null): v is Effort => v === 'low' || v === 'medium' || v === 'high';
+// Eski sürümde `sf.effort` modu belirliyordu; ilk açılışta oradan taşınır.
+const savedMode = read('sf.mode');
+const initialMode: ChatMode = isMode(savedMode) ? savedMode : legacyModeFromEffort(isEffort(read('sf.effort')) ? (read('sf.effort') as Effort) : undefined);
+const savedThinking = read('sf.thinking');
+const initialEffort: Effort = isEffort(savedThinking) ? savedThinking : 'medium';
 
 export const useUi = create<UiState>((set, get) => ({
   theme: (read('sf.theme') as ThemePref | null) ?? 'dark',
@@ -130,9 +141,14 @@ export const useUi = create<UiState>((set, get) => ({
     if (c) set({ config: { ...c, usage } });
   },
 
+  mode: initialMode,
+  setMode: (mode) => {
+    write('sf.mode', mode);
+    set({ mode });
+  },
   effort: initialEffort,
   setEffort: (effort) => {
-    write('sf.effort', effort);
+    write('sf.thinking', effort);
     set({ effort });
   },
 

@@ -63,12 +63,15 @@ Yapay zekâ sağlayıcıları (çalışma moduna göre, `apps/server/src/service
 | Mod | Sağlayıcı / model | Ayarlar |
 |---|---|---|
 | Hızlı | Pollinations `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
-| Dengeli | OVH AI Endpoints `Meta-Llama-3_3-70B-Instruct` | `AI_BALANCED_BASE_URL`, `AI_BALANCED_MODEL`, `AI_BALANCED_API_KEY` |
+| Dengeli | OVH AI Endpoints `gpt-oss-120b` | `AI_BALANCED_BASE_URL`, `AI_BALANCED_MODEL`, `AI_BALANCED_API_KEY` |
 | Derin | OVH AI Endpoints `Qwen3.8-27B` (akıl yürütmeli) | `AI_DEEP_BASE_URL`, `AI_DEEP_MODEL`, `AI_DEEP_API_KEY` |
 
-Hepsi OpenAI uyumlu uçlardır. Dengeli/Derin sağlayıcı yanıt vermeye başlamadan hata verirse istek otomatik olarak Hızlı
+Hepsi OpenAI uyumlu uçlardır (Dengeli `reasoning_effort` gönderir; Derin göndermez — Qwen bununla boş yanıt verir, o yüzden Derin'e başka bir model koyarsan `ai.ts`'teki bayrağı gözden geçir). Dengeli/Derin sağlayıcı yanıt vermeye başlamadan hata verirse istek otomatik olarak Hızlı
 sağlayıcıya düşer; `AI_BALANCED_BASE_URL=` (boş) vermek o modu doğrudan Hızlı'ya yönlendirir.
 Başlık üretimi ve hafıza gibi arka plan işleri Hızlı sağlayıcıyı kullanır.
+
+İstemci iki ayrı değer gönderir: `mode` (`fast`/`balanced`/`deep`, hangi model) ve `effort` (`low`/`medium`/`high`, düşünme düzeyi).
+Düşünme düzeyi Hızlı ve Dengeli'de uygulanır; Derin'de menüde gizlenir. `mode` göndermeyen eski istemcilerde `effort` modu belirler.
 
 > **Not (kota):** Pollinations anonim katmanı IP başına kısa bekleme uygular (402/429). Sunucu bunu
 > kuyruklayıp aralıklarla yeniden dener (`AI_MAX_CONCURRENCY`), ama çok kullanıcılı üretimde
