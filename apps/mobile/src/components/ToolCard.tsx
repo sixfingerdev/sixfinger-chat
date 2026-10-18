@@ -1,12 +1,11 @@
 import { useState } from 'react';
-import { ActivityIndicator, Text as RNText, View } from 'react-native';
+import { ActivityIndicator, Text as RNText } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
 import { Check, ChevronRight, CircleAlert, Globe, Search, Wrench } from 'lucide-react-native';
 import { describeTool, type MessagePartDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
-import { haptic } from '../lib/haptics.ts';
 import { Press } from './Ui.tsx';
 
 type ToolPart = Extract<MessagePartDTO, { type: 'tool' }>;

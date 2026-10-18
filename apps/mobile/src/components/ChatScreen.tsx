@@ -10,6 +10,7 @@ import { useT } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
 import { activePath, indexMessages, versionsOf } from '../lib/tree.ts';
 import { useChats } from '../store/chats.ts';
+import { ArtifactViewer } from './ArtifactViewer.tsx';
 import { Composer } from './Composer.tsx';
 import { EmptyState } from './EmptyState.tsx';
 import { MessageItem } from './MessageItem.tsx';
@@ -114,6 +115,7 @@ export function ChatScreen() {
       <Composer chatId={chatId ?? null} seed={null} onChatCreated={() => {}} />
       <MessageMenu msg={menuMsg} busy={busy} onClose={() => setMenuMsg(null)} onEdit={setEditMsg} />
       <EditDialog msg={editMsg} onClose={() => setEditMsg(null)} />
+      <ArtifactViewer />
     </KeyboardAvoidingView>
   );
 }

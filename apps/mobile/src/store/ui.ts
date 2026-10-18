@@ -31,6 +31,15 @@ interface UiState {
   /** Kenar çekmecesi açık mı? (Sürükleme animasyonu bileşen içinde; bu yalnızca mantıksal durum.) */
   drawerOpen: boolean;
   setDrawer: (open: boolean) => void;
+
+  /** Tam ekran açılan artifact (kimlik). */
+  artifactId: string | null;
+  openArtifact: (id: string) => void;
+  closeArtifact: () => void;
+
+  /** Widget'ın önerdiği metin: composer'a yazılır, kendiliğinden gönderilmez. */
+  prefill: { text: string; n: number } | null;
+  setPrefill: (text: string) => void;
 }
 
 let toastId = 0;
@@ -73,4 +82,11 @@ export const useUi = create<UiState>((set, get) => ({
 
   drawerOpen: false,
   setDrawer: (drawerOpen) => set({ drawerOpen }),
+
+  artifactId: null,
+  openArtifact: (artifactId) => set({ artifactId }),
+  closeArtifact: () => set({ artifactId: null }),
+
+  prefill: null,
+  setPrefill: (text) => set({ prefill: { text, n: Date.now() } }),
 }));

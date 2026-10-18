@@ -29,6 +29,7 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
   const effort = useUi((s) => s.effort);
   const setEffort = useUi((s) => s.setEffort);
   const generating = useChats((s) => s.generating);
+  const prefill = useUi((s) => s.prefill);
   const draftKey = chatId ?? 'new';
 
   const [value, setValue] = useState(() => drafts.get(draftKey) ?? '');
@@ -53,6 +54,14 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
       input.current?.focus();
     }
   }, [seed]);
+
+  useEffect(() => {
+    if (prefill) {
+      setValue(prefill.text);
+      drafts.set(draftKey, prefill.text);
+      input.current?.focus();
+    }
+  }, [prefill]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = (v: string) => {
     setValue(v);

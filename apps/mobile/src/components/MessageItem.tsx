@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from 'react';
 import { Text as RNText, View } from 'react-native';
-import Animated, { FadeInDown, useAnimatedStyle, useSharedValue, withRepeat, withTiming, Easing } from 'react-native-reanimated';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Check, ChevronLeft, ChevronRight, Copy, FileText, Pencil, RefreshCw, Square, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react-native';
 import type { MessageDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
@@ -12,9 +12,10 @@ import { speak, stopSpeaking } from '../lib/speech.ts';
 import type { Versions } from '../lib/tree.ts';
 import { useChats } from '../store/chats.ts';
 import { LogoMark } from './Logo.tsx';
-import { Markdown } from './markdown/Markdown.tsx';
+import { RichText } from './RichText.tsx';
 import { ReasoningBlock } from './ReasoningBlock.tsx';
 import { ToolCard } from './ToolCard.tsx';
+import { WaitingLine } from './WaitingLine.tsx';
 import { Press } from './Ui.tsx';
 
 export interface MessageProps {
@@ -86,21 +87,6 @@ function CopyBtn({ text }: { text: string }) {
     >
       {done ? <Check size={16} color={c.success} /> : <Copy size={16} color={c.text2} />}
     </IconBtn>
-  );
-}
-
-/** Cevap beklenirken akan turuncu eğik çizgi. */
-function WaitingLine() {
-  const { c } = useTheme();
-  const x = useSharedValue(-56);
-  useEffect(() => {
-    x.value = withRepeat(withTiming(150, { duration: 1100, easing: Easing.bezier(0.22, 1, 0.36, 1) }), -1);
-  }, [x]);
-  const style = useAnimatedStyle(() => ({ transform: [{ translateX: x.value }, { skewX: '-24deg' }] }));
-  return (
-    <View style={{ height: 4, width: 120, marginTop: 13, marginBottom: 6, overflow: 'hidden', borderRadius: 2, backgroundColor: c.surface3 }}>
-      <Animated.View style={[{ position: 'absolute', top: 0, bottom: 0, width: 46, backgroundColor: c.accent }, style]} />
-    </View>
   );
 }
 
@@ -191,8 +177,8 @@ function AssistantMessage({ msg, versions, isLast, live, busy, onMenu }: Message
         {waiting && <WaitingLine />}
         <ReasoningBlock text={msg.reasoning} streaming={streaming} hasAnswer={hasAnswer} ms={msg.reasoningMs} />
         {hasParts
-          ? msg.parts.map((p, i) => (p.type === 'text' ? <Markdown key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
-          : hasAnswer && <Markdown text={msg.content} />}
+          ? msg.parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
+          : hasAnswer && <RichText text={msg.content} />}
         {!streaming && msg.status === 'stopped' && <RNText style={[type.small, { color: c.text3, marginTop: 6 }]}>{t('msg.stopped')}</RNText>}
         {!streaming && msg.status === 'error' && (
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 6 }}>
