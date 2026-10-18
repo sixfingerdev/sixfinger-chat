@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Text as RNText, View } from 'react-native';
+import { AppState, Text as RNText, View } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -15,6 +15,7 @@ import { type } from '../theme/type.ts';
 import { initLocale, useT } from '../lib/i18n/index.ts';
 import { kv, secureSession } from '../lib/storage.ts';
 import { useAuth } from '../store/auth.ts';
+import { useChats } from '../store/chats.ts';
 import { hydrateUi } from '../store/ui.ts';
 import { ChatDrawer } from '../components/ChatDrawer.tsx';
 import { LogoMark } from '../components/Logo.tsx';
@@ -33,6 +34,19 @@ function Shell() {
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(c.bg);
   }, [c.bg]);
+
+  // Uygulama bir süre arka plandaysa üretim sunucuda sürmüş olabilir: ön plana dönünce eşitle / canlı izlemeye bağlan.
+  useEffect(() => {
+    let leftAt = 0;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background') leftAt = Date.now();
+      else if (state === 'active' && leftAt && Date.now() - leftAt > 4_000) {
+        leftAt = 0;
+        useChats.getState().refreshActive();
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   if (ready && !user) {
     // Sunucuya ulaşılamadı ve önbellekte kullanıcı yok.

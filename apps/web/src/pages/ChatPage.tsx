@@ -274,7 +274,7 @@ export function ChatPage() {
   const detail = useChats((s) => (chatId ? s.detail[chatId] : undefined));
   const loadError = useChats((s) => s.loadError);
   const loadingId = useChats((s) => s.loadingId);
-  const generating = useChats((s) => s.generating);
+  const generating = useChats((s) => (chatId ? s.generating[chatId] : undefined));
 
   useEffect(() => {
     if (chatId) void useChats.getState().openChat(chatId);

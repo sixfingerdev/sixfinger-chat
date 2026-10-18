@@ -168,15 +168,8 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   return (await res.json()) as T;
 }
 
-/** SSE akışı: sunucu olaylarını tek tek `onEvent`'e verir. */
-export async function streamRequest(
-  path: string,
-  body: unknown,
-  onEvent: (e: StreamEvent) => void,
-  signal: AbortSignal,
-): Promise<void> {
-  const res = await send('POST', path, body, { signal });
-  if (!res.ok) throw await parseError(res);
+/** SSE gövdesini okuyup olayları tek tek `onEvent`'e verir. */
+async function readEvents(res: Response, onEvent: (e: StreamEvent) => void): Promise<void> {
   if (!res.body) throw new ApiError(0, 'network', 'Akış açılamadı.');
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -200,9 +193,33 @@ export async function streamRequest(
         }
       }
     }
+  } catch (err) {
+    // Okuma sırasında kopma (ör. uygulama arka plana alındı): çağıran yeniden bağlanabilsin diye ağ hatası olarak bildir.
+    if ((err as Error).name === 'AbortError') throw err;
+    throw new ApiError(0, 'network', 'Bağlantı koptu.');
   } finally {
     reader.cancel().catch(() => {});
   }
+}
+
+/** SSE akışı (POST): sunucu olaylarını tek tek `onEvent`'e verir. */
+export async function streamRequest(
+  path: string,
+  body: unknown,
+  onEvent: (e: StreamEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const res = await send('POST', path, body, { signal });
+  if (!res.ok) throw await parseError(res);
+  await readEvents(res, onEvent);
+}
+
+/** Süren bir üretimi izler (GET): üretim yoksa (204) hemen döner. */
+export async function streamGet(path: string, onEvent: (e: StreamEvent) => void, signal: AbortSignal): Promise<void> {
+  const res = await send('GET', path, undefined, { signal });
+  if (res.status === 204) return;
+  if (!res.ok) throw await parseError(res);
+  await readEvents(res, onEvent);
 }
 
 // ---------- Uç noktalar ----------
@@ -242,6 +259,7 @@ export const api = {
     request<{ chats: ChatDTO[] }>('GET', '/chats', undefined, { query: { q: q?.q, archived: q?.archived } }),
   createChat: (p: { title?: string; personaId?: string } = {}) => request<{ chat: ChatDTO }>('POST', '/chats', p),
   chat: (id: string) => request<ChatDetailDTO>('GET', `/chats/${id}`),
+  stopChat: (id: string) => request<{ stopped: boolean }>('POST', `/chats/${id}/stop`),
   updateChat: (id: string, p: object) => request<{ chat: ChatDTO }>('PATCH', `/chats/${id}`, p),
   deleteChat: (id: string) => request<void>('DELETE', `/chats/${id}`),
   deleteAllChats: () => request<void>('DELETE', '/chats'),

@@ -32,7 +32,7 @@ export function ChatScreen() {
   const detail = useChats((s) => (chatId ? s.detail[chatId] : undefined));
   const loadError = useChats((s) => s.loadError);
   const loadingId = useChats((s) => s.loadingId);
-  const generating = useChats((s) => s.generating);
+  const generating = useChats((s) => (chatId ? s.generating[chatId] : undefined));
   const [menuMsg, setMenuMsg] = useState<MessageDTO | null>(null);
   const [editMsg, setEditMsg] = useState<MessageDTO | null>(null);
   const [showJump, setShowJump] = useState(false);
