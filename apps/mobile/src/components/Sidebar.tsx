@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { Alert, SectionList, Text as RNText, TextInput, View } from 'react-native';
+import { SectionList, Text as RNText, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Archive, ArchiveRestore, ChevronDown, ChevronUp, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react-native';
@@ -98,20 +98,20 @@ export function Sidebar() {
   };
 
   const confirmDelete = (chat: ChatDTO) => {
-    Alert.alert(t('chat.deleteConfirm'), chat.title, [
-      { text: t('common.cancel'), style: 'cancel' },
-      {
-        text: t('common.delete'),
-        style: 'destructive',
-        onPress: async () => {
-          if (await useChats.getState().deleteChat(chat.id)) {
-            haptic.success();
-            useUi.getState().toast({ kind: 'success', text: t('chat.deleted') });
-            if (useChats.getState().activeId === chat.id) useChats.getState().newChat();
-          }
-        },
+    useUi.getState().askConfirm({
+      title: t('chat.deleteConfirm'),
+      message: chat.title,
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+      destructive: true,
+      onConfirm: async () => {
+        if (await useChats.getState().deleteChat(chat.id)) {
+          haptic.success();
+          useUi.getState().toast({ kind: 'success', text: t('chat.deleted') });
+          if (useChats.getState().activeId === chat.id) useChats.getState().newChat();
+        }
       },
-    ]);
+    });
   };
 
   const menuItems = menuFor

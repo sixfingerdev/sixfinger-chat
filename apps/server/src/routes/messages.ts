@@ -193,6 +193,12 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     let status: MessageDTO['status'] = 'complete';
     let errorMessage: { code: HttpError['code']; message: string } | null = null;
     const parts: MessagePartDTO[] = [];
+    // Son düşünce parçasının süresi: sonraki parça (metin/araç) başlayınca ya da üretim bitince kapanır.
+    let partStart = 0;
+    const closeReasoning = () => {
+      const last = parts[parts.length - 1];
+      if (last?.type === 'reasoning' && last.ms === null) last.ms = Date.now() - partStart;
+    };
 
     // Geri dönen istemciye gösterilecek anlık görüntü ve (sunucu çökerse kaybolmasın diye) 2 sn'de bir veritabanına yazım.
     const base = toMessageDTO(assistantRow.rows[0]!);
@@ -244,9 +250,17 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           if (chunk.type === 'reasoning') {
             if (!reasoningStart) reasoningStart = Date.now();
             reasoning += chunk.text;
+            // Her tur kendi düşünce parçasını açar: araç sonucundan sonra yeniden düşünürse eskisine eklenmez.
+            const lastPart = parts[parts.length - 1];
+            if (lastPart?.type === 'reasoning') lastPart.text += chunk.text;
+            else {
+              parts.push({ type: 'reasoning', text: chunk.text, ms: null });
+              partStart = Date.now();
+            }
             stream.send({ type: 'reasoning', delta: chunk.text });
             persist();
           } else if (chunk.type === 'content') {
+            closeReasoning();
             if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
             content += chunk.text;
             stepText += chunk.text;
@@ -291,6 +305,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
             args: shownArgs,
             status: 'running',
           };
+          closeReasoning();
           parts.push(part);
           stream.send({ type: 'tool_start', id: part.id, name: part.name, args: part.args });
           const key = `${call.function.name}:${JSON.stringify(Object.fromEntries(Object.entries(shownArgs).filter(([k]) => k !== 'max_chars').sort()))}`;
@@ -334,6 +349,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       }
       if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
     }
+    closeReasoning();
     // Yarıda kalan araçlar "çalışıyor" görünmesin.
     for (const p of parts) {
       if (p.type === 'tool' && p.status === 'running') {

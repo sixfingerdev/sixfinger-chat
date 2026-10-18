@@ -19,6 +19,7 @@ import { useChats } from '../store/chats.ts';
 import { hydrateUi } from '../store/ui.ts';
 import { ChatDrawer } from '../components/ChatDrawer.tsx';
 import { LogoMark } from '../components/Logo.tsx';
+import { ConfirmHost } from '../components/ConfirmHost.tsx';
 import { Toasts } from '../components/Toasts.tsx';
 import { Button } from '../components/Ui.tsx';
 
@@ -78,6 +79,7 @@ function Shell() {
           <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
         </Stack>
       </ChatDrawer>
+      <ConfirmHost />
       <Toasts />
     </>
   );

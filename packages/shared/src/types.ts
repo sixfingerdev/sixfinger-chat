@@ -81,6 +81,8 @@ export type ToolStatus = 'running' | 'done' | 'error';
  */
 export type MessagePartDTO =
   | { type: 'text'; text: string }
+  /** Modelin bir turdaki düşüncesi. Araç sonucundan sonra yeniden düşünürse yeni bir parça açılır (eskisine eklenmez). */
+  | { type: 'reasoning'; text: string; ms: number | null }
   | {
       type: 'tool';
       id: string;

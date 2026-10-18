@@ -76,6 +76,28 @@ describe('ajan döngüsü', () => {
     expect(second.find((x) => x.role === 'tool')).toMatchObject({ tool_call_id: 'c1', content: 'ECHO:merhaba' });
   });
 
+  it('her tur kendi düşünce parçasını açar (araçtan sonra yeni düşünce eskisine eklenmez) ve modele geri verilmez', async () => {
+    const m = await member(env);
+    const chat = await newChat(env.app, m);
+    const think = (t: string): AiChunk => ({ type: 'reasoning', text: t });
+    env.ai.steps = [
+      [think('Önce aramalıyım. '), call('c1', 'test_echo', { text: 'x' })],
+      [think('Sonuç geldi, özetleyeyim.'), text('Cevap: x')],
+    ];
+    const { events } = await send(m, chat.id, 'ara');
+    const done = events.find((e) => e.type === 'done') as Extract<StreamEvent, { type: 'done' }>;
+    const parts = done.assistantMessage.parts;
+    expect(parts.map((p) => p.type)).toEqual(['reasoning', 'tool', 'reasoning', 'text']);
+    expect(parts[0]).toMatchObject({ type: 'reasoning', text: 'Önce aramalıyım. ' });
+    expect(parts[2]).toMatchObject({ type: 'reasoning', text: 'Sonuç geldi, özetleyeyim.' });
+    expect(typeof (parts[0] as { ms: number }).ms).toBe('number');
+    // Geri verilen geçmişte düşünce yok.
+    env.ai.steps = [[text('tamam')]];
+    await send(m, chat.id, 'devam');
+    const roles = env.ai.calls.at(-1)!.messages;
+    expect(JSON.stringify(roles)).not.toContain('Önce aramalıyım');
+  });
+
   it('araç hatası ve bozuk JSON modele hata olarak döner, tur devam eder', async () => {
     const m = await member(env);
     const chat = await newChat(env.app, m);

@@ -74,6 +74,20 @@ function appendText(parts: MessagePartDTO[], text: string): MessagePartDTO[] {
   return [...parts, { type: 'text', text }];
 }
 
+/** Akan düşünceyi, son parça düşünceyse ona ekler; değilse (araç ya da metinden sonra) yeni düşünce parçası açar. */
+function appendReasoning(parts: MessagePartDTO[], text: string): MessagePartDTO[] {
+  const last = parts[parts.length - 1];
+  if (last?.type === 'reasoning') return [...parts.slice(0, -1), { ...last, text: last.text + text }];
+  return [...parts, { type: 'reasoning', text, ms: null }];
+}
+
+/** Son düşünce parçasının süresini yazar (sonraki parça başlayınca). */
+function closeReasoning(parts: MessagePartDTO[], ms: number): MessagePartDTO[] {
+  const last = parts[parts.length - 1];
+  if (last?.type === 'reasoning' && last.ms === null) return [...parts.slice(0, -1), { ...last, ms }];
+  return parts;
+}
+
 const sortChats = (list: ChatDTO[]) =>
   [...list].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -140,6 +154,8 @@ export const useChats = create<ChatsState>((set, get) => {
     let tm: ReturnType<typeof setTimeout> | undefined;
     /** Şimdiye dek gelen metin miktarı: çok büyük yanıtlarda (artifact) güncellemeler seyreltilir. */
     let total = 0;
+    /** Güncel düşünce parçasının başlangıcı (süre göstermek için). */
+    let reasonStart = 0;
     const flush = () => {
       raf = 0;
       tm = undefined;
@@ -148,7 +164,19 @@ export const useChats = create<ChatsState>((set, get) => {
       const r = bufReasoning;
       bufContent = '';
       bufReasoning = '';
-      patchMessage(chatId, assistantId, (m) => ({ ...m, content: m.content + c, reasoning: m.reasoning + r, parts: c ? appendText(m.parts, c) : m.parts }));
+      patchMessage(chatId, assistantId, (m) => {
+        let parts = m.parts;
+        if (r) {
+          if (!reasonStart) reasonStart = Date.now();
+          parts = appendReasoning(parts, r);
+        }
+        if (c) {
+          if (reasonStart) parts = closeReasoning(parts, Date.now() - reasonStart);
+          reasonStart = 0;
+          parts = appendText(parts, c);
+        }
+        return { ...m, content: m.content + c, reasoning: m.reasoning + r, parts };
+      });
     };
     const schedule = () => {
       if (raf || tm) return;
@@ -212,8 +240,9 @@ export const useChats = create<ChatsState>((set, get) => {
           flush();
           patchMessage(chatId, assistantId, (m) => ({
             ...m,
-            parts: [...m.parts, { type: 'tool', id: e.id, name: e.name, args: e.args, status: 'running' }],
+            parts: [...(reasonStart ? closeReasoning(m.parts, Date.now() - reasonStart) : m.parts), { type: 'tool', id: e.id, name: e.name, args: e.args, status: 'running' }],
           }));
+          reasonStart = 0;
           break;
         case 'tool_end':
           flush();

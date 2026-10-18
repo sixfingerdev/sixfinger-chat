@@ -101,6 +101,7 @@ export const en: Record<DictKey, string> = {
   'msg.edit': 'Edit',
   'msg.regenerate': 'Regenerate',
   'msg.copy': 'Copy',
+  'msg.feedbackThanks': 'Thanks for the feedback',
   'msg.good': 'Good response',
   'msg.bad': 'Bad response',
   'msg.read': 'Read aloud',

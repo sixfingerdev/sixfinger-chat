@@ -105,6 +105,7 @@ export const tr = {
   'msg.edit': 'Düzenle',
   'msg.regenerate': 'Yeniden üret',
   'msg.copy': 'Kopyala',
+  'msg.feedbackThanks': 'Geri bildirimin için teşekkürler',
   'msg.good': 'İyi yanıt',
   'msg.bad': 'Kötü yanıt',
   'msg.read': 'Sesli oku',

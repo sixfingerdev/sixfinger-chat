@@ -6,6 +6,7 @@ import { useLocale, useT } from '../lib/i18n/index.ts';
 import { speak, stopSpeaking, ttsSupported } from '../lib/speech.ts';
 import type { Versions } from '../lib/tree.ts';
 import { useChats } from '../store/chats.ts';
+import { messageParts } from '@sixfinger/shared';
 import { LogoMark } from './Logo.tsx';
 import { RichText } from './RichText.tsx';
 import { ReasoningBlock } from './ReasoningBlock.tsx';
@@ -166,9 +167,8 @@ function AssistantMessage({ msg, versions, isLast, live, busy }: Props) {
   const [speaking, setSpeaking] = useState(false);
   const streaming = live || msg.status === 'streaming';
   const hasAnswer = msg.content.length > 0;
-  const parts = msg.parts ?? [];
-  const hasParts = parts.length > 0;
-  const waiting = streaming && !hasAnswer && !msg.reasoning && !hasParts;
+  const ordered = messageParts(msg);
+  const waiting = streaming && ordered.length === 0;
 
   useEffect(() => () => {
     if (speaking) stopSpeaking();
@@ -181,10 +181,16 @@ function AssistantMessage({ msg, versions, isLast, live, busy }: Props) {
       </div>
       <div className="msg-main">
         {waiting && <div className="waiting-line" aria-label={t('msg.thinking')} />}
-        <ReasoningBlock text={msg.reasoning} streaming={streaming} hasAnswer={hasAnswer} ms={msg.reasoningMs} />
-        {hasParts
-          ? parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
-          : hasAnswer && <RichText text={msg.content} />}
+        {/* Sıralı parçalar: her düşünce parçası kendi bloğunda, araçtan sonraki düşünce aşağıda yeni blok olarak açılır. */}
+        {ordered.map((p, i) =>
+          p.type === 'reasoning' ? (
+            <ReasoningBlock key={`r${i}`} text={p.text} thinking={streaming && i === ordered.length - 1} ms={p.ms} />
+          ) : p.type === 'text' ? (
+            <RichText key={`t${i}`} text={p.text} />
+          ) : (
+            <ToolCard key={p.id} part={p} />
+          ),
+        )}
         {!streaming && msg.status === 'stopped' && <div className="msg-note">{t('msg.stopped')}</div>}
         {!streaming && msg.status === 'error' && (
           <div className="msg-note error">

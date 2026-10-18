@@ -96,6 +96,24 @@ createServer(async (req, res) => {
   }
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   const send = (delta) => res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`);
+  // TOOLTHINK: iki turlu ajan. 1. tur düşünür ve web_search çağırır; araç sonucundan sonra 2. tur yeniden düşünüp cevaplar.
+  if (/TOOLTHINK/.test(String(last)) || (body.messages ?? []).some((m) => m.role === 'tool')) {
+    const hasTool = (body.messages ?? []).some((m) => m.role === 'tool');
+    if (/TOOLTHINK/.test(JSON.stringify(body.messages ?? []))) {
+      const words = (hasTool ? 'Sonuçlar geldi, şimdi bunları özetleyip cevabı yazıyorum.' : 'Önce bunu aramam gerekiyor, web aramasıyla başlıyorum.').split(' ');
+      for (const w of words) { send({ reasoning: `${w} `, role: 'assistant' }); await sleep(40); }
+      if (!hasTool && (body.tools ?? []).length) {
+        send({ role: 'assistant', tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ query: 'sixfinger' }) } }] });
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      for (const ch of 'Arama sonuçlarına göre özet: SixFinger bir sohbet uygulaması.'.match(/.{1,6}/g)) { send({ content: ch, role: 'assistant' }); await sleep(15); }
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
+  }
   // LONGTHINK: uzun ve yavaş akan düşünce (kaydırma / yapışkan başlık denemeleri için).
   const long = /LONGTHINK/.test(String(last));
   const thought = long

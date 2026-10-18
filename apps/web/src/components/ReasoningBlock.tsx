@@ -3,19 +3,9 @@ import { ChevronRight } from 'lucide-react';
 import { formatDuration } from '../lib/format.ts';
 import { useT } from '../lib/i18n/index.ts';
 
-export function ReasoningBlock({
-  text,
-  streaming,
-  hasAnswer,
-  ms,
-}: {
-  text: string;
-  streaming: boolean;
-  hasAnswer: boolean;
-  ms: number | null;
-}) {
+/** Bir düşünce parçası. `thinking`: bu parça şu an akıyor (arkasından metin/araç gelmedi). */
+export function ReasoningBlock({ text, thinking, ms }: { text: string; thinking: boolean; ms: number | null }) {
   const t = useT();
-  const thinking = streaming && !hasAnswer;
   const [open, setOpen] = useState(thinking);
   const touched = useRef(false);
 

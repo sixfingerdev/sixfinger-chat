@@ -3,7 +3,7 @@ import { FlatList, Text as RNText, View, type LayoutChangeEvent, type NativeScro
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { ArrowDown } from 'lucide-react-native';
-import type { MessageDTO } from '@sixfinger/shared';
+import { messageParts, type MessageDTO, type MessagePartDTO } from '@sixfinger/shared';
 import { radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { useT } from '../lib/i18n/index.ts';
@@ -14,15 +14,19 @@ import { useUi } from '../store/ui.ts';
 import { ArtifactViewer } from './ArtifactViewer.tsx';
 import { Composer } from './Composer.tsx';
 import { EmptyState } from './EmptyState.tsx';
-import { MessageItem } from './MessageItem.tsx';
-import { ReasoningBody, ReasoningHead, reasoningState } from './ReasoningRows.tsx';
+import { AssistantFooter, AssistantSegment, MessageItem } from './MessageItem.tsx';
+import { ReasoningBody, ReasoningHead, reasoningOpen as isReasoningOpen, type ReasoningPart } from './ReasoningRows.tsx';
 import { EditDialog, MessageMenu } from './MessageSheets.tsx';
 import { TopBar } from './TopBar.tsx';
 import { Button, Press } from './Ui.tsx';
 
 type Row =
-  | { key: string; kind: 'head' | 'body' | 'end'; msg: MessageDTO; live: boolean }
-  | { key: string; kind: 'msg'; msg: MessageDTO; live: boolean; last: boolean };
+  | { key: string; kind: 'user'; msg: MessageDTO }
+  | { key: string; kind: 'head'; id: string; part: ReasoningPart; thinking: boolean }
+  | { key: string; kind: 'body'; part: ReasoningPart }
+  | { key: string; kind: 'end' }
+  | { key: string; kind: 'seg'; msg: MessageDTO; parts: MessagePartDTO[] }
+  | { key: string; kind: 'foot'; msg: MessageDTO; live: boolean; last: boolean };
 
 /** Ana sohbet ekranı: üst çubuk, mesaj listesi ve composer. */
 export function ChatScreen() {
@@ -42,22 +46,43 @@ export function ChatScreen() {
   const idx = useMemo(() => (detail ? indexMessages(detail.messages) : null), [detail?.messages]); // eslint-disable-line react-hooks/exhaustive-deps
   const path = useMemo(() => (idx && detail ? activePath(idx, detail.chat.leafId) : []), [idx, detail?.chat.leafId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Düşünce metni olan asistan mesajı birkaç satıra bölünür: [başlık (yapışkan)] [metin] [bitiş (yapışkan, boş)] [mesaj].
-  // Başlık, bitiş satırı gelene kadar ekranın üstünde yapışık kalır; böylece uzun düşünceyi aşağı inerken de kapatabilirsin.
+  // Asistan mesajı sıralı parçalarına göre satırlara bölünür: her düşünce parçası kendi [başlık (yapışkan)] [metin]
+  // [bitiş (yapışkan, boş)] satırlarını alır; metin/araç parçaları aradaki dilimde durur. Araç sonrası yeni düşünce
+  // yeni bir blok olarak aşağıda açılır. Başlık, bitiş satırı gelene kadar ekranın üstünde yapışık kalır.
   const { rows, sticky } = useMemo(() => {
     const out: Row[] = [];
     const stick: number[] = [];
-    path.forEach((m, i) => {
-      if (m.role === 'assistant' && m.reasoning) {
-        const live = generating?.assistantId === m.id;
-        const { open } = reasoningState(m, live, reasoningOpen[m.id]);
-        stick.push(out.length);
-        out.push({ key: `${m.id}:head`, kind: 'head', msg: m, live });
-        if (open) out.push({ key: `${m.id}:body`, kind: 'body', msg: m, live });
-        stick.push(out.length);
-        out.push({ key: `${m.id}:end`, kind: 'end', msg: m, live });
+    path.forEach((m, mi) => {
+      if (m.role === 'user') {
+        out.push({ key: m.id, kind: 'user', msg: m });
+        return;
       }
-      out.push({ key: m.id, kind: 'msg', msg: m, live: generating?.assistantId === m.id, last: i === path.length - 1 });
+      const live = generating?.assistantId === m.id;
+      const streaming = live || m.status === 'streaming';
+      const parts = messageParts(m);
+      let run: MessagePartDTO[] = [];
+      let runStart = 0;
+      const flushRun = () => {
+        if (run.length) out.push({ key: `${m.id}:s${runStart}`, kind: 'seg', msg: m, parts: run });
+        run = [];
+      };
+      parts.forEach((p, i) => {
+        if (p.type === 'reasoning') {
+          flushRun();
+          const rid = `${m.id}:r${i}`;
+          const thinking = streaming && i === parts.length - 1;
+          stick.push(out.length);
+          out.push({ key: `${rid}:h`, kind: 'head', id: rid, part: p, thinking });
+          if (isReasoningOpen(thinking, reasoningOpen[rid])) out.push({ key: `${rid}:b`, kind: 'body', part: p });
+          stick.push(out.length);
+          out.push({ key: `${rid}:e`, kind: 'end' });
+        } else {
+          if (!run.length) runStart = i;
+          run.push(p);
+        }
+      });
+      flushRun();
+      out.push({ key: `${m.id}:f`, kind: 'foot', msg: m, live, last: mi === path.length - 1 });
     });
     return { rows: out, sticky: stick };
   }, [path, generating?.assistantId, reasoningOpen]);
@@ -113,22 +138,20 @@ export function ChatScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: Row }) => {
-      if (item.kind !== 'msg') {
-        if (item.kind === 'head') return <ReasoningHead msg={item.msg} live={item.live} />;
-        if (item.kind === 'body') return <ReasoningBody text={item.msg.reasoning} />;
-        return <View style={{ height: 0 }} />;
+      switch (item.kind) {
+        case 'user':
+          return <MessageItem msg={item.msg} versions={versionsOf(idx!, item.msg)} isLast={false} live={false} busy={busy} onEdit={setEditMsg} onMenu={setMenuMsg} />;
+        case 'head':
+          return <ReasoningHead id={item.id} part={item.part} thinking={item.thinking} />;
+        case 'body':
+          return <ReasoningBody text={item.part.text} />;
+        case 'end':
+          return <View style={{ height: 0 }} />;
+        case 'seg':
+          return <AssistantSegment msg={item.msg} parts={item.parts} onMenu={setMenuMsg} />;
+        case 'foot':
+          return <AssistantFooter msg={item.msg} versions={versionsOf(idx!, item.msg)} isLast={item.last} live={item.live} busy={busy} />;
       }
-      return (
-        <MessageItem
-          msg={item.msg}
-          versions={versionsOf(idx!, item.msg)}
-          isLast={item.last}
-          live={item.live}
-          busy={busy}
-          onEdit={setEditMsg}
-          onMenu={setMenuMsg}
-        />
-      );
     },
     [idx, busy],
   );
@@ -169,6 +192,8 @@ export function ChatScreen() {
             initialNumToRender={12}
             maxToRenderPerBatch={8}
             windowSize={9}
+            // Yapışkan başlıklar JS ile kaydırılır; kırpılan alt görünümler (Android varsayılanı) onları gizleyebilir.
+            removeClippedSubviews={false}
             contentContainerStyle={{ paddingVertical: 8 }}
             showsVerticalScrollIndicator={false}
           />
