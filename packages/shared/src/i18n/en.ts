@@ -74,6 +74,7 @@ export const en: Record<DictKey, string> = {
   'composer.mode.fastHint': 'Fastest answers',
   'composer.mode.balancedHint': 'Great for most tasks',
   'composer.mode.deepHint': 'Complex tasks',
+  'composer.thinking.auto': 'Deep mode decides how long to think on its own',
   'composer.thinking': 'Thinking level',
   'composer.thinking.low': 'Low',
   'composer.thinking.medium': 'Medium',

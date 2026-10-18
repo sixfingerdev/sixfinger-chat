@@ -3,11 +3,10 @@ import { Text as RNText, TextInput, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { ArrowUp, Brain, Check, ChevronUp, FileText, Lock, Paperclip, Square, X } from 'lucide-react-native';
+import { ArrowUp, FileText, Lock, Paperclip, Square, X } from 'lucide-react-native';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
-import { CHAT_MODES, THINKING_LEVELS, modeSupportsThinkingLevel, type ChatMode } from '@sixfinger/shared';
-import type { Effort, PendingAttachment } from '../lib/types.ts';
+import type { PendingAttachment } from '../lib/types.ts';
 import { timeUntil } from '../lib/format.ts';
 import { pickTextFiles } from '../lib/files.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
@@ -16,6 +15,7 @@ import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi } from '../store/ui.ts';
 import { Sheet } from './Sheet.tsx';
+import { ModePicker, SlashMeter, depthOf } from './ModePicker.tsx';
 import { Press } from './Ui.tsx';
 
 const drafts = new Map<string, string>();
@@ -38,7 +38,6 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
   const [value, setValue] = useState(() => drafts.get(draftKey) ?? '');
   const [files, setFiles] = useState<PendingAttachment[]>([]);
   const [effortOpen, setEffortOpen] = useState(false);
-  const [thinkingOpen, setThinkingOpen] = useState(true);
   const [focused, setFocused] = useState(false);
   const input = useRef<ComponentRef<typeof TextInput>>(null);
 
@@ -110,9 +109,6 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
     setFiles([]);
   };
 
-  const modes: Array<{ id: ChatMode; label: string; hint: string }> = CHAT_MODES.map((id) => ({ id, label: t(`composer.mode.${id}`), hint: t(`composer.mode.${id}Hint`) }));
-  const levels: Array<{ id: Effort; label: string; hint: string }> = THINKING_LEVELS.map((id) => ({ id, label: t(`composer.thinking.${id}`), hint: t(`composer.thinking.${id}Hint`) }));
-  const currentMode = modes.find((m) => m.id === mode) ?? modes[0]!;
   const over = value.length > maxChars;
   const showCounter = value.length > maxChars * 0.8;
   const lowQuota = remaining !== null && (user?.isGuest || remaining <= 5);
@@ -179,8 +175,8 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
               onPress={() => setEffortOpen(true)}
               style={{ height: 34, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, borderRadius: 17, backgroundColor: c.surface2 }}
             >
-              <Brain size={15} color={c.text2} />
-              <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text2 }}>{currentMode.label}</RNText>
+              <SlashMeter level={depthOf(mode)} color={c.accent} />
+              <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text2 }}>{t(`composer.mode.${mode}`)}</RNText>
             </Press>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -217,59 +213,7 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
       </View>
 
       <Sheet visible={effortOpen} onClose={() => setEffortOpen(false)}>
-        <View style={{ paddingHorizontal: 10, paddingBottom: 6 }}>
-          {modes.map((m) => (
-            <Press
-              key={m.id}
-              scale={0.985}
-              haptics="select"
-              onPress={() => {
-                setMode(m.id);
-                if (!modeSupportsThinkingLevel(m.id)) setEffortOpen(false);
-              }}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: mode === m.id ? c.accentSoft : 'transparent' }}
-            >
-              <View style={{ flex: 1 }}>
-                <RNText style={[type.body, { color: c.text, fontFamily: fonts.sansMedium }]}>{m.label}</RNText>
-                <RNText style={[type.small, { color: c.text3 }]}>{m.hint}</RNText>
-              </View>
-              {mode === m.id && <Check size={18} color={c.accent} />}
-            </Press>
-          ))}
-          {modeSupportsThinkingLevel(mode) && (
-            <>
-              <View style={{ height: 1, backgroundColor: c.line, marginHorizontal: 12, marginVertical: 8 }} />
-              <Press
-                scale={0.99}
-                haptics="select"
-                onPress={() => setThinkingOpen((v) => !v)}
-                style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, paddingHorizontal: 12 }}
-              >
-                <RNText style={[type.body, { color: c.text2, fontFamily: fonts.sansMedium }]}>{t('composer.thinking')}</RNText>
-                <ChevronUp size={18} color={c.text2} style={{ transform: [{ rotate: thinkingOpen ? '0deg' : '180deg' }] }} />
-              </Press>
-              {thinkingOpen &&
-                levels.map((l) => (
-                  <Press
-                    key={l.id}
-                    scale={0.985}
-                    haptics="select"
-                    onPress={() => {
-                      setEffort(l.id);
-                      setEffortOpen(false);
-                    }}
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: effort === l.id ? c.accentSoft : 'transparent' }}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <RNText style={[type.body, { color: c.text, fontFamily: fonts.sansMedium }]}>{l.label}</RNText>
-                      <RNText style={[type.small, { color: c.text3 }]}>{l.hint}</RNText>
-                    </View>
-                    {effort === l.id && <Check size={18} color={c.accent} />}
-                  </Press>
-                ))}
-            </>
-          )}
-        </View>
+        <ModePicker mode={mode} effort={effort} onMode={setMode} onEffort={setEffort} />
       </Sheet>
     </View>
   );

@@ -77,6 +77,7 @@ export const tr = {
   'composer.mode.fastHint': 'En hızlı yanıtlar',
   'composer.mode.balancedHint': 'Çoğu iş için ideal',
   'composer.mode.deepHint': 'Karmaşık görevler',
+  'composer.thinking.auto': 'Derin mod düşünme süresine kendisi karar verir',
   'composer.thinking': 'Düşünme düzeyi',
   'composer.thinking.low': 'Düşük',
   'composer.thinking.medium': 'Orta',

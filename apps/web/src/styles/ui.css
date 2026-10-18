@@ -380,26 +380,6 @@
   background: var(--line);
   margin: 6px 4px;
 }
-.menu-section {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 8px 10px 4px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-2);
-  border-radius: 8px;
-}
-.menu-section:hover {
-  color: var(--text);
-}
-.menu-section .chev {
-  transition: transform var(--t-fast) var(--ease);
-}
-.menu-section .chev.is-closed {
-  transform: rotate(180deg);
-}
 .menu-label {
   padding: 8px 10px 4px;
   font-size: 11.5px;
@@ -483,4 +463,137 @@
 
 .tooltip-wrap {
   position: relative;
+}
+
+/* ---------- Model / düşünme düzeyi menüsü ---------- */
+.slash-meter {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 14px;
+}
+.slash-meter i {
+  width: 4px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--line-strong);
+  transform: skewX(-16deg);
+  transition: background var(--t-fast);
+}
+.slash-meter i:nth-child(1) { height: 60%; }
+.slash-meter i:nth-child(2) { height: 80%; }
+.slash-meter i.on {
+  background: var(--text-3);
+}
+.effort-btn .slash-meter i.on {
+  background: var(--accent);
+}
+.mode-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 9px 12px 9px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  text-align: left;
+  color: var(--text);
+  position: relative;
+}
+.mode-row::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: skewX(-16deg) scaleY(0);
+  transition: transform var(--t-med) var(--ease);
+}
+.mode-row:hover {
+  background: var(--surface-2);
+}
+.mode-row[aria-checked='true'] {
+  background: var(--accent-soft);
+}
+.mode-row[aria-checked='true']::before {
+  transform: skewX(-16deg) scaleY(1);
+}
+.mode-row[aria-checked='true'] .slash-meter i.on {
+  background: var(--accent);
+}
+.mode-row .grow {
+  flex: 1;
+  min-width: 0;
+}
+.mode-row small {
+  display: block;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.think {
+  margin-top: 6px;
+  padding: 12px 12px 8px;
+  border-top: 1px solid var(--line);
+}
+.think-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--text-3);
+  margin-bottom: 9px;
+}
+.think-now {
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  text-transform: none;
+  font-size: 12.5px;
+}
+.seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.seg button {
+  position: relative;
+  height: 34px;
+  isolation: isolate;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-2);
+  transition: color var(--t-fast);
+}
+.seg button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 7px;
+  background: var(--surface-2);
+  transform: skewX(-16deg);
+  transition: background var(--t-fast);
+}
+.seg button:hover::before {
+  background: var(--surface-3);
+}
+.seg button[aria-checked='true'] {
+  color: var(--on-accent);
+}
+.seg button[aria-checked='true']::before {
+  background: var(--accent);
+}
+.think-hint {
+  display: block;
+  margin-top: 8px;
+  min-height: 16px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.35;
 }
