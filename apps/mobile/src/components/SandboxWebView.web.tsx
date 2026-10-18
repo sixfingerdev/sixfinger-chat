@@ -48,6 +48,6 @@ export function SandboxWebView({ kind, content, mode, style, onHeight, onPrompt,
     ref,
     srcDoc,
     sandbox: 'allow-scripts allow-pointer-lock',
-    style: { border: 0, width: '100%', height: '100%', ...flat },
+    style: { border: 0, width: '100%', height: '100%', background: mode === 'artifact' ? '#fff' : 'transparent', ...flat },
   });
 }

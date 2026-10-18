@@ -53,7 +53,8 @@ export function SandboxWebView({ kind, content, mode, style, onHeight, onPrompt,
 
   return (
     <WebView
-      style={[{ backgroundColor: 'transparent' }, style]}
+      // Artifact modelin yazdığı gibi (beyaz zeminli normal sayfa), widget mesajla bütünleşik (saydam).
+      style={[{ backgroundColor: mode === 'artifact' ? '#ffffff' : 'transparent' }, style]}
       originWhitelist={['*']}
       source={{ html }}
       onMessage={onMessage}

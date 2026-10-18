@@ -177,27 +177,36 @@ export interface SandboxDocOptions {
 
 const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+/** Üst pencereyle konuşan köprü: yükseklik, hata ve `sf.sendPrompt`. Tema ya da görünümle ilgisi yoktur. */
+const BRIDGE_SCRIPT =
+  `<script>(function(){var post=function(m){m.sf=1;try{if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(m))}else{parent.postMessage(m,'*')}}catch(e){}};` +
+  `window.sf={sendPrompt:function(t){post({type:'prompt',text:String(t).slice(0,2000)})}};` +
+  `var last=0;function h(){var b=document.body,d=document.documentElement;var v=Math.ceil(Math.max(b?b.scrollHeight:0,d.scrollHeight));if(v!==last){last=v;post({type:'height',h:v})}}` +
+  `addEventListener('load',h);addEventListener('resize',h);` +
+  `if(window.ResizeObserver){new ResizeObserver(h).observe(document.documentElement)}else{setInterval(h,500)}` +
+  `addEventListener('error',function(e){post({type:'error',message:String(e.message||e)})});` +
+  `window.addEventListener('unhandledrejection',function(e){post({type:'error',message:String(e.reason)})});` +
+  `})();</script>`;
+
 function prelude(vars: Record<string, string>, dark: boolean, mode: 'artifact' | 'widget'): string {
+  const base =
+    `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}">` + `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`;
+  // Artifact: modelin yazdığı sayfa AYNEN gösterilir. Renk, yazı tipi, arka plan, color-scheme ya da stil kiti eklenmez
+  // (yalnızca güvenlik ve köprü). Kabuk (iframe/WebView) beyaz zemin verir, yani sayfa normal bir tarayıcıdaki gibi görünür.
+  if (mode === 'artifact') return base + BRIDGE_SCRIPT;
+
+  // Widget: mesajın içinde uygulamayla bütünleşik görünmesi için tema değişkenleri ve stil kiti eklenir.
   const css = Object.entries(vars)
     .map(([k, v]) => `--sf-${k}:${v.replace(/[;{}<>]/g, '')}`)
     .join(';');
-  const bg = vars.bg ?? (dark ? '#0b0b0c' : '#fafaf9');
   const fg = vars.text ?? (dark ? '#f4f4f5' : '#0b0b0c');
   return (
-    `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}">` +
-    `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">` +
+    base +
     `<meta name="color-scheme" content="${dark ? 'dark' : 'light'}">` +
     `<style>:root{${css};color-scheme:${dark ? 'dark' : 'light'}}` +
-    `html,body{margin:0;${mode === 'widget' ? 'background:transparent;' : `background:${bg};`}color:${fg};` +
+    `html,body{margin:0;background:transparent;color:${fg};` +
     `font-family:var(--sf-font,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif);-webkit-text-size-adjust:100%}</style>` +
-    `<script>(function(){var post=function(m){m.sf=1;try{if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(m))}else{parent.postMessage(m,'*')}}catch(e){}};` +
-    `window.sf={sendPrompt:function(t){post({type:'prompt',text:String(t).slice(0,2000)})}};` +
-    `var last=0;function h(){var b=document.body,d=document.documentElement;var v=Math.ceil(Math.max(b?b.scrollHeight:0,d.scrollHeight));if(v!==last){last=v;post({type:'height',h:v})}}` +
-    `addEventListener('load',h);addEventListener('resize',h);` +
-    `if(window.ResizeObserver){new ResizeObserver(h).observe(document.documentElement)}else{setInterval(h,500)}` +
-    `addEventListener('error',function(e){post({type:'error',message:String(e.message||e)})});` +
-    `window.addEventListener('unhandledrejection',function(e){post({type:'error',message:String(e.reason)})});` +
-    `})();</script>` +
+    BRIDGE_SCRIPT +
     `<style>${widgetKitCss(dark)}</style>` +
     `<script>${WIDGET_KIT_JS}document.documentElement.classList.add('sf-${mode}');</script>`
   );
@@ -210,7 +219,8 @@ export function buildSandboxDoc({ kind, content, vars, dark, mode }: SandboxDocO
     return `<!doctype html><html><head><meta charset="utf-8">${head}<style>body{display:grid;place-items:center;min-height:100vh}svg{max-width:100%;height:auto}</style></head><body>${content}</body></html>`;
   }
   if (kind === 'mermaid') {
-    const theme = dark ? 'dark' : 'default';
+    // Artifact temaya uyarlanmaz: diyagram her zaman varsayılan (açık) temayla çizilir.
+    const theme = mode === 'widget' && dark ? 'dark' : 'default';
     return (
       `<!doctype html><html><head><meta charset="utf-8">${head}<style>body{display:grid;place-items:center;min-height:100vh;padding:16px;box-sizing:border-box}</style></head><body>` +
       `<pre class="mermaid">${escapeHtml(content)}</pre>` +

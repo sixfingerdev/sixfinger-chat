@@ -49,7 +49,7 @@ export function ChatScreen() {
   // Asistan mesajı sıralı parçalarına göre satırlara bölünür: her düşünce parçası kendi [başlık (yapışkan)] [metin]
   // [bitiş (yapışkan, boş)] satırlarını alır; metin/araç parçaları aradaki dilimde durur. Araç sonrası yeni düşünce
   // yeni bir blok olarak aşağıda açılır. Başlık, bitiş satırı gelene kadar ekranın üstünde yapışık kalır.
-  const { rows, sticky } = useMemo(() => {
+  const { rows, stickyKey } = useMemo(() => {
     const out: Row[] = [];
     const stick: number[] = [];
     path.forEach((m, mi) => {
@@ -84,8 +84,10 @@ export function ChatScreen() {
       flushRun();
       out.push({ key: `${m.id}:f`, kind: 'foot', msg: m, live, last: mi === path.length - 1 });
     });
-    return { rows: out, sticky: stick };
+    return { rows: out, stickyKey: stick.join(',') };
   }, [path, generating?.assistantId, reasoningOpen]);
+  // Yapışkan satır dizisinin kimliği yalnızca içeriği değişince değişir (her güncellemede yeniden kurulmasın).
+  const sticky = useMemo(() => (stickyKey ? stickyKey.split(',').map(Number) : []), [stickyKey]);
 
   const busy = Boolean(generating);
   const showEmpty = !chatId || (detail && detail.messages.length === 0 && !generating);
@@ -99,23 +101,39 @@ export function ChatScreen() {
   }, [generating?.assistantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Kaydırma: yalnızca kullanıcı en alttaysa akışı takip et ---
-  // `following`: yeni içerik geldikçe en alta kaydır. Kullanıcı yukarı çekince kapanır, en alta dönünce açılır.
+  // `following`: yeni içerik geldikçe en alta kaydır. Kullanıcı parmağını sürüklediği AN kapanır (programatik kaydırma
+  // parmakla çatışıp titreşim yapmasın); en alta dönünce ya da "aşağı" düğmesiyle açılır.
   const following = useRef(true);
   const metrics = useRef({ offset: 0, content: 0, view: 0 });
-  // `scrollToEnd` yaklaşık ölçülere dayanır; gerçek içerik yüksekliğine kaydırmak (platform sınırlar) daha güvenilir.
-  const toEnd = useCallback((animated: boolean) => scrollRef.current?.scrollToOffset({ offset: metrics.current.content, animated }), []);
+  const raf = useRef(0);
   const distance = () => metrics.current.content - metrics.current.view - metrics.current.offset;
+  const toEnd = useCallback((animated: boolean) => {
+    if (animated) {
+      scrollRef.current?.scrollToOffset({ offset: metrics.current.content, animated: true });
+      return;
+    }
+    // Aynı karede gelen birden çok içerik/yerleşim değişikliği tek kaydırmaya indirgenir.
+    if (raf.current) return;
+    raf.current = requestAnimationFrame(() => {
+      raf.current = 0;
+      // `scrollToEnd` yaklaşık ölçülere dayanır; gerçek içerik yüksekliğine kaydırmak (platform sınırlar) daha güvenilir.
+      if (following.current && distance() > 1) scrollRef.current?.scrollToOffset({ offset: metrics.current.content, animated: false });
+    });
+  }, []);
 
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
     const prev = metrics.current.offset;
     metrics.current = { offset: contentOffset.y, content: contentSize.height, view: layoutMeasurement.height };
     const d = distance();
-    // Alta yakınsa takip açık. Uzaktaysa ve offset geriye gittiyse kullanıcı yukarı çekmiştir: takibi bırak.
-    // (İçerik büyümesi ve bizim kaydırmalarımız offset'i yalnızca artırır; böylece bunlar takibi bozmaz.)
+    // Alta yakınsa takip açık. Uzaktaysa ve offset geriye gittiyse kullanıcı yukarı çekmiştir (web'de sürükleme olayı yok): bırak.
     if (d <= 24) following.current = true;
     else if (contentOffset.y < prev - 1) following.current = false;
     setShowJump(d > 420);
+  }, []);
+  const settle = useCallback(() => {
+    // Parmak kalktı / kayma bitti: en alttaysak takibi geri aç.
+    if (distance() <= 24) following.current = true;
   }, []);
   const onContentSizeChange = useCallback(
     (_w: number, h: number) => {
@@ -146,7 +164,7 @@ export function ChatScreen() {
         case 'body':
           return <ReasoningBody text={item.part.text} />;
         case 'end':
-          return <View style={{ height: 0 }} />;
+          return <View style={{ height: 1 }} />;
         case 'seg':
           return <AssistantSegment msg={item.msg} parts={item.parts} onMenu={setMenuMsg} />;
         case 'foot':
@@ -184,6 +202,11 @@ export function ChatScreen() {
             renderItem={renderItem}
             stickyHeaderIndices={sticky}
             onScroll={onScroll}
+            onScrollBeginDrag={() => {
+              following.current = false;
+            }}
+            onScrollEndDrag={settle}
+            onMomentumScrollEnd={settle}
             onContentSizeChange={onContentSizeChange}
             onLayout={onLayout}
             scrollEventThrottle={16}

@@ -715,7 +715,8 @@
   width: 100%;
   min-height: 0;
   border: 0;
-  background: var(--bg);
+  /* Artifact modelin yazdığı gibi gösterilir: uygulama temasına uyarlanmaz, normal bir tarayıcı sayfası gibi beyaz zemin. */
+  background: #fff;
 }
 .artifact-code,
 .artifact-doc {
