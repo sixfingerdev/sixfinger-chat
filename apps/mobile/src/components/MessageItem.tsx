@@ -14,6 +14,7 @@ import { useChats } from '../store/chats.ts';
 import { LogoMark } from './Logo.tsx';
 import { Markdown } from './markdown/Markdown.tsx';
 import { ReasoningBlock } from './ReasoningBlock.tsx';
+import { ToolCard } from './ToolCard.tsx';
 import { Press } from './Ui.tsx';
 
 export interface MessageProps {
@@ -160,7 +161,8 @@ function AssistantMessage({ msg, versions, isLast, live, busy, onMenu }: Message
   const [speaking, setSpeaking] = useState(false);
   const streaming = live || msg.status === 'streaming';
   const hasAnswer = msg.content.length > 0;
-  const waiting = streaming && !hasAnswer && !msg.reasoning;
+  const hasParts = msg.parts.length > 0;
+  const waiting = streaming && !hasAnswer && !msg.reasoning && !hasParts;
 
   useEffect(
     () => () => {
@@ -188,7 +190,9 @@ function AssistantMessage({ msg, versions, isLast, live, busy, onMenu }: Message
       >
         {waiting && <WaitingLine />}
         <ReasoningBlock text={msg.reasoning} streaming={streaming} hasAnswer={hasAnswer} ms={msg.reasoningMs} />
-        {hasAnswer && <Markdown text={msg.content} />}
+        {hasParts
+          ? msg.parts.map((p, i) => (p.type === 'text' ? <Markdown key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
+          : hasAnswer && <Markdown text={msg.content} />}
         {!streaming && msg.status === 'stopped' && <RNText style={[type.small, { color: c.text3, marginTop: 6 }]}>{t('msg.stopped')}</RNText>}
         {!streaming && msg.status === 'error' && (
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 6 }}>

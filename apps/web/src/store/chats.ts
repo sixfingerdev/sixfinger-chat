@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatDTO, MessageDTO, StreamEvent } from '@sixfinger/shared';
+import type { ChatDTO, MessageDTO, MessagePartDTO, StreamEvent } from '@sixfinger/shared';
 import { api, streamRequest } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { translate } from '../lib/i18n/index.ts';
@@ -56,6 +56,13 @@ interface ChatsState {
   setFeedback: (chatId: string, messageId: string, value: 1 | -1 | null) => Promise<void>;
 }
 
+/** Akan metni, son parça metinse ona ekler; değilse (araç çağrısından sonra) yeni metin parçası açar. */
+function appendText(parts: MessagePartDTO[], text: string): MessagePartDTO[] {
+  const last = parts[parts.length - 1];
+  if (last?.type === 'text') return [...parts.slice(0, -1), { type: 'text', text: last.text + text }];
+  return [...parts, { type: 'text', text }];
+}
+
 const sortChats = (list: ChatDTO[]) =>
   [...list].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -77,6 +84,7 @@ function blankMessage(over: Partial<MessageDTO> & Pick<MessageDTO, 'id' | 'chatI
     attachments: [],
     feedback: null,
     reasoningMs: null,
+    parts: [],
     createdAt: new Date().toISOString(),
     ...over,
   };
@@ -116,7 +124,7 @@ export const useChats = create<ChatsState>((set, get) => {
       const r = bufReasoning;
       bufContent = '';
       bufReasoning = '';
-      patchMessage(chatId, assistantId, (m) => ({ ...m, content: m.content + c, reasoning: m.reasoning + r }));
+      patchMessage(chatId, assistantId, (m) => ({ ...m, content: m.content + c, reasoning: m.reasoning + r, parts: c ? appendText(m.parts, c) : m.parts }));
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(flush);
@@ -132,7 +140,7 @@ export const useChats = create<ChatsState>((set, get) => {
             ...d,
             messages: d.messages.map((m) => {
               if (m.id === tmp.userId && e.userMessage) return e.userMessage;
-              if (m.id === assistantId) return { ...realA, content: m.content, reasoning: m.reasoning };
+              if (m.id === assistantId) return { ...realA, content: m.content, reasoning: m.reasoning, parts: m.parts };
               return m;
             }),
             chat: { ...d.chat, leafId: realA.id, lastMessageAt: realA.createdAt },
@@ -150,6 +158,22 @@ export const useChats = create<ChatsState>((set, get) => {
         case 'delta':
           bufContent += e.delta;
           schedule();
+          break;
+        case 'tool_start':
+          flush();
+          patchMessage(chatId, assistantId, (m) => ({
+            ...m,
+            parts: [...m.parts, { type: 'tool', id: e.id, name: e.name, args: e.args, status: 'running' }],
+          }));
+          break;
+        case 'tool_end':
+          flush();
+          patchMessage(chatId, assistantId, (m) => ({
+            ...m,
+            parts: m.parts.map((p) =>
+              p.type === 'tool' && p.id === e.id ? { ...p, status: e.status, output: e.output, summary: e.summary, ms: e.ms } : p,
+            ),
+          }));
           break;
         case 'title': {
           const d = get().detail[chatId];

@@ -250,6 +250,13 @@ export const tr = {
   'server.failed': 'Bu adrese bağlanılamadı. Adresi ve sunucunun çalıştığını kontrol et.',
   'server.current': 'Sunucu',
   'server.change': 'Değiştir',
+  'tool.web_search': 'Web araması',
+  'tool.web_fetch': 'Sayfa okuma',
+  'tool.searching': 'Aranıyor…',
+  'tool.fetching': 'Sayfa okunuyor…',
+  'tool.failed': 'Başarısız',
+  'tool.input': 'Girdi',
+  'tool.output': 'Çıktı',
   'error.generic': 'Bir şeyler ters gitti.',
   'error.busy': 'Şu an çok yoğunuz. Birkaç saniye sonra tekrar dene.',
 } as const;

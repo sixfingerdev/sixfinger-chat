@@ -440,3 +440,111 @@
 .quota-note.out {
   color: var(--accent);
 }
+
+/* ---------- Araç kartları ---------- */
+.tool-card {
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.tool-card.running {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.tool-card.failed {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+}
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  text-align: left;
+  color: var(--text-2);
+  font-size: 13.5px;
+}
+.tool-head:disabled {
+  cursor: default;
+}
+.tool-head:not(:disabled):hover {
+  background: var(--surface-2);
+}
+.tool-icon {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+.tool-label {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.tool-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.tool-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+.tool-card.running .tool-state {
+  color: var(--accent);
+}
+.tool-card.failed .tool-state {
+  color: var(--danger);
+}
+.tool-chevron {
+  color: var(--text-3);
+  transition: transform var(--t-fast);
+}
+.tool-card.open .tool-chevron {
+  transform: rotate(90deg);
+}
+.tool-body {
+  border-top: 1px solid var(--line);
+  padding: 8px 12px 12px;
+  background: var(--code-bg);
+}
+.tool-section {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 6px 0 4px;
+}
+.tool-body pre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.spin {
+  animation: tool-spin 0.9s linear infinite;
+}
+@keyframes tool-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

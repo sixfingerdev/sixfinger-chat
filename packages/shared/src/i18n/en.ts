@@ -238,6 +238,13 @@ export const en: Record<DictKey, string> = {
   'server.failed': "Couldn't reach this address. Check it and make sure the server is running.",
   'server.current': 'Server',
   'server.change': 'Change',
+  'tool.web_search': 'Web search',
+  'tool.web_fetch': 'Read page',
+  'tool.searching': 'Searching…',
+  'tool.fetching': 'Reading page…',
+  'tool.failed': 'Failed',
+  'tool.input': 'Input',
+  'tool.output': 'Output',
   'error.generic': 'Something went wrong.',
   'error.busy': 'We\'re busy right now. Try again in a few seconds.',
 };

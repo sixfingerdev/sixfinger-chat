@@ -9,6 +9,7 @@ import { useChats } from '../store/chats.ts';
 import { LogoMark } from './Logo.tsx';
 import { Md as Markdown } from './MarkdownLazy.tsx';
 import { ReasoningBlock } from './ReasoningBlock.tsx';
+import { ToolCard } from './ToolCard.tsx';
 
 interface Props {
   msg: MessageDTO;
@@ -165,7 +166,8 @@ function AssistantMessage({ msg, versions, isLast, live, busy }: Props) {
   const [speaking, setSpeaking] = useState(false);
   const streaming = live || msg.status === 'streaming';
   const hasAnswer = msg.content.length > 0;
-  const waiting = streaming && !hasAnswer && !msg.reasoning;
+  const hasParts = msg.parts.length > 0;
+  const waiting = streaming && !hasAnswer && !msg.reasoning && !hasParts;
 
   useEffect(() => () => {
     if (speaking) stopSpeaking();
@@ -179,7 +181,9 @@ function AssistantMessage({ msg, versions, isLast, live, busy }: Props) {
       <div className="msg-main">
         {waiting && <div className="waiting-line" aria-label={t('msg.thinking')} />}
         <ReasoningBlock text={msg.reasoning} streaming={streaming} hasAnswer={hasAnswer} ms={msg.reasoningMs} />
-        {hasAnswer && <Markdown text={msg.content} />}
+        {hasParts
+          ? msg.parts.map((p, i) => (p.type === 'text' ? <Markdown key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
+          : hasAnswer && <Markdown text={msg.content} />}
         {!streaming && msg.status === 'stopped' && <div className="msg-note">{t('msg.stopped')}</div>}
         {!streaming && msg.status === 'error' && (
           <div className="msg-note error">
