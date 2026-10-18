@@ -192,7 +192,7 @@ export const useChats = create<ChatsState>((set, get) => {
         case 'done':
           finished = true;
           flush();
-          patchMessage(chatId, assistantId, () => e.assistantMessage);
+          patchMessage(chatId, assistantId, () => ({ ...e.assistantMessage, parts: e.assistantMessage.parts ?? [] }));
           set({ generating: null });
           break;
       }

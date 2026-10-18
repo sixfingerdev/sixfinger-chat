@@ -147,7 +147,8 @@ function AssistantMessage({ msg, versions, isLast, live, busy, onMenu }: Message
   const [speaking, setSpeaking] = useState(false);
   const streaming = live || msg.status === 'streaming';
   const hasAnswer = msg.content.length > 0;
-  const hasParts = msg.parts.length > 0;
+  const parts = msg.parts ?? [];
+  const hasParts = parts.length > 0;
   const waiting = streaming && !hasAnswer && !msg.reasoning && !hasParts;
 
   useEffect(
@@ -177,7 +178,7 @@ function AssistantMessage({ msg, versions, isLast, live, busy, onMenu }: Message
         {waiting && <WaitingLine />}
         <ReasoningBlock text={msg.reasoning} streaming={streaming} hasAnswer={hasAnswer} ms={msg.reasoningMs} />
         {hasParts
-          ? msg.parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
+          ? parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
           : hasAnswer && <RichText text={msg.content} />}
         {!streaming && msg.status === 'stopped' && <RNText style={[type.small, { color: c.text3, marginTop: 6 }]}>{t('msg.stopped')}</RNText>}
         {!streaming && msg.status === 'error' && (
