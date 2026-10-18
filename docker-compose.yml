@@ -42,6 +42,8 @@ services:
       BEDROCK_SESSION_TOKEN: ${BEDROCK_SESSION_TOKEN:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
+      # 465 portu (örn. Resend) için SMTP_SECURE=true; 587 (STARTTLS: Gmail, Brevo) için boş bırak.
+      SMTP_SECURE: ${SMTP_SECURE:-}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-SixFinger <no-reply@localhost>}
