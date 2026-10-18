@@ -7,6 +7,8 @@ export * from './types.ts';
 export { tr, type DictKey } from './i18n/tr.ts';
 export { en } from './i18n/en.ts';
 export * from './greetings.ts';
+export * from './code-credits.ts';
+export * from './code-greetings.ts';
 export * from './tools.ts';
 export * from './rich.ts';
 export { widgetKitCss, WIDGET_KIT_JS } from './widget-kit.ts';

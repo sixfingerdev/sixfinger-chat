@@ -9,6 +9,9 @@ import type { Usage } from './services/usage.ts';
 import type { AiProvider } from './services/ai.ts';
 import type { Tools } from './services/tools/index.ts';
 import type { RunHub } from './services/runs.ts';
+import type { Code } from './services/code.ts';
+import type { Github } from './services/github.ts';
+import type { SecretBox } from './lib/secretbox.ts';
 
 export interface AppContext {
   config: Config;
@@ -23,4 +26,9 @@ export interface AppContext {
   tools: Tools;
   /** Sunucuda çalışan yanıt üretimleri (istemciden bağımsız). */
   runs: RunHub;
+  /** SixFinger Code. */
+  code: Code;
+  github: Github;
+  /** Sır şifreleme; CODE_SECRET_KEY yoksa null (Code kapalı). */
+  secrets: SecretBox | null;
 }

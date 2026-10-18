@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthResponse, StreamEvent } from '@sixfinger/shared';
-import { buildApp } from '../src/app.ts';
+import { buildApp, type BuildOptions } from '../src/app.ts';
 import { loadConfig } from '../src/config.ts';
 import type { AppContext } from '../src/context.ts';
 import type { AiChunk, AiProvider, AiRequest } from '../src/services/ai.ts';
@@ -55,7 +55,7 @@ export interface TestEnv {
   mails: Array<{ to: string; code: string; purpose: string }>;
 }
 
-export async function setup(extraTools: ToolDef[] = [], toolsOptions: ToolsOptions = {}): Promise<TestEnv> {
+export async function setup(extraTools: ToolDef[] = [], toolsOptions: ToolsOptions = {}, extra: Partial<BuildOptions> = {}): Promise<TestEnv> {
   const ai = createFakeAi();
   const mails: TestEnv['mails'] = [];
   const mailer: Mailer = {
@@ -63,14 +63,14 @@ export async function setup(extraTools: ToolDef[] = [], toolsOptions: ToolsOptio
       mails.push({ to, code, purpose });
     },
   };
-  const { app, ctx } = await buildApp({ config: loadConfig(), ai, mailer, tools: createTools(extraTools, toolsOptions), migrate: true });
+  const { app, ctx } = await buildApp({ config: loadConfig(), ai, mailer, tools: createTools(extraTools, toolsOptions), migrate: true, ...extra });
   await app.ready();
   return { app, ctx, ai, mails };
 }
 
 export async function resetDb(ctx: AppContext) {
   await ctx.db.query(
-    'truncate users, chats, messages, memories, shares, usage_daily, usage_ip, email_codes, refresh_tokens, user_settings restart identity cascade',
+    'truncate users, chats, messages, memories, shares, usage_daily, usage_ip, email_codes, refresh_tokens, user_settings, github_connections, code_environments, code_sessions, code_credit_daily restart identity cascade',
   );
 }
 

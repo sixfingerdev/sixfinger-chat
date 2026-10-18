@@ -26,6 +26,10 @@ import { createSandboxClient, createTools, type Tools } from './services/tools/i
 import { createCodes } from './services/codes.ts';
 import { createSessions } from './services/sessions.ts';
 import { createUsage } from './services/usage.ts';
+import { createCode } from './services/code.ts';
+import { createGithub } from './services/github.ts';
+import { createSecretBox } from './lib/secretbox.ts';
+import { codeRoutes } from './routes/code.ts';
 
 export interface BuildOptions {
   config?: Config;
@@ -33,6 +37,8 @@ export interface BuildOptions {
   ai?: AiProvider;
   tools?: Tools;
   mailer?: Mailer;
+  /** GitHub istemcisi (testlerde sahte). */
+  github?: ReturnType<typeof createGithub>;
   /** Başlangıçta migrasyonları çalıştır. */
   migrate?: boolean;
 }
@@ -53,6 +59,10 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
   if (opts.migrate ?? true) await migrate(db, (m) => app.log.info(m));
 
   const jwt = createJwt(config);
+  if (config.CODE_SECRET_KEY && config.CODE_SECRET_KEY.length < 32) {
+    throw new Error('CODE_SECRET_KEY en az 32 karakter olmalı.');
+  }
+  const secrets = config.CODE_SECRET_KEY ? createSecretBox(config.CODE_SECRET_KEY) : null;
   const ctx: AppContext = {
     config,
     db,
@@ -63,6 +73,9 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     codes: createCodes(db, config),
     usage: createUsage(db),
     runs: createRunHub(),
+    secrets,
+    github: opts.github ?? createGithub(config),
+    code: createCode(db, config, secrets),
     ai: opts.ai ?? createAi(config, app.log),
     tools:
       opts.tools ??
@@ -138,6 +151,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
       await api.register(meRoutes(ctx, guard));
       await api.register(chatRoutes(ctx, guard));
       await api.register(messageRoutes(ctx, guard));
+      await api.register(codeRoutes(ctx, guard));
     },
     { prefix: '/api' },
   );

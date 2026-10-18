@@ -15,7 +15,7 @@ import type { AppContext } from '../context.ts';
 import type { Guard } from '../guard.ts';
 import type { AuthUser } from '../lib/types.ts';
 import type { Run } from '../services/runs.ts';
-import { HttpError, badRequest, notFound, tierRestricted } from '../lib/errors.ts';
+import { HttpError, badRequest, conflict, notFound, tierRestricted } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
 import type { AiMessage, AiToolCall, Effort } from '../services/ai.ts';
 import { runToolCall, toolSpecs } from '../services/tools/index.ts';
@@ -424,6 +424,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const body = parse(sendMessageSchema, req.body);
         const chat = await getOwnedChat(db, req.params.id, user.id);
         if (!chat) throw notFound('Sohbet bulunamadı.');
+        if (chat.kind === 'code') throw conflict('Code oturumlarında çalıştırma henüz hazır değil.');
 
         if (body.content.length > user.limits.maxMessageChars) {
           throw badRequest(`Mesaj en fazla ${user.limits.maxMessageChars} karakter olabilir.`);
@@ -505,6 +506,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const body = parse(regenerateSchema, req.body);
         const chat = await getOwnedChat(db, req.params.id, user.id);
         if (!chat) throw notFound('Sohbet bulunamadı.');
+        if (chat.kind === 'code') throw conflict('Code oturumlarında çalıştırma henüz hazır değil.');
         const target = await db.query<{ id: string; role: string; parent_id: string | null }>(
           'select id, role, parent_id from messages where id = $1 and chat_id = $2',
           [body.messageId, chat.id],

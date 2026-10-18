@@ -50,6 +50,8 @@ export interface ChatDTO {
   id: string;
   title: string;
   personaId: string;
+  /** `code`: SixFinger Code oturumu (sohbet listesinde görünmez). */
+  kind: 'chat' | 'code';
   pinned: boolean;
   archived: boolean;
   leafId: string | null;
@@ -131,6 +133,8 @@ export interface ConfigDTO {
   limits: TierLimits;
   usage: UsageDTO;
   smtpEnabled: boolean;
+  /** Code özelliğinin bu kullanıcı için durumu (menüde Code sekmesi gösterilsin mi?). */
+  code: { allowed: boolean };
 }
 
 export interface SharedChatDTO {
@@ -155,6 +159,7 @@ export type ErrorCode =
   | 'invalid_code'
   | 'upstream_unavailable'
   | 'upstream_busy'
+  | 'github_required'
   | 'internal';
 
 export interface ApiError {
@@ -175,3 +180,76 @@ export type StreamEvent =
   | { type: 'usage'; usage: UsageDTO }
   | { type: 'done'; assistantMessage: MessageDTO }
   | { type: 'error'; code: ErrorCode; message: string };
+
+// ---------- Code (bulut kodlama oturumları) ----------
+/** Ortamın ağ erişimi: none = yok, trusted = bilinen paket kaynakları, full = tüm internet (yerel ağ hariç), custom = kendi alan adı listen. */
+export type CodeNetwork = 'none' | 'trusted' | 'full' | 'custom';
+
+export interface GithubAccountDTO {
+  login: string;
+  avatarUrl: string;
+}
+
+export interface CodeCreditsDTO {
+  used: number;
+  limit: number;
+  resetsAt: string;
+}
+
+export interface CodeStatusDTO {
+  /** Sunucuda GitHub OAuth ve sır anahtarı ayarlı mı? */
+  available: boolean;
+  /** Bu kullanıcı Code kullanabilir mi (izin listesi + doğrulanmış hesap)? */
+  allowed: boolean;
+  github: GithubAccountDTO | null;
+  credits: CodeCreditsDTO;
+}
+
+export interface GithubRepoDTO {
+  fullName: string;
+  private: boolean;
+  defaultBranch: string;
+  description: string;
+  pushedAt: string | null;
+}
+
+export interface GithubBranchesDTO {
+  defaultBranch: string;
+  branches: string[];
+}
+
+export interface CodeEnvironmentDTO {
+  id: string;
+  name: string;
+  network: CodeNetwork;
+  /** `network: 'custom'` iken izinli alan adları (`*.example.com` desteklenir). */
+  allowedDomains: string[];
+  /** Kurulum betiği: oturum çalışma alanı ilk hazırlandığında çalışır (ör. `npm ci`). */
+  setupScript: string;
+  /** Çalışma alanı disk tavanı (MB). */
+  diskMb: number;
+  /** Ortam değişkenleri. Yalnızca tek ortam okunurken döner, listede boştur. */
+  envVars?: Record<string, string>;
+  /** Listede gösterim için değişken adlarının sayısı. */
+  envVarCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CodeSessionStatus = 'idle' | 'running' | 'error';
+
+export interface CodeSessionDTO {
+  chatId: string;
+  title: string;
+  repo: string;
+  baseBranch: string;
+  workBranch: string;
+  environmentId: string | null;
+  environmentName: string | null;
+  status: CodeSessionStatus;
+  diskUsedMb: number;
+  /** Son mesajdan kesit (liste kartında). */
+  preview: string;
+  createdAt: string;
+  lastMessageAt: string | null;
+}

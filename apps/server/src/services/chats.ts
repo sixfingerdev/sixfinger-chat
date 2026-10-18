@@ -7,6 +7,7 @@ export interface ChatRow {
   title: string;
   title_generated: boolean;
   persona_id: string;
+  kind: 'chat' | 'code';
   pinned: boolean;
   archived: boolean;
   leaf_id: string | null;
@@ -41,6 +42,7 @@ export function toChatDTO(c: ChatRow, query?: string): ChatDTO {
     id: c.id,
     title: c.title,
     personaId: c.persona_id,
+    kind: c.kind ?? 'chat',
     pinned: c.pinned,
     archived: c.archived,
     leafId: c.leaf_id,

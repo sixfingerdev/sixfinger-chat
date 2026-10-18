@@ -34,6 +34,7 @@ export function meRoutes(ctx: AppContext, guard: Guard) {
         limits: TIER_LIMITS[user.tier],
         usage: await usage.get(user.id, user.tier),
         smtpEnabled: config.smtpEnabled,
+        code: { allowed: ctx.code.isAllowed(user) },
         personas: PERSONAS,
         models: MODELS,
       };
@@ -144,7 +145,7 @@ export function meRoutes(ctx: AppContext, guard: Guard) {
                 coalesce((select json_agg(json_build_object('id', m.id, 'parentId', m.parent_id, 'role', m.role,
                           'content', m.content, 'reasoning', m.reasoning, 'createdAt', m.created_at) order by m.seq)
                           from messages m where m.chat_id = c.id), '[]'::json) as messages
-           from chats c where c.user_id = $1 and c.last_message_at is not null order by c.created_at`,
+           from chats c where c.user_id = $1 and c.kind = 'chat' and c.last_message_at is not null order by c.created_at`,
         [user.id],
       );
       const row = await findUserById(db, user.id);

@@ -105,3 +105,11 @@ export const PASSWORD_MIN = 8;
 export const PASSWORD_MAX = 128;
 export const MEMORY_MAX_ITEMS = 50;
 export const MEMORY_MAX_CHARS = 300;
+
+/** Code çalışma alanı disk sınırları (MB). Ortam başına ayarlanır. */
+export const CODE_DISK_MIN_MB = 128;
+export const CODE_DISK_DEFAULT_MB = 512;
+export const CODE_DISK_MAX_MB = 1536;
+export const CODE_MAX_ENVIRONMENTS = 10;
+export const CODE_MAX_SESSIONS = 30;
+export const CODE_MAX_ENV_VARS = 30;
