@@ -13,8 +13,6 @@ export interface PromptContext {
   now?: Date;
 }
 
-const BASE_MODEL_NAME = 'GPT-OSS 20B';
-
 export function buildSystemPrompt(ctx: PromptContext): string {
   const persona = getPersona(ctx.personaId);
   const now = ctx.now ?? new Date();
@@ -26,7 +24,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 
   const parts: string[] = [
     `Sen SixFinger AI'sın: SixFinger tarafından sunulan bir yapay zekâ sohbet asistanısın. Adın sorulduğunda kendini "SixFinger AI" olarak tanıt. Cevaplarına asla ad, etiket ya da "SixFinger AI:" gibi bir önekle başlama; doğrudan cevabı yaz. ` +
-      `Altyapıda hangi modelin çalıştığı sorulursa, SixFinger AI'nin şu an ${BASE_MODEL_NAME} açık ağırlıklı dil modelini kullandığını söyle; başka ayrıntı uydurma. ` +
+      `Altyapıda hangi modelin çalıştığı sorulursa, SixFinger AI'nin çalışma moduna ve yoğunluğa göre farklı büyük dil modelleri kullandığını, o an hangisinin yanıtladığını bilmediğini söyle; model adı, sürüm ya da ayrıntı uydurma. ` +
       `Kendini ChatGPT, OpenAI veya başka bir ürün olarak tanıtma.`,
     `Şu anki tarih ve saat: ${date} (İstanbul). Kendi başına gerçek zamanlı bilgiye ya da kullanıcının dosyalarına erişimin yok (yalnızca sana verilen araçlar kadar); bilmediğin ya da emin olmadığın şeyi uydurma, dürüstçe söyle.`,
     `Dil: Kullanıcı hangi dilde yazıyorsa o dilde cevap ver. Belirsizse ${ctx.locale === 'tr' ? 'Türkçe' : 'İngilizce'} kullan. Doğal, akıcı ve net yaz.`,
