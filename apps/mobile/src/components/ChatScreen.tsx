@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Text as RNText, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
+import { FlatList, Text as RNText, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { ArrowDown } from 'lucide-react-native';
@@ -10,15 +10,21 @@ import { useT } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
 import { activePath, indexMessages, versionsOf } from '../lib/tree.ts';
 import { useChats } from '../store/chats.ts';
+import { useUi } from '../store/ui.ts';
 import { ArtifactViewer } from './ArtifactViewer.tsx';
 import { Composer } from './Composer.tsx';
 import { EmptyState } from './EmptyState.tsx';
 import { MessageItem } from './MessageItem.tsx';
+import { ReasoningBody, ReasoningHead, reasoningState } from './ReasoningRows.tsx';
 import { EditDialog, MessageMenu } from './MessageSheets.tsx';
 import { TopBar } from './TopBar.tsx';
 import { Button, Press } from './Ui.tsx';
 
-/** Ana sohbet ekranı: üst çubuk, ters çevrilmiş mesaj listesi ve composer. */
+type Row =
+  | { key: string; kind: 'head' | 'body' | 'end'; msg: MessageDTO; live: boolean }
+  | { key: string; kind: 'msg'; msg: MessageDTO; live: boolean; last: boolean };
+
+/** Ana sohbet ekranı: üst çubuk, mesaj listesi ve composer. */
 export function ChatScreen() {
   const { c } = useTheme();
   const t = useT();
@@ -30,12 +36,31 @@ export function ChatScreen() {
   const [menuMsg, setMenuMsg] = useState<MessageDTO | null>(null);
   const [editMsg, setEditMsg] = useState<MessageDTO | null>(null);
   const [showJump, setShowJump] = useState(false);
-  const scrollRef = useRef<FlatList<MessageDTO>>(null);
+  const scrollRef = useRef<FlatList<Row>>(null);
+  const reasoningOpen = useUi((st) => st.reasoningOpen);
 
   const idx = useMemo(() => (detail ? indexMessages(detail.messages) : null), [detail?.messages]); // eslint-disable-line react-hooks/exhaustive-deps
   const path = useMemo(() => (idx && detail ? activePath(idx, detail.chat.leafId) : []), [idx, detail?.chat.leafId]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Ters çevrilmiş liste: en yeni mesaj dizinin başında.
-  const data = useMemo(() => [...path].reverse(), [path]);
+
+  // Düşünce metni olan asistan mesajı birkaç satıra bölünür: [başlık (yapışkan)] [metin] [bitiş (yapışkan, boş)] [mesaj].
+  // Başlık, bitiş satırı gelene kadar ekranın üstünde yapışık kalır; böylece uzun düşünceyi aşağı inerken de kapatabilirsin.
+  const { rows, sticky } = useMemo(() => {
+    const out: Row[] = [];
+    const stick: number[] = [];
+    path.forEach((m, i) => {
+      if (m.role === 'assistant' && m.reasoning) {
+        const live = generating?.assistantId === m.id;
+        const { open } = reasoningState(m, live, reasoningOpen[m.id]);
+        stick.push(out.length);
+        out.push({ key: `${m.id}:head`, kind: 'head', msg: m, live });
+        if (open) out.push({ key: `${m.id}:body`, kind: 'body', msg: m, live });
+        stick.push(out.length);
+        out.push({ key: `${m.id}:end`, kind: 'end', msg: m, live });
+      }
+      out.push({ key: m.id, kind: 'msg', msg: m, live: generating?.assistantId === m.id, last: i === path.length - 1 });
+    });
+    return { rows: out, sticky: stick };
+  }, [path, generating?.assistantId, reasoningOpen]);
 
   const busy = Boolean(generating);
   const showEmpty = !chatId || (detail && detail.messages.length === 0 && !generating);
@@ -48,23 +73,64 @@ export function ChatScreen() {
     return () => haptic.tap();
   }, [generating?.assistantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // --- Kaydırma: yalnızca kullanıcı en alttaysa akışı takip et ---
+  // `following`: yeni içerik geldikçe en alta kaydır. Kullanıcı yukarı çekince kapanır, en alta dönünce açılır.
+  const following = useRef(true);
+  const metrics = useRef({ offset: 0, content: 0, view: 0 });
+  // `scrollToEnd` yaklaşık ölçülere dayanır; gerçek içerik yüksekliğine kaydırmak (platform sınırlar) daha güvenilir.
+  const toEnd = useCallback((animated: boolean) => scrollRef.current?.scrollToOffset({ offset: metrics.current.content, animated }), []);
+  const distance = () => metrics.current.content - metrics.current.view - metrics.current.offset;
+
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setShowJump(e.nativeEvent.contentOffset.y > 420);
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const prev = metrics.current.offset;
+    metrics.current = { offset: contentOffset.y, content: contentSize.height, view: layoutMeasurement.height };
+    const d = distance();
+    // Alta yakınsa takip açık. Uzaktaysa ve offset geriye gittiyse kullanıcı yukarı çekmiştir: takibi bırak.
+    // (İçerik büyümesi ve bizim kaydırmalarımız offset'i yalnızca artırır; böylece bunlar takibi bozmaz.)
+    if (d <= 24) following.current = true;
+    else if (contentOffset.y < prev - 1) following.current = false;
+    setShowJump(d > 420);
   }, []);
+  const onContentSizeChange = useCallback(
+    (_w: number, h: number) => {
+      metrics.current.content = h;
+      if (following.current) toEnd(false);
+    },
+    [toEnd],
+  );
+  const onLayout = useCallback(
+    (e: LayoutChangeEvent) => {
+      metrics.current.view = e.nativeEvent.layout.height;
+      if (following.current) toEnd(false);
+    },
+    [toEnd],
+  );
+  // Yeni bir üretim başlayınca (mesaj gönderildi) takibi aç.
+  useEffect(() => {
+    if (generating) following.current = true;
+  }, [generating?.assistantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const renderItem = useCallback(
-    ({ item, index }: { item: MessageDTO; index: number }) => (
-      <MessageItem
-        msg={item}
-        versions={versionsOf(idx!, item)}
-        isLast={index === 0}
-        live={generating?.assistantId === item.id}
-        busy={busy}
-        onEdit={setEditMsg}
-        onMenu={setMenuMsg}
-      />
-    ),
-    [idx, generating?.assistantId, busy],
+    ({ item }: { item: Row }) => {
+      if (item.kind !== 'msg') {
+        if (item.kind === 'head') return <ReasoningHead msg={item.msg} live={item.live} />;
+        if (item.kind === 'body') return <ReasoningBody text={item.msg.reasoning} />;
+        return <View style={{ height: 0 }} />;
+      }
+      return (
+        <MessageItem
+          msg={item.msg}
+          versions={versionsOf(idx!, item.msg)}
+          isLast={item.last}
+          live={item.live}
+          busy={busy}
+          onEdit={setEditMsg}
+          onMenu={setMenuMsg}
+        />
+      );
+    },
+    [idx, busy],
   );
 
   return (
@@ -88,27 +154,33 @@ export function ChatScreen() {
         {showEmpty && !loading && !failed && <EmptyState />}
         {!showEmpty && !loading && !failed && (
           <FlatList
+            key={chatId}
             ref={scrollRef}
-            inverted
-            data={data}
-            keyExtractor={(m) => m.id}
+            data={rows}
+            keyExtractor={(r) => r.key}
             renderItem={renderItem}
+            stickyHeaderIndices={sticky}
             onScroll={onScroll}
-            scrollEventThrottle={64}
+            onContentSizeChange={onContentSizeChange}
+            onLayout={onLayout}
+            scrollEventThrottle={16}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
-            initialNumToRender={10}
+            initialNumToRender={12}
             maxToRenderPerBatch={8}
             windowSize={9}
-            // Ters çevrilmiş listede flex-end, kısa konuşmaları ekranın ÜSTÜNE yaslar (web'deki gibi);
-            // uzun konuşmalarda en yeni mesaj altta kalır.
-            contentContainerStyle={{ paddingVertical: 8, flexGrow: 1, justifyContent: 'flex-end' }}
+            contentContainerStyle={{ paddingVertical: 8 }}
             showsVerticalScrollIndicator={false}
           />
         )}
         {showJump && (
           <Animated.View entering={FadeIn.duration(160)} exiting={FadeOut.duration(120)} style={{ position: 'absolute', alignSelf: 'center', bottom: 12 }}>
-            <JumpButton onPress={() => scrollRef.current?.scrollToOffset({ offset: 0, animated: true })} />
+            <JumpButton
+              onPress={() => {
+                following.current = true;
+                toEnd(true);
+              }}
+            />
           </Animated.View>
         )}
       </View>

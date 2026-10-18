@@ -110,6 +110,8 @@ export const en: Record<DictKey, string> = {
   'msg.nextVersion': 'Next version',
   'msg.stopped': 'Response stopped.',
   'msg.failed': 'Couldn\'t generate a response.',
+  'msg.editTitle': 'Edit message',
+  'msg.editHint': 'Sending creates a new version from this point; you can return to the earlier one with the ‹ › arrows.',
   'msg.editSave': 'Send',
   'msg.thinking': 'Thinking',
   'msg.thought': 'Thought',

@@ -290,11 +290,16 @@ export function ChatPage() {
   const [showJump, setShowJump] = useState(false);
   const last = path[path.length - 1];
 
+  const lastTop = useRef(0);
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    stick.current = dist < 140;
+    // Alta yakınsa akışı takip et; uzaktaysa ve kullanıcı yukarı çektiyse bırak.
+    // (İçerik büyümesi ve kendi kaydırmamız scrollTop'u yalnızca artırır, takibi bozmaz.)
+    if (dist <= 24) stick.current = true;
+    else if (el.scrollTop < lastTop.current - 1) stick.current = false;
+    lastTop.current = el.scrollTop;
     setShowJump(dist > 360);
   };
 

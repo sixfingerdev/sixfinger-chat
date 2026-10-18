@@ -255,6 +255,11 @@
   margin: 2px 0 10px;
 }
 .reasoning-head {
+  /* Uzun düşünce metninde aşağı inilse bile başlık üstte kalır ve oradan kapatılabilir. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
   display: inline-flex;
   align-items: center;
   gap: 6px;

@@ -13,7 +13,6 @@ import type { Versions } from '../lib/tree.ts';
 import { useChats } from '../store/chats.ts';
 import { LogoMark } from './Logo.tsx';
 import { RichText } from './RichText.tsx';
-import { ReasoningBlock } from './ReasoningBlock.tsx';
 import { ToolCard } from './ToolCard.tsx';
 import { WaitingLine } from './WaitingLine.tsx';
 import { Press } from './Ui.tsx';
@@ -176,7 +175,6 @@ function AssistantMessage({ msg, versions, isLast, live, busy, onMenu }: Message
         style={{ minWidth: 0 }}
       >
         {waiting && <WaitingLine />}
-        <ReasoningBlock text={msg.reasoning} streaming={streaming} hasAnswer={hasAnswer} ms={msg.reasoningMs} />
         {hasParts
           ? parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
           : hasAnswer && <RichText text={msg.content} />}

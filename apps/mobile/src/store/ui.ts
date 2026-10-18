@@ -37,6 +37,10 @@ interface UiState {
   drawerOpen: boolean;
   setDrawer: (open: boolean) => void;
 
+  /** Düşünce bloklarının elle açılıp kapatılma durumu (mesaj kimliği → açık mı). Yoksa otomatik: düşünürken açık, cevap başlayınca kapalı. */
+  reasoningOpen: Record<string, boolean>;
+  setReasoningOpen: (id: string, open: boolean) => void;
+
   /** Tam ekran açılan artifact (kimlik). */
   artifactId: string | null;
   openArtifact: (id: string) => void;
@@ -97,6 +101,9 @@ export const useUi = create<UiState>((set, get) => ({
     kv.set('sf.thinking', effort);
     set({ effort });
   },
+
+  reasoningOpen: {},
+  setReasoningOpen: (id, open) => set((s) => ({ reasoningOpen: { ...s.reasoningOpen, [id]: open } })),
 
   drawerOpen: false,
   setDrawer: (drawerOpen) => set({ drawerOpen }),

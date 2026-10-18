@@ -114,6 +114,8 @@ export const tr = {
   'msg.nextVersion': 'Sonraki sürüm',
   'msg.stopped': 'Yanıt durduruldu.',
   'msg.failed': 'Yanıt üretilemedi.',
+  'msg.editTitle': 'Mesajı düzenle',
+  'msg.editHint': 'Gönderince bu noktadan yeni bir sürüm oluşur; öncekine ‹ › okları ile geri dönebilirsin.',
   'msg.editSave': 'Gönder',
   'msg.thinking': 'Düşünüyor',
   'msg.thought': 'Düşündü',

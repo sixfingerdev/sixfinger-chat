@@ -89,9 +89,14 @@ createServer(async (req, res) => {
   }
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   const send = (delta) => res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`);
-  for (const w of 'Kullanıcı bir şey soruyor, kısa cevap vermeliyim.'.split(' ')) {
+  // LONGTHINK: uzun ve yavaş akan düşünce (kaydırma / yapışkan başlık denemeleri için).
+  const long = /LONGTHINK/.test(String(last));
+  const thought = long
+    ? Array.from({ length: 40 }, (_, i) => `Adım ${i + 1}: önce durumu değerlendiriyorum, sonra seçenekleri tek tek karşılaştırıp en uygun olanı seçmeye çalışıyorum.\n\n`).join('')
+    : 'Kullanıcı bir şey soruyor, kısa cevap vermeliyim.';
+  for (const w of thought.split(' ')) {
     send({ reasoning: `${w} `, role: 'assistant' });
-    await sleep(15);
+    await sleep(long ? 45 : 15);
   }
   for (const ch of text.match(/.{1,6}/gs) ?? []) {
     send({ content: ch, role: 'assistant' });
