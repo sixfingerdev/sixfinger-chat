@@ -62,7 +62,7 @@ services:
     group_add: ['${DOCKER_GID:-999}']
     mem_limit: 256m
     environment:
-      SANDBOXD_TOKEN: ${SANDBOXD_TOKEN:?SANDBOXD_TOKEN gerekli (openssl rand -base64 32)}
+      SANDBOXD_TOKEN: ${SANDBOXD_TOKEN:-}   # sandboxd açılırken en az 24 karakter olduğunu kendisi doğrular
       SANDBOX_NETWORK: ${SANDBOX_NETWORK:-none}
       SANDBOX_IMAGE: ${SANDBOX_IMAGE:-sixfinger-sandbox:latest}
       MAX_CONTAINERS: ${SANDBOX_MAX_CONTAINERS:-6}
