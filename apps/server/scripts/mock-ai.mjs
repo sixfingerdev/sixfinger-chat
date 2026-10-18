@@ -1,6 +1,7 @@
 // Pollinations/OpenAI uyumlu sahte yapay zekâ sunucusu (çevrimdışı geliştirme ve demo için).
 // Kullanım:  node scripts/mock-ai.mjs   →   AI_BASE_URL=http://127.0.0.1:8790/openai
 import { createServer } from 'node:http';
+import { WIDGET_EXAMPLES } from '../src/services/widget-guide.ts';
 
 const PORT = Number(process.env.MOCK_AI_PORT ?? 8790);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -41,7 +42,21 @@ const ps=Array.from({length:90},()=>({x:Math.random()*c.width,y:Math.random()*c.
 </artifact>
 İstersen renkleri değiştirebilirim.`;
 
+const RAW = `Ham HTML (stil yok):
+<widget title="Ham" height="260">
+<h3>Kredi hesabı</h3>
+<p>Aylık taksiti hesaplamak için değerleri gir.</p>
+<label>Tutar</label> <input type="number" value="250000">
+<label>Vade (ay)</label> <input type="range" min="6" max="60" value="36">
+<select><option>Konut</option><option>İhtiyaç</option></select>
+<button>Hesapla</button> <button class="primary">Başvur</button>
+<table><tr><th>Ay</th><th>Taksit</th></tr><tr><td>12</td><td>24.180 ₺</td></tr><tr><td>24</td><td>13.420 ₺</td></tr></table>
+</widget>`;
+
 function answerFor(text) {
+  if (/KITCALC/.test(text)) return 'Dene:\n' + WIDGET_EXAMPLES.CALCULATOR + '\nBitti.';
+  if (/KITCHART/.test(text)) return 'Grafik:\n' + WIDGET_EXAMPLES.BAR_CHART + '\nBitti.';
+  if (/WIDGETRAW/.test(text)) return RAW;
   if (/WIDGETTEST/.test(text)) return WIDGET;
   if (/ARTIFACTTEST/.test(text)) return ARTIFACT;
   return [

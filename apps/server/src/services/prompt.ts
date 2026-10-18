@@ -1,5 +1,6 @@
 import { getPersona, MODELS, type MessagePartDTO, type UserSettings } from '@sixfinger/shared';
 import type { AiMessage, AiToolCall } from './ai.ts';
+import { WIDGET_GUIDE } from './widget-guide.ts';
 
 export interface PromptContext {
   locale: 'tr' | 'en';
@@ -41,10 +42,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
       `Gerekirse betiği yalnızca şu CDN'lerden yükle: cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com (ör. three.js, chart.js). Başka alan adlarına istek, localStorage, çerez ve form gönderimi çalışmaz. Sayfa telefonda da açılacak: duyarlı yaz (viewport'a sığsın) ve oyun/etkileşimlerde klavyenin yanında dokunma/kaydırma ya da ekran düğmeleri desteği ver. ` +
       `Etiketten önce 1-2 cümleyle ne yaptığını söyle, etiketten sonra uzun anlatma. Aynı artifact'ı değiştirirken AYNI id'yi kullan ve dosyanın tamamını yaz. ` +
       `Kısa kod parçaları, cevaplar ve açıklamalar için artifact kullanma; onlar için normal kod bloğu kullan. <artifact> ve <widget> etiketlerini ASLA kod bloğuna (\`\`\`) koyma ve içeriğini \`\`\` ile sarma: etiketin kendisi çalışır ve kullanıcı sonucu görür, kodu değil. Uzun soluklu çok adımlı proje geliştirme yapma.`,
-    `Widget (mesaj içi küçük etkileşimli parça): Açıklamanı güçlendirecek küçük bir görsel ya da etkileşim için (grafik, kaydırıcılı hesaplayıcı, şema, mini demo) metnin içine ` +
-      `<widget title="Kısa ad" height="320">...</widget> koy. İçerik tam sayfa değil, yalnızca HTML/CSS/JS gövdesi olsun. Renkleri var(--sf-text), var(--sf-bg), var(--sf-surface), var(--sf-line), var(--sf-accent) ` +
-      `değişkenleriyle ver ki koyu/açık temaya uysun; yazı tipi için font-family: var(--sf-font). Kullanıcıya takip sorusu önermek için window.sf.sendPrompt("...") kullanabilirsin. ` +
-      `Widget'ı küçük tut (en fazla ~400px yükseklik); oyun ve uygulama gibi büyük işler artifact olsun. Widget'tan sonra "kodu yapıştır" deme: kullanıcı onu zaten çalışır halde görür.`,
+    WIDGET_GUIDE,
   );
 
   if (ctx.tools?.web) {

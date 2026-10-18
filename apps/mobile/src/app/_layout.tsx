@@ -20,7 +20,6 @@ import { ChatDrawer } from '../components/ChatDrawer.tsx';
 import { LogoMark } from '../components/Logo.tsx';
 import { Toasts } from '../components/Toasts.tsx';
 import { Button } from '../components/Ui.tsx';
-import { router } from 'expo-router';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -42,7 +41,6 @@ function Shell() {
         <LogoMark size={40} />
         <RNText style={[type.heading as never, { color: c.text, textAlign: 'center' }]}>{bootError ?? t('common.networkError')}</RNText>
         <Button label={t('common.retry')} onPress={() => void useAuth.getState().boot()} style={{ alignSelf: 'stretch' }} />
-        <Button label={t('server.change')} variant="ghost" onPress={() => router.push('/connect')} />
       </View>
     );
   }
@@ -55,7 +53,6 @@ function Shell() {
           <Stack.Screen name="index" options={{ animation: 'none' }} />
           <Stack.Screen name="auth" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="connect" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
         </Stack>
       </ChatDrawer>
       <Toasts />

@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight, Lock, Trash2, X } from 'lucide-react-native'
 import { PERSONAS, type MemoryDTO, type SessionDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
-import { api, ApiError, getApiBase } from '../lib/api.ts';
+import { api, ApiError } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { shareText } from '../lib/export.ts';
 import { timeUntil } from '../lib/format.ts';
@@ -414,7 +414,6 @@ export default function SettingsScreen() {
 
         {/* Sunucu + sürüm */}
         <Section title="SixFinger">
-          <Row label={t('server.current')} hint={getApiBase()} right={<ChevronRight size={18} color={c.text3} />} onPress={() => router.push('/connect')} />
           <Row label="Sürüm" hint={`${Constants.expoConfig?.version ?? '—'}`} />
         </Section>
 

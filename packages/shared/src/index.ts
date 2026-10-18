@@ -8,3 +8,4 @@ export { en } from './i18n/en.ts';
 export * from './greetings.ts';
 export * from './tools.ts';
 export * from './rich.ts';
+export { widgetKitCss, WIDGET_KIT_JS } from './widget-kit.ts';

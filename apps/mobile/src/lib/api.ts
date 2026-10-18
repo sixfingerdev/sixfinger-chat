@@ -15,20 +15,13 @@ import type {
   UsageDTO,
 } from '@sixfinger/shared';
 import { fetch } from 'expo/fetch';
-import { kv, secureSession } from './storage.ts';
+import { secureSession } from './storage.ts';
 
-/** Uygulamanın varsayılan sunucusu; kullanıcı bağlantı ekranından değiştirebilir. */
+/** Uygulamanın sunucusu. Derleme sırasında EXPO_PUBLIC_API_URL ile değiştirilebilir (geliştirme/test için). */
 export const DEFAULT_API_BASE: string = (process.env.EXPO_PUBLIC_API_URL ?? 'https://chat.sixfinger.live').replace(/\/$/, '');
-const API_BASE_KEY = 'sf.apiBase';
 
 export function getApiBase(): string {
-  const saved = kv.get(API_BASE_KEY);
-  return saved ? saved.replace(/\/$/, '') : DEFAULT_API_BASE;
-}
-
-export function setApiBase(url: string): void {
-  if (url) kv.set(API_BASE_KEY, url.replace(/\/$/, ''));
-  else kv.remove(API_BASE_KEY);
+  return DEFAULT_API_BASE;
 }
 
 export class ApiError extends Error {

@@ -8,6 +8,8 @@
  * uzun HTML'i JSON argümanına kaçışlama derdi olmaz. Akış sırasında yarım kalan bloklar `closed: false` döner.
  */
 
+import { WIDGET_KIT_JS, widgetKitCss } from './widget-kit.ts';
+
 export const ARTIFACT_KINDS = ['html', 'svg', 'markdown', 'mermaid'] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 
@@ -195,7 +197,9 @@ function prelude(vars: Record<string, string>, dark: boolean, mode: 'artifact' |
     `if(window.ResizeObserver){new ResizeObserver(h).observe(document.documentElement)}else{setInterval(h,500)}` +
     `addEventListener('error',function(e){post({type:'error',message:String(e.message||e)})});` +
     `window.addEventListener('unhandledrejection',function(e){post({type:'error',message:String(e.reason)})});` +
-    `})();</script>`
+    `})();</script>` +
+    `<style>${widgetKitCss(dark)}</style>` +
+    `<script>${WIDGET_KIT_JS}document.documentElement.classList.add('sf-${mode}');</script>`
   );
 }
 

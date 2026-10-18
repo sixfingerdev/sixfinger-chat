@@ -81,6 +81,18 @@ describe('buildSandboxDoc', () => {
     }
   });
 
+  it('widget kiti tema rengine göre gömülür', () => {
+    const dark = buildSandboxDoc({ ...base, kind: 'html', content: '<div class="sf-card">x</div>' });
+    const light = buildSandboxDoc({ ...base, dark: false, kind: 'html', content: '<div class="sf-card">x</div>' });
+    for (const doc of [dark, light]) {
+      expect(doc).toContain('.sf-card');
+      expect(doc).toContain('--sf-c1');
+      expect(doc).toContain('sf.chartDefaults');
+    }
+    expect(dark).toContain('--sf-c2:#6aa8ff');
+    expect(light).toContain('--sf-c2:#1d63c9');
+  });
+
   it('tam HTML belgesinin head\'ine enjekte eder', () => {
     const doc = buildSandboxDoc({ ...base, kind: 'html', content: '<!doctype html><html><head><title>T</title></head><body>g</body></html>' });
     expect(doc.indexOf('Content-Security-Policy')).toBeLessThan(doc.indexOf('<title>'));
