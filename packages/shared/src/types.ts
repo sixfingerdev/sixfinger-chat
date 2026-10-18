@@ -69,6 +69,31 @@ export interface AttachmentDTO {
 
 export type MessageStatus = 'complete' | 'streaming' | 'error' | 'stopped';
 
+/** Modelin çağırabildiği araçlar. */
+export type ToolName = 'web_search' | 'web_fetch';
+
+/** Bir araç çağrısının yaşam döngüsü. */
+export type ToolStatus = 'running' | 'done' | 'error';
+
+/**
+ * Asistan mesajının sıralı parçaları: metin ve araç çağrıları araya girerek akar
+ * (ör. metin → web_search → web_fetch → metin).
+ */
+export type MessagePartDTO =
+  | { type: 'text'; text: string }
+  | {
+      type: 'tool';
+      id: string;
+      name: string;
+      args: Record<string, unknown>;
+      status: ToolStatus;
+      /** Modele geri verilen sonucun (kısaltılmış) metni. */
+      output?: string;
+      /** Kartta gösterilen tek satırlık özet ("5 sonuç", "example.com"). */
+      summary?: string;
+      ms?: number;
+    };
+
 export interface MessageDTO {
   id: string;
   chatId: string;
@@ -82,6 +107,8 @@ export interface MessageDTO {
   feedback: 1 | -1 | null;
   /** Düşünme süresi (ms) */
   reasoningMs: number | null;
+  /** Sıralı parçalar. Eski mesajlarda boştur; o zaman `content` gösterilir. */
+  parts: MessagePartDTO[];
   createdAt: string;
 }
 
@@ -137,6 +164,8 @@ export type StreamEvent =
   | { type: 'start'; userMessage: MessageDTO | null; assistantMessage: MessageDTO }
   | { type: 'reasoning'; delta: string }
   | { type: 'delta'; delta: string }
+  | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
+  | { type: 'tool_end'; id: string; status: ToolStatus; output: string; summary?: string; ms: number }
   | { type: 'title'; title: string }
   | { type: 'memory'; memory: MemoryDTO }
   | { type: 'usage'; usage: UsageDTO }

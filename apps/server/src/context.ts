@@ -7,6 +7,7 @@ import type { Sessions } from './services/sessions.ts';
 import type { Codes } from './services/codes.ts';
 import type { Usage } from './services/usage.ts';
 import type { AiProvider } from './services/ai.ts';
+import type { Tools } from './services/tools/index.ts';
 
 export interface AppContext {
   config: Config;
@@ -18,4 +19,5 @@ export interface AppContext {
   codes: Codes;
   usage: Usage;
   ai: AiProvider;
+  tools: Tools;
 }

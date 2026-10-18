@@ -1,9 +1,25 @@
 import type { Config } from '../config.ts';
 import { HttpError } from '../lib/errors.ts';
 
+/** Modelin istediği bir araç çağrısı (OpenAI uyumlu biçim). `arguments` JSON metnidir. */
+export interface AiToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+export interface AiToolSpec {
+  type: 'function';
+  function: { name: string; description: string; parameters: Record<string, unknown> };
+}
+
 export interface AiMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  /** Yalnızca asistan: bu turda istenen araç çağrıları. */
+  tool_calls?: AiToolCall[];
+  /** Yalnızca tool: hangi çağrının sonucu. */
+  tool_call_id?: string;
 }
 
 export type Effort = 'low' | 'medium' | 'high';
@@ -14,12 +30,16 @@ export interface AiRequest {
   effort?: Effort;
   temperature?: number;
   maxTokens?: number;
+  tools?: AiToolSpec[];
+  /** Araç turlarının devamında: hız sınırına takılınca daha uzun beklemeyi göze al. */
+  patient?: boolean;
 }
 
-export interface AiChunk {
-  type: 'reasoning' | 'content';
-  text: string;
-}
+export type AiChunk =
+  | { type: 'reasoning'; text: string }
+  | { type: 'content'; text: string }
+  /** Akış bitince, model araç çağırmak istediyse bir kez gelir. */
+  | { type: 'tool_calls'; calls: AiToolCall[] };
 
 export interface AiProvider {
   stream(req: AiRequest): AsyncGenerator<AiChunk, void, void>;
@@ -103,11 +123,13 @@ export function createPollinations(
       temperature: req.temperature ?? 0.7,
       reasoning_effort: req.effort ?? 'medium',
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+      ...(req.tools?.length ? { tools: req.tools, tool_choice: 'auto' } : {}),
     });
   }
 
   // Pollinations anonim katmanı IP başına kısa bir bekleme uygular (402/429). Aralıklı yeniden denenir.
   const THROTTLE_DELAYS = [1_500, 3_000, 5_000, 8_000];
+  const PATIENT_THROTTLE_DELAYS = [3_000, 5_000, 8_000, 12_000, 15_000];
   const ERROR_DELAYS = [800, 2_000];
   let lastStart = 0;
   const MIN_GAP_MS = 600;
@@ -153,9 +175,10 @@ export function createPollinations(
           throw new HttpError(502, 'upstream_unavailable', `Yapay zekâ servisi hata verdi (${res.status}).`);
         }
         const throttleStatus = res.status === 402 || res.status === 429;
-        delay = throttleStatus ? THROTTLE_DELAYS[throttled++] : ERROR_DELAYS[failed++];
+        const throttleDelays = req.patient ? PATIENT_THROTTLE_DELAYS : THROTTLE_DELAYS;
+        delay = throttleStatus ? throttleDelays[throttled++] : ERROR_DELAYS[failed++];
         if (delay !== undefined && Number.isFinite(retryAfter) && retryAfter > 0) {
-          delay = Math.max(delay, Math.min(retryAfter * 1_000, 10_000));
+          delay = Math.max(delay, Math.min(retryAfter * 1_000, req.patient ? 20_000 : 10_000));
         }
       } else {
         delay = ERROR_DELAYS[failed++];
@@ -177,6 +200,7 @@ export function createPollinations(
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
+      const calls = new Map<number, AiToolCall>();
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -203,7 +227,25 @@ export function createPollinations(
             const reasoning = delta.reasoning ?? delta.reasoning_content;
             if (typeof reasoning === 'string' && reasoning) yield { type: 'reasoning', text: reasoning };
             if (typeof delta.content === 'string' && delta.content) yield { type: 'content', text: delta.content };
+            // Araç çağrıları parça parça gelir: `index` ile birleştirilir.
+            if (Array.isArray(delta.tool_calls)) {
+              for (const tc of delta.tool_calls) {
+                const i = typeof tc.index === 'number' ? tc.index : 0;
+                const cur = calls.get(i) ?? { id: '', type: 'function' as const, function: { name: '', arguments: '' } };
+                if (tc.id) cur.id = tc.id;
+                if (tc.function?.name) cur.function.name += tc.function.name;
+                if (typeof tc.function?.arguments === 'string') cur.function.arguments += tc.function.arguments;
+                calls.set(i, cur);
+              }
+            }
           }
+        }
+        if (calls.size) {
+          const list = [...calls.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([, c], n) => ({ ...c, id: c.id || `call_${Date.now().toString(36)}_${n}` }))
+            .filter((c) => c.function.name);
+          if (list.length) yield { type: 'tool_calls', calls: list };
         }
       } finally {
         reader.cancel().catch(() => {});

@@ -28,6 +28,11 @@ const schema = z.object({
   AI_API_KEY: z.string().optional().default(''),
   AI_MAX_CONCURRENCY: z.coerce.number().int().min(1).default(2),
   AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).default(120_000),
+  /** Model araç (web arama vb.) kullanabilsin mi? Kapalıysa yalnızca düz sohbet. */
+  TOOLS_ENABLED: z
+    .enum(['true', 'false', '1', '0', ''])
+    .optional()
+    .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
 
   SMTP_HOST: z.string().optional().default(''),
   SMTP_PORT: z.coerce.number().int().default(587),

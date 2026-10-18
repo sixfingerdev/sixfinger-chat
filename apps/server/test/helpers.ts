@@ -3,13 +3,16 @@ import type { AuthResponse, StreamEvent } from '@sixfinger/shared';
 import { buildApp } from '../src/app.ts';
 import { loadConfig } from '../src/config.ts';
 import type { AppContext } from '../src/context.ts';
-import type { AiProvider, AiRequest } from '../src/services/ai.ts';
+import type { AiChunk, AiProvider, AiRequest } from '../src/services/ai.ts';
 import type { Mailer } from '../src/lib/mailer.ts';
+import { createTools, type ToolDef } from '../src/services/tools/index.ts';
 
 export interface FakeAi extends AiProvider {
   calls: AiRequest[];
   /** Bir sonraki stream için yanıt dizisi. */
-  script: Array<{ type: 'reasoning' | 'content'; text: string }>;
+  script: AiChunk[];
+  /** Doluysa her stream çağrısı sırayla bir elemanı tüketir (çok turlu araç senaryoları). */
+  steps: AiChunk[][];
   failWith: Error | null;
   completeText: string;
   delayMs: number;
@@ -23,13 +26,15 @@ export function createFakeAi(): FakeAi {
       { type: 'content', text: 'Merhaba ' },
       { type: 'content', text: 'dünya!' },
     ],
+    steps: [],
     failWith: null,
     completeText: 'Selamlaşma Sohbeti',
     delayMs: 0,
     async *stream(req) {
       ai.calls.push(req);
       if (ai.failWith) throw ai.failWith;
-      for (const c of ai.script) {
+      const chunks = ai.steps.length ? ai.steps.shift()! : ai.script;
+      for (const c of chunks) {
         if (ai.delayMs) await new Promise((r) => setTimeout(r, ai.delayMs));
         if (req.signal?.aborted) throw new DOMException('aborted', 'AbortError');
         yield c;
@@ -50,7 +55,7 @@ export interface TestEnv {
   mails: Array<{ to: string; code: string; purpose: string }>;
 }
 
-export async function setup(): Promise<TestEnv> {
+export async function setup(extraTools: ToolDef[] = []): Promise<TestEnv> {
   const ai = createFakeAi();
   const mails: TestEnv['mails'] = [];
   const mailer: Mailer = {
@@ -58,7 +63,7 @@ export async function setup(): Promise<TestEnv> {
       mails.push({ to, code, purpose });
     },
   };
-  const { app, ctx } = await buildApp({ config: loadConfig(), ai, mailer, migrate: true });
+  const { app, ctx } = await buildApp({ config: loadConfig(), ai, mailer, tools: createTools(extraTools), migrate: true });
   await app.ready();
   return { app, ctx, ai, mails };
 }

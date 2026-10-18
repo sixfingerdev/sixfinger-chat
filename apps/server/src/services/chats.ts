@@ -1,4 +1,4 @@
-import type { AttachmentDTO, ChatDTO, MessageDTO } from '@sixfinger/shared';
+import type { AttachmentDTO, ChatDTO, MessageDTO, MessagePartDTO } from '@sixfinger/shared';
 import type { Queryable } from '../db/pool.ts';
 
 export interface ChatRow {
@@ -28,12 +28,13 @@ export interface MessageRow {
   status: MessageDTO['status'];
   model: string | null;
   attachments: AttachmentDTO[];
+  parts: MessagePartDTO[];
   feedback: number | null;
   created_at: Date;
 }
 
 export const MESSAGE_COLUMNS =
-  'id, chat_id, parent_id, role, content, reasoning, reasoning_ms, status, model, attachments, feedback, created_at';
+  'id, chat_id, parent_id, role, content, reasoning, reasoning_ms, status, model, attachments, parts, feedback, created_at';
 
 export function toChatDTO(c: ChatRow, query?: string): ChatDTO {
   return {
@@ -64,6 +65,7 @@ export function toMessageDTO(m: MessageRow): MessageDTO {
     attachments: m.attachments ?? [],
     feedback: m.feedback === 1 ? 1 : m.feedback === -1 ? -1 : null,
     reasoningMs: m.reasoning_ms,
+    parts: m.parts ?? [],
     createdAt: m.created_at.toISOString(),
   };
 }
@@ -92,15 +94,15 @@ export async function getOwnedChat(db: Queryable, chatId: string, userId: string
 export async function getPath(
   db: Queryable,
   messageId: string | null,
-): Promise<Pick<MessageRow, 'id' | 'role' | 'content' | 'attachments' | 'status'>[]> {
+): Promise<Pick<MessageRow, 'id' | 'role' | 'content' | 'attachments' | 'parts' | 'status'>[]> {
   if (!messageId) return [];
   const r = await db.query(
     `with recursive path as (
-       select id, parent_id, role, content, attachments, status, seq from messages where id = $1
+       select id, parent_id, role, content, attachments, parts, status, seq from messages where id = $1
        union all
-       select m.id, m.parent_id, m.role, m.content, m.attachments, m.status, m.seq
+       select m.id, m.parent_id, m.role, m.content, m.attachments, m.parts, m.status, m.seq
          from messages m join path p on m.id = p.parent_id
-     ) select id, role, content, attachments, status from path order by seq`,
+     ) select id, role, content, attachments, parts, status from path order by seq`,
     [messageId],
   );
   return r.rows;

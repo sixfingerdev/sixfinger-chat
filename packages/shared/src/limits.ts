@@ -18,6 +18,8 @@ export interface TierLimits {
   contextTokens: number;
   /** Tek mesaja eklenebilecek en fazla dosya. */
   maxAttachments: number;
+  /** Bir yanıtta modelin arka arkaya çağırabileceği en fazla araç turu. */
+  maxToolSteps: number;
   features: {
     attachments: boolean;
     memory: boolean;
@@ -27,6 +29,10 @@ export interface TierLimits {
     personas: boolean;
     pin: boolean;
     search: boolean;
+    /** web_search ve web_fetch. */
+    webTools: boolean;
+    /** Sandbox araçları: bash, read, write, edit. Yalnızca doğrulanmış üyeler. */
+    sandbox: boolean;
   };
 }
 
@@ -37,6 +43,7 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
     maxChats: 5,
     contextTokens: 6_000,
     maxAttachments: 0,
+    maxToolSteps: 4,
     features: {
       attachments: false,
       memory: false,
@@ -46,6 +53,8 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
       personas: false,
       pin: false,
       search: false,
+      webTools: true,
+      sandbox: false,
     },
   },
   unverified: {
@@ -54,6 +63,7 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
     maxChats: 50,
     contextTokens: 12_000,
     maxAttachments: 0,
+    maxToolSteps: 4,
     features: {
       attachments: false,
       memory: false,
@@ -63,6 +73,8 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
       personas: true,
       pin: true,
       search: true,
+      webTools: true,
+      sandbox: false,
     },
   },
   member: {
@@ -71,6 +83,7 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
     maxChats: 2_000,
     contextTokens: 28_000,
     maxAttachments: 4,
+    maxToolSteps: 8,
     features: {
       attachments: true,
       memory: true,
@@ -80,6 +93,8 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
       personas: true,
       pin: true,
       search: true,
+      webTools: true,
+      sandbox: true,
     },
   },
 };
