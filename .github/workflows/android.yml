@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       api_url:
-        description: 'Varsayılan sunucu adresi (https://...). Boş bırakılırsa uygulama ilk açılışta sorar.'
+        description: 'Uygulamanın varsayılan sunucusu (https://...). Boşsa https://chat.sixfinger.live.'
         required: false
         default: ''
   push:
@@ -13,7 +13,7 @@ on:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -23,6 +23,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/mobile/package-lock.json
 
       - uses: actions/setup-java@v4
         with:
@@ -31,16 +34,22 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      # Kök bağımlılıklar: @sixfinger/shared kaynağı (zod) buradan çözülür.
       - run: npm ci
+      - run: npm ci
+        working-directory: apps/mobile
 
-      - name: Web arayüzünü derle
-        env:
-          VITE_API_URL: ${{ inputs.api_url || vars.API_URL }}
-        run: npm run build -w @sixfinger/web
-
-      - name: Capacitor senkronu
-        working-directory: apps/web
-        run: npx cap sync android
+      - name: Sürüm numarasını yaz
+        working-directory: apps/mobile
+        run: |
+          VERSION="${{ github.ref_type == 'tag' && github.ref_name || format('0.2.{0}', github.run_number) }}"
+          node -e "
+            const fs = require('fs');
+            const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            app.expo.version = '$VERSION'.replace(/^v/, '');
+            app.expo.android.versionCode = ${{ github.run_number }};
+            fs.writeFileSync('app.json', JSON.stringify(app, null, 2));
+          "
 
       - name: İmza anahtarını hazırla (varsa)
         env:
@@ -53,22 +62,29 @@ jobs:
             echo "Anahtar tanımlı değil: APK debug anahtarıyla imzalanacak."
           fi
 
+      - name: Native projeyi üret
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_API_URL: ${{ inputs.api_url || vars.API_URL }}
+        run: npx expo prebuild --platform android --no-install --clean
+
       - name: APK derle
-        working-directory: apps/web/android
+        working-directory: apps/mobile/android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease -PversionCode=${{ github.run_number }} -PversionName=${{ github.ref_type == 'tag' && github.ref_name || format('0.1.{0}', github.run_number) }}
+          EXPO_PUBLIC_API_URL: ${{ inputs.api_url || vars.API_URL }}
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
 
       - uses: actions/upload-artifact@v4
         with:
           name: sixfinger-apk
-          path: apps/web/android/app/build/outputs/apk/release/*.apk
+          path: apps/mobile/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
       - name: Sürüme ekle (tag)
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: apps/web/android/app/build/outputs/apk/release/*.apk
+          files: apps/mobile/android/app/build/outputs/apk/release/*.apk

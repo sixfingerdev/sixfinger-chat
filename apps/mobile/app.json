@@ -34,7 +34,8 @@
       ],
       "expo-font",
       "expo-status-bar",
-      "expo-sharing"
+      "expo-sharing",
+      "./plugins/withReleaseSigning"
     ],
     "experiments": {
       "typedRoutes": true

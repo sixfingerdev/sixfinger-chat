@@ -73,14 +73,13 @@ export function DrawerHost({ drawer, children, enabled = true }: { drawer: React
   const panel = useAnimatedStyle(() => ({ transform: [{ translateX: interpolate(p.value, [0, 1], [-width, 0]) }] }));
   const content = useAnimatedStyle(() => ({ transform: [{ translateX: interpolate(p.value, [0, 1], [0, 28]) }] }));
   const scrim = useAnimatedStyle(() => ({ opacity: p.value }));
-  const scrimProps = useAnimatedStyle(() => ({ pointerEvents: p.value > 0.02 ? 'auto' : 'none' }) as never);
 
   return (
     <Ctx.Provider value={api}>
       <GestureDetector gesture={pan}>
         <View style={{ flex: 1, backgroundColor: c.bg }}>
           <Animated.View style={[{ flex: 1 }, content]}>{children}</Animated.View>
-          <Animated.View style={[{ position: 'absolute', inset: 0, backgroundColor: c.overlay }, scrim, scrimProps]}>
+          <Animated.View pointerEvents={open ? 'auto' : 'none'} style={[{ position: 'absolute', inset: 0, backgroundColor: c.overlay }, scrim]}>
             <Pressable style={{ flex: 1 }} onPress={() => settle(0)} />
           </Animated.View>
           <Animated.View
