@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AuthUser } from '../src/lib/types.ts';
 import { TIER_LIMITS } from '@sixfinger/shared';
 import { runToolCall, createTools } from '../src/services/tools/index.ts';
-import { createWebSearchTool, extractReadable } from '../src/services/tools/web.ts';
+import { createWebSearchTool, extractReadable, extractStructured } from '../src/services/tools/web.ts';
 import type { Searcher } from '../src/services/tools/search.ts';
 
 const user = (tier: 'guest' | 'unverified' | 'member' = 'member'): AuthUser => ({
@@ -65,5 +65,38 @@ describe('araç çalıştırma', () => {
     const limited = await call('deneme');
     expect(limited.status).toBe('error');
     expect(limited.output).toMatch(/sık/);
+  });
+});
+
+describe('yapılandırılmış veri (JSON-LD)', () => {
+  const page = (ld: object) => `<html><head><title>Mağaza</title>
+    <script type="application/ld+json">${JSON.stringify(ld)}</script></head>
+    <body><div>${'Ürün açıklaması metni. '.repeat(15)}</div></body></html>`;
+
+  it('Product + Offer: fiyat ve stok çıkarılır (Readability atsa bile)', () => {
+    const { structured } = extractReadable(
+      page({
+        '@context': 'https://schema.org',
+        '@graph': [
+          {
+            '@type': 'Product', name: 'Raspberry Pi 5 - 8GB', brand: { '@type': 'Brand', name: 'Raspberry Pi' }, sku: 'RPI5-8GB',
+            offers: { '@type': 'Offer', price: '3499.00', priceCurrency: 'TRY', availability: 'https://schema.org/InStock' },
+            aggregateRating: { ratingValue: '4.8', reviewCount: '12' },
+          },
+        ],
+      }),
+      'https://shop.example/p',
+    );
+    expect(structured).toHaveLength(1);
+    expect(structured[0]).toContain('Raspberry Pi 5 - 8GB');
+    expect(structured[0]).toContain('fiyat 3499.00 TRY');
+    expect(structured[0]).toContain('durum InStock');
+    expect(structured[0]).toContain('puan 4.8/5 (12 yorum)');
+  });
+
+  it('Makale ve bozuk JSON-LD', () => {
+    expect(extractStructured(['{bozuk', JSON.stringify({ '@type': 'NewsArticle', headline: 'Başlık', datePublished: '2026-10-01T10:00:00Z', author: { name: 'Ayşe' } })])).toEqual([
+      'Makale: Başlık | yazar Ayşe | yayın 2026-10-01',
+    ]);
   });
 });

@@ -43,7 +43,9 @@ export function createWebSearchTool(searcher: Searcher = createSearcher()): Tool
       });
       const lines = results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ''}`);
       return {
-        output: `Arama: "${args.data.query}" (${provider})\n\n${lines.join('\n\n')}`,
+        output:
+          `Arama: "${args.data.query}" (${provider})\n\n${lines.join('\n\n')}\n\n` +
+          'Not: Bunlar yalnızca kısa özetlerdir. Fiyat, sayı ya da ayrıntı gerekiyorsa ilgili sayfayı web_fetch ile oku; özette olmayan bilgiyi tahmin etme.',
         summary: `${results.length} sonuç`,
       };
     },
@@ -68,9 +70,77 @@ turndown.addRule('img', {
 
 const HTML_LIMIT = 1_500_000;
 
+type Json = Record<string, unknown>;
+const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : v === undefined || v === null ? [] : [v]);
+const str = (v: unknown): string => (typeof v === 'string' || typeof v === 'number' ? String(v).trim() : '');
+const nameOf = (v: unknown): string => (typeof v === 'object' && v ? str((v as Json).name) : str(v));
+const typesOf = (n: Json): string[] => asArray(n['@type']).map(str);
+
+function collectNodes(value: unknown, out: Json[], depth = 0): void {
+  if (depth > 6 || !value || typeof value !== 'object') return;
+  if (Array.isArray(value)) return void value.forEach((v) => collectNodes(v, out, depth + 1));
+  const node = value as Json;
+  out.push(node);
+  for (const k of ['@graph', 'mainEntity', 'itemListElement']) collectNodes(node[k], out, depth + 1);
+}
+
+function describeOffer(o: Json): string {
+  const price = str(o.price) || str(o.lowPrice);
+  const high = str(o.highPrice);
+  const cur = str(o.priceCurrency);
+  const avail = str(o.availability).replace(/^.*schema\.org\//, '');
+  return [price && `fiyat ${price}${high && high !== price ? `–${high}` : ''}${cur ? ` ${cur}` : ''}`, avail && `durum ${avail}`, str(o.priceValidUntil) && `geçerli ${str(o.priceValidUntil)}`]
+    .filter(Boolean)
+    .join(', ');
+}
+
+/** Sayfadaki schema.org (JSON-LD) verisinden fiyat, stok, başlık gibi somut alanları çıkarır. */
+export function extractStructured(scripts: string[]): string[] {
+  const lines: string[] = [];
+  for (const raw of scripts) {
+    let data: unknown;
+    try {
+      data = JSON.parse(raw.trim());
+    } catch {
+      continue;
+    }
+    const nodes: Json[] = [];
+    collectNodes(data, nodes);
+    for (const n of nodes) {
+      const types = typesOf(n);
+      if (types.includes('Product')) {
+        const offers = asArray(n.offers).filter((o): o is Json => typeof o === 'object' && o !== null);
+        const rating = n.aggregateRating as Json | undefined;
+        lines.push(
+          [
+            `Ürün: ${str(n.name)}`,
+            nameOf(n.brand) && `marka ${nameOf(n.brand)}`,
+            (str(n.sku) || str(n.mpn)) && `kod ${str(n.sku) || str(n.mpn)}`,
+            ...offers.map(describeOffer).filter(Boolean),
+            rating && str(rating.ratingValue) && `puan ${str(rating.ratingValue)}/${str(rating.bestRating) || '5'} (${str(rating.reviewCount) || str(rating.ratingCount) || '?'} yorum)`,
+          ]
+            .filter(Boolean)
+            .join(' | '),
+        );
+      } else if (types.some((t) => /Article|BlogPosting|NewsArticle/.test(t))) {
+        lines.push(
+          [`Makale: ${str(n.headline) || str(n.name)}`, nameOf(n.author) && `yazar ${nameOf(n.author)}`, str(n.datePublished) && `yayın ${str(n.datePublished).slice(0, 10)}`, str(n.dateModified) && `güncelleme ${str(n.dateModified).slice(0, 10)}`]
+            .filter(Boolean)
+            .join(' | '),
+        );
+      }
+    }
+  }
+  return [...new Set(lines)].slice(0, 6);
+}
+
 /** HTML'den ana içeriği çıkarıp Markdown'a çevirir. */
-export function extractReadable(html: string, url: string): { title: string; markdown: string } {
+export function extractReadable(html: string, url: string): { title: string; markdown: string; structured: string[] } {
   const { document } = parseHTML(html.slice(0, HTML_LIMIT));
+  // Readability belgeyi değiştirir; JSON-LD'yi önce topla.
+  const structured = extractStructured(
+    [...document.querySelectorAll('script[type="application/ld+json"]')].map((n: { textContent: string | null }) => n.textContent ?? ''),
+  );
   const base = document.createElement('base');
   base.setAttribute('href', url);
   document.head?.appendChild(base);
@@ -89,7 +159,7 @@ export function extractReadable(html: string, url: string): { title: string; mar
     const body = document.body?.innerHTML ?? '';
     content = turndown.turndown(body);
   }
-  return { title, markdown: content.replace(/\n{3,}/g, '\n\n').trim() };
+  return { title, markdown: content.replace(/\n{3,}/g, '\n\n').trim(), structured };
 }
 
 export function createWebFetchTool(): ToolDef {
@@ -123,20 +193,22 @@ export function createWebFetchTool(): ToolDef {
 
         let title = '';
         let text: string;
+        let structured: string[] = [];
         if (type === 'text/html' || type === 'application/xhtml+xml' || type === '') {
-          ({ title, markdown: text } = extractReadable(res.body.toString('utf8'), res.url));
+          ({ title, markdown: text, structured } = extractReadable(res.body.toString('utf8'), res.url));
         } else if (type.startsWith('text/') || type === 'application/json' || type.endsWith('+json') || type.endsWith('xml')) {
           text = res.body.toString('utf8');
         } else {
           throw new ToolError(`Bu içerik türü okunamıyor (${type || 'bilinmiyor'}).`);
         }
-        if (!text.trim()) throw new ToolError('Sayfada okunabilir metin bulunamadı (JavaScript ile yükleniyor olabilir).');
+        if (!text.trim() && !structured.length) throw new ToolError('Sayfada okunabilir metin bulunamadı (JavaScript ile yükleniyor olabilir).');
 
         const cut = text.length > maxChars;
         const body = cut ? `${text.slice(0, maxChars).trimEnd()}\n\n[… içerik kısaltıldı]` : text;
         const header = [title && `Başlık: ${title}`, `Adres: ${res.url}`].filter(Boolean).join('\n');
+        const facts = structured.length ? `Sayfadaki yapılandırılmış veri (fiyat/stok gibi somut değerler için bunu esas al):\n${structured.map((l) => `- ${l}`).join('\n')}\n\n` : '';
         return {
-          output: `${UNTRUSTED}\n\n${header}\n\n${body}`,
+          output: `${UNTRUSTED}\n\n${header}\n\n${facts}${body}`,
           summary: host,
         };
       });

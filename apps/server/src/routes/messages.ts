@@ -156,6 +156,8 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     // Araç yoksa tek tur; varsa kullanıcı katmanının izin verdiği kadar tur. Son turda araç verilmez:
     // model elindekiyle cevabı yazmak zorunda kalır.
     const maxSteps = defs.length ? Math.max(1, user.limits.maxToolSteps) : 1;
+    // Aynı tur içinde aynı çağrıyı (aynı araç + aynı argümanlar) tekrar çalıştırma: modeli döngüden çıkar.
+    const seenCalls = new Map<string, string>();
     const saveParts = () =>
       db.query('update messages set parts = $2 where id = $1', [g.assistantId, JSON.stringify(parts)]).catch(() => {});
 
@@ -164,6 +166,14 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const lastStep = step === maxSteps - 1;
         let calls: AiToolCall[] = [];
         let stepText = '';
+        if (defs.length && lastStep && step > 0) {
+          messages.push({
+            role: 'user',
+            content:
+              '[Sistem notu] Araç sınırına ulaşıldı; artık araç çağıramazsın. Elindeki bilgilerle kullanıcıya şimdi cevabı yaz. ' +
+              'Bulamadığın bilgiyi tahmin etme, "bulamadım" de ve nerede aranabileceğini söyle.',
+          });
+        }
 
         for await (const chunk of ai.stream({
           messages,
@@ -210,7 +220,18 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           };
           parts.push(part);
           stream.send({ type: 'tool_start', id: part.id, name: part.name, args: part.args });
-          const run = await runToolCall(defs, call, { user, signal: stream.signal });
+          const key = `${call.function.name}:${JSON.stringify(Object.fromEntries(Object.entries(shownArgs).filter(([k]) => k !== 'max_chars').sort()))}`;
+          const earlier = seenCalls.get(key);
+          const run = earlier
+            ? {
+                status: 'done' as const,
+                output: `Not: Bu çağrıyı bu yanıtta zaten yaptın; sonuç aynıdır (aşağıda). Tekrar çağırma: farklı bir ifade dene ya da elindekiyle cevabı yaz.\n\n${earlier.slice(0, 1_500)}`,
+                summary: 'tekrar',
+                ms: 0,
+                args: shownArgs,
+              }
+            : await runToolCall(defs, call, { user, signal: stream.signal });
+          if (!earlier && run.status === 'done') seenCalls.set(key, run.output);
           part.status = run.status;
           part.output = run.output;
           part.summary = run.summary;

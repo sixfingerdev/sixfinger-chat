@@ -147,3 +147,34 @@ describe('ajan döngüsü', () => {
     expect(second.filter((x) => x.role === 'tool')).toHaveLength(6); // fazlalara hata cevabı verilir
   });
 });
+
+describe('döngü koruması', () => {
+  it('aynı çağrıyı tekrar çalıştırmaz, modele "zaten yaptın" der', async () => {
+    let runs = 0;
+    const counting: ToolDef = { ...echo, name: 'test_count', async run() { runs++; return { output: 'SAYAC', summary: 's' }; } };
+    const e2 = await setup([counting]);
+    try {
+      const m = await member(e2);
+      const chat = await newChat(e2.app, m);
+      e2.ai.steps = [[call('a', 'test_count', { text: 'x' })], [call('b', 'test_count', { text: 'x' })], [text('Bitti')]];
+      await e2.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/messages`, headers: auth(m), payload: { content: 'x' } });
+      expect(runs).toBe(1);
+      const third = e2.ai.calls.filter((c) => c.messages[0]?.content.includes('SixFinger AI'))[2]!.messages;
+      const tools = third.filter((x) => x.role === 'tool');
+      expect(tools[1]!.content).toContain('zaten yaptın');
+    } finally {
+      await e2.app.close();
+    }
+  });
+
+  it('araç hakkı bitince model "cevabı yaz" notunu görür', async () => {
+    const g = await guest(env.app);
+    const chat = await newChat(env.app, g);
+    env.ai.steps = [[call('1', 'test_echo', { text: 'a' })], [call('2', 'test_echo', { text: 'b' })], [call('3', 'test_echo', { text: 'c' })], [text('Elimdekiyle cevap')]];
+    await send(g, chat.id);
+    const main = env.ai.calls.filter((c) => c.messages[0]?.content.includes('SixFinger AI'));
+    const final = main.at(-1)!.messages;
+    expect(final.at(-1)).toMatchObject({ role: 'user' });
+    expect(final.at(-1)!.content).toContain('Araç sınırına ulaşıldı');
+  });
+});
