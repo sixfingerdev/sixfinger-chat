@@ -5,3 +5,4 @@ export * from './schemas.ts';
 export * from './types.ts';
 export { tr, type DictKey } from './i18n/tr.ts';
 export { en } from './i18n/en.ts';
+export * from './greetings.ts';

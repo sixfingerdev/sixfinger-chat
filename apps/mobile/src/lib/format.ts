@@ -27,8 +27,9 @@ export function groupChats(chats: ChatDTO[], now = new Date()): Array<{ key: Gro
   return (Object.keys(buckets) as GroupKey[]).filter((k) => buckets[k].length).map((key) => ({ key, chats: buckets[key] }));
 }
 
-export function formatDuration(ms: number): string {
+export function formatDuration(ms: number, locale: 'tr' | 'en' = 'tr'): string {
   const s = Math.max(1, Math.round(ms / 1000));
+  if (locale === 'en') return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
   return s < 60 ? `${s} sn` : `${Math.floor(s / 60)} dk ${s % 60} sn`;
 }
 

@@ -5,7 +5,7 @@ import { ChevronRight } from 'lucide-react-native';
 import { fonts, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { formatDuration } from '../lib/format.ts';
-import { useT } from '../lib/i18n/index.ts';
+import { useLocale, useT } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
 import { Press } from './Ui.tsx';
 
@@ -13,6 +13,7 @@ import { Press } from './Ui.tsx';
 export function ReasoningBlock({ text, streaming, hasAnswer, ms }: { text: string; streaming: boolean; hasAnswer: boolean; ms: number | null }) {
   const { c } = useTheme();
   const t = useT();
+  const locale = useLocale();
   const thinking = streaming && !hasAnswer;
   const [open, setOpen] = useState(thinking);
   const touched = useRef(false);
@@ -28,7 +29,7 @@ export function ReasoningBlock({ text, streaming, hasAnswer, ms }: { text: strin
   const chevron = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value * 90}deg` }] }));
 
   if (!text) return null;
-  const label = thinking ? t('msg.thinking') : ms ? t('msg.thoughtFor', { t: formatDuration(ms) }) : t('msg.thought');
+  const label = thinking ? t('msg.thinking') : ms ? t('msg.thoughtFor', { t: formatDuration(ms, locale) }) : t('msg.thought');
 
   return (
     <Animated.View layout={LinearTransition.duration(200)} style={{ marginBottom: 8 }}>

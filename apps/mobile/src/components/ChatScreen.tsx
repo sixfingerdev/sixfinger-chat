@@ -26,7 +26,6 @@ export function ChatScreen() {
   const loadError = useChats((s) => s.loadError);
   const loadingId = useChats((s) => s.loadingId);
   const generating = useChats((s) => s.generating);
-  const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
   const [menuMsg, setMenuMsg] = useState<MessageDTO | null>(null);
   const [editMsg, setEditMsg] = useState<MessageDTO | null>(null);
   const [showJump, setShowJump] = useState(false);
@@ -85,7 +84,7 @@ export function ChatScreen() {
             <Button label={t('sidebar.newChat')} style={{ marginTop: 12 }} onPress={() => useChats.getState().newChat()} />
           </View>
         )}
-        {showEmpty && !loading && !failed && <EmptyState onPick={(text) => setSeed({ text, n: Date.now() })} />}
+        {showEmpty && !loading && !failed && <EmptyState />}
         {!showEmpty && !loading && !failed && (
           <FlatList
             ref={scrollRef}
@@ -100,7 +99,9 @@ export function ChatScreen() {
             initialNumToRender={10}
             maxToRenderPerBatch={8}
             windowSize={9}
-            contentContainerStyle={{ paddingVertical: 8 }}
+            // Ters çevrilmiş listede flex-end, kısa konuşmaları ekranın ÜSTÜNE yaslar (web'deki gibi);
+            // uzun konuşmalarda en yeni mesaj altta kalır.
+            contentContainerStyle={{ paddingVertical: 8, flexGrow: 1, justifyContent: 'flex-end' }}
             showsVerticalScrollIndicator={false}
           />
         )}
@@ -110,7 +111,7 @@ export function ChatScreen() {
           </Animated.View>
         )}
       </View>
-      <Composer chatId={chatId ?? null} seed={seed} onChatCreated={() => {}} />
+      <Composer chatId={chatId ?? null} seed={null} onChatCreated={() => {}} />
       <MessageMenu msg={menuMsg} busy={busy} onClose={() => setMenuMsg(null)} onEdit={setEditMsg} />
       <EditDialog msg={editMsg} onClose={() => setEditMsg(null)} />
     </KeyboardAvoidingView>
