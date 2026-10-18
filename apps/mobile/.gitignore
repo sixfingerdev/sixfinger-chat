@@ -1,0 +1,10 @@
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+# Expo "prebuild" ile üretilen yerel projeler (app.json + eklentilerden yeniden oluşturulur)
+/android
+/ios
+*.apk
+*.aab

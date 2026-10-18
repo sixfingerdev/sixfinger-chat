@@ -14,7 +14,7 @@ import {
   Share2,
   Trash2,
 } from 'lucide-react';
-import { PERSONAS, getPersona } from '@sixfinger/shared';
+import { PERSONAS, getPersona, pickGreeting } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { exportJson, exportMarkdown } from '../lib/export.ts';
@@ -252,28 +252,16 @@ function TopBar({ chatId }: { chatId: string | undefined }) {
   );
 }
 
-function EmptyState({ onPick }: { onPick: (text: string) => void }) {
-  const t = useT();
+function EmptyState() {
+  const locale = useLocale();
   const user = useAuth((s) => s.user);
-  const first = user && !user.isGuest ? user.settings.customName || user.displayName.split(' ')[0] : '';
-  const cards = [1, 2, 3, 4].map((n) => ({
-    title: t(`empty.s${n}.title` as 'empty.s1.title'),
-    text: t(`empty.s${n}.text` as 'empty.s1.text'),
-  }));
+  const name = user && !user.isGuest ? user.settings.customName || user.displayName.split(' ')[0] : undefined;
+  const greeting = useMemo(() => pickGreeting({ locale, name, hour: new Date().getHours() }), [locale, name]);
   return (
     <div className="empty">
       <div className="empty-hero">
         <LogoMark size={44} animate className="empty-mark" />
-        <h1>{first ? t('empty.greeting', { name: first }) : t('empty.greetingGuest')}</h1>
-        <p>{t('empty.sub')}</p>
-      </div>
-      <div className="suggestions">
-        {cards.map((c, i) => (
-          <button key={i} className="suggestion" onClick={() => onPick(c.text)}>
-            <span className="suggestion-title">{c.title}</span>
-            <span className="suggestion-text">{c.text}</span>
-          </button>
-        ))}
+        <h1>{greeting}</h1>
       </div>
     </div>
   );
@@ -287,7 +275,6 @@ export function ChatPage() {
   const loadError = useChats((s) => s.loadError);
   const loadingId = useChats((s) => s.loadingId);
   const generating = useChats((s) => s.generating);
-  const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
 
   useEffect(() => {
     if (chatId) void useChats.getState().openChat(chatId);
@@ -358,7 +345,7 @@ export function ChatPage() {
             </div>
           )}
           {showEmpty && !loading && !(chatId && loadError && !detail) && (
-            <EmptyState onPick={(text) => setSeed({ text, n: Date.now() })} />
+            <EmptyState />
           )}
           {path.map((m, i) => (
             <MessageItem
@@ -379,7 +366,7 @@ export function ChatPage() {
       </div>
       <Composer
         chatId={chatId ?? null}
-        seed={seed}
+        seed={null}
         onChatCreated={(id) => nav(`/c/${id}`, { replace: false })}
       />
     </div>

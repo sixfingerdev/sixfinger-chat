@@ -4,6 +4,7 @@ import { AuthDialog } from './components/AuthDialog.tsx';
 import { CommandPalette } from './components/CommandPalette.tsx';
 import { LogoMark } from './components/Logo.tsx';
 import { SettingsDialog } from './components/SettingsDialog.tsx';
+import { ArtifactPanel } from './components/ArtifactPanel.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { Toasts } from './components/Toasts.tsx';
 import { useT } from './lib/i18n/index.ts';
@@ -106,6 +107,7 @@ function Shell() {
       <main className="main">
         <Outlet />
       </main>
+      <ArtifactPanel />
       <CommandPalette />
       <SettingsDialog />
       <AuthDialog />

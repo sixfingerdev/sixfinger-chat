@@ -1,10 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   ATTACHMENT_MAX_CHARS,
+  DEFAULT_THINKING_LEVEL,
   feedbackSchema,
+  legacyModeFromEffort,
   regenerateSchema,
   sendMessageSchema,
+  type ChatMode,
   type MessageDTO,
+  type MessagePartDTO,
   type StreamEvent,
 } from '@sixfinger/shared';
 import type { AppContext } from '../context.ts';
@@ -12,7 +16,8 @@ import type { Guard } from '../guard.ts';
 import type { AuthUser } from '../lib/types.ts';
 import { HttpError, badRequest, notFound, tierRestricted } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
-import type { AiMessage, Effort } from '../services/ai.ts';
+import type { AiMessage, AiToolCall, Effort } from '../services/ai.ts';
+import { runToolCall, toolSpecs } from '../services/tools/index.ts';
 import {
   MESSAGE_COLUMNS,
   getOwnedChat,
@@ -29,10 +34,17 @@ import {
   fallbackTitle,
   fitHistory,
   memoryPrompt,
+  type HistoryItem,
   renderUserContent,
   titlePrompt,
 } from '../services/prompt.ts';
 import { findUserById, settingsOf } from '../services/users.ts';
+
+/** İstekten çalışma modunu ve düşünme düzeyini çıkarır; `mode` göndermeyen eski istemcilerde `effort` modu belirler. */
+function chosenMode(body: { mode?: ChatMode; effort?: Effort }): { mode: ChatMode; effort: Effort } {
+  if (body.mode) return { mode: body.mode, effort: body.effort ?? DEFAULT_THINKING_LEVEL };
+  return { mode: legacyModeFromEffort(body.effort), effort: DEFAULT_THINKING_LEVEL };
+}
 
 const MEMORY_TRIGGER = /(hatırla|hatirla|aklında tut|aklinda tut|unutma|remember (that|this|me|my)|keep in mind)/i;
 
@@ -43,14 +55,18 @@ interface GenerationInput {
   userMessage: MessageDTO | null;
   assistantId: string;
   /** Modele gidecek geçmiş (son eleman kullanıcı mesajı). */
-  history: { role: 'user' | 'assistant'; content: string }[];
+  history: HistoryItem[];
+  mode: ChatMode;
   effort: Effort;
   isFirstExchange: boolean;
   userText: string;
 }
 
 export function messageRoutes(ctx: AppContext, guard: Guard) {
-  const { db, ai, usage, log } = ctx;
+  const { db, ai, usage, log, tools, config } = ctx;
+
+  /** Bu kullanıcının bu yanıtta kullanabileceği araçlar. */
+  const toolsFor = (user: AuthUser) => (config.TOOLS_ENABLED ? tools.forUser(user) : []);
 
   async function loadPromptContext(user: AuthUser, personaId: string) {
     const row = await findUserById(db, user.id);
@@ -64,6 +80,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       settings: features.customInstructions ? settings : { ...settings, customName: '', about: '', instructions: '' },
       memories,
       displayName: user.isGuest ? '' : row!.display_name,
+      tools: { web: toolsFor(user).some((t) => t.name === 'web_search'), sandbox: toolsFor(user).some((t) => t.name === 'bash') },
     });
   }
 
@@ -142,20 +159,102 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     let reasoningMs: number | null = null;
     let status: MessageDTO['status'] = 'complete';
     let errorMessage: { code: HttpError['code']; message: string } | null = null;
+    const parts: MessagePartDTO[] = [];
+
+    const defs = toolsFor(user);
+    const specs = toolSpecs(defs);
+    // Araç yoksa tek tur; varsa kullanıcı katmanının izin verdiği kadar tur. Son turda araç verilmez:
+    // model elindekiyle cevabı yazmak zorunda kalır.
+    const maxSteps = defs.length ? Math.max(1, user.limits.maxToolSteps) : 1;
+    // Aynı tur içinde aynı çağrıyı (aynı araç + aynı argümanlar) tekrar çalıştırma: modeli döngüden çıkar.
+    const seenCalls = new Map<string, string>();
+    const saveParts = () =>
+      db.query('update messages set parts = $2 where id = $1', [g.assistantId, JSON.stringify(parts)]).catch(() => {});
 
     try {
-      for await (const chunk of ai.stream({ messages, signal: stream.signal, effort: g.effort })) {
-        if (chunk.type === 'reasoning') {
-          if (!reasoningStart) reasoningStart = Date.now();
-          reasoning += chunk.text;
-          stream.send({ type: 'reasoning', delta: chunk.text });
-        } else {
-          if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
-          content += chunk.text;
-          stream.send({ type: 'delta', delta: chunk.text });
+      for (let step = 0; step < maxSteps; step++) {
+        const lastStep = step === maxSteps - 1;
+        let calls: AiToolCall[] = [];
+        let stepText = '';
+        if (defs.length && lastStep && step > 0) {
+          messages.push({
+            role: 'user',
+            content:
+              '[Sistem notu] Araç sınırına ulaşıldı; artık araç çağıramazsın. Elindeki bilgilerle kullanıcıya şimdi cevabı yaz. ' +
+              'Bulamadığın bilgiyi tahmin etme, "bulamadım" de ve nerede aranabileceğini söyle.',
+          });
         }
+
+        for await (const chunk of ai.stream({
+          messages,
+          signal: stream.signal,
+          mode: g.mode,
+          effort: g.effort,
+          tools: defs.length && !lastStep ? specs : undefined,
+          patient: step > 0,
+        })) {
+          if (chunk.type === 'reasoning') {
+            if (!reasoningStart) reasoningStart = Date.now();
+            reasoning += chunk.text;
+            stream.send({ type: 'reasoning', delta: chunk.text });
+          } else if (chunk.type === 'content') {
+            if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
+            content += chunk.text;
+            stepText += chunk.text;
+            const last = parts[parts.length - 1];
+            if (last?.type === 'text') last.text += chunk.text;
+            else parts.push({ type: 'text', text: chunk.text });
+            stream.send({ type: 'delta', delta: chunk.text });
+          } else {
+            calls = chunk.calls;
+          }
+        }
+        if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
+        if (!calls.length) break;
+
+        // Modelin araç isteğini konuşmaya ekle, sonra çalıştır.
+        messages.push({ role: 'assistant', content: stepText, tool_calls: calls });
+        for (const call of calls.slice(0, 4)) {
+          let shownArgs: Record<string, unknown> = {};
+          try {
+            const parsed = JSON.parse(call.function.arguments || '{}');
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) shownArgs = parsed;
+          } catch {
+            /* bozuk JSON: sonuçta hata olarak döner */
+          }
+          const part: Extract<MessagePartDTO, { type: 'tool' }> = {
+            type: 'tool',
+            id: call.id,
+            name: call.function.name,
+            args: shownArgs,
+            status: 'running',
+          };
+          parts.push(part);
+          stream.send({ type: 'tool_start', id: part.id, name: part.name, args: part.args });
+          const key = `${call.function.name}:${JSON.stringify(Object.fromEntries(Object.entries(shownArgs).filter(([k]) => k !== 'max_chars').sort()))}`;
+          const earlier = seenCalls.get(key);
+          const run = earlier
+            ? {
+                status: 'done' as const,
+                output: `Not: Bu çağrıyı bu yanıtta zaten yaptın; sonuç aynıdır (aşağıda). Tekrar çağırma: farklı bir ifade dene ya da elindekiyle cevabı yaz.\n\n${earlier.slice(0, 1_500)}`,
+                summary: 'tekrar',
+                ms: 0,
+                args: shownArgs,
+              }
+            : await runToolCall(defs, call, { user, signal: stream.signal, chatId: chat.id });
+          if (!earlier && run.status === 'done') seenCalls.set(key, run.output);
+          part.status = run.status;
+          part.output = run.output;
+          part.summary = run.summary;
+          part.ms = run.ms;
+          stream.send({ type: 'tool_end', id: part.id, status: run.status, output: run.output, summary: run.summary, ms: run.ms });
+          messages.push({ role: 'tool', tool_call_id: call.id, content: run.output });
+        }
+        for (const extra of calls.slice(4)) {
+          messages.push({ role: 'tool', tool_call_id: extra.id, content: 'Hata: Aynı turda en fazla 4 araç çağrılabilir.' });
+        }
+        await saveParts();
       }
-      if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
       if (!content.trim()) {
         status = 'error';
         errorMessage = { code: 'upstream_unavailable', message: 'Model boş yanıt döndürdü. Tekrar dene.' };
@@ -173,14 +272,22 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       }
       if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
     }
+    // Yarıda kalan araçlar "çalışıyor" görünmesin.
+    for (const p of parts) {
+      if (p.type === 'tool' && p.status === 'running') {
+        p.status = 'error';
+        p.summary = 'Durduruldu';
+        p.output = p.output ?? 'İptal edildi.';
+      }
+    }
 
     // Hiç çıktı üretilemediyse hakkı geri ver.
     if (status === 'error' && !content) await usage.refund(user.id, user.isGuest ? req.ip : null).catch(() => {});
 
     const saved = await db.query<MessageRow>(
-      `update messages set content = $2, reasoning = $3, reasoning_ms = $4, status = $5, model = $6, tokens_out = $7
+      `update messages set content = $2, reasoning = $3, reasoning_ms = $4, status = $5, model = $6, tokens_out = $7, parts = $8
         where id = $1 returning ${MESSAGE_COLUMNS}`,
-      [g.assistantId, content, reasoning, reasoningMs, status, MODEL_ID, Math.ceil(content.length / 3.5)],
+      [g.assistantId, content, reasoning, reasoningMs, status, MODEL_ID, Math.ceil(content.length / 3.5), JSON.stringify(parts)],
     );
     const assistant = toMessageDTO(saved.rows[0]!);
     await db.query('update chats set updated_at = now() where id = $1', [chat.id]).catch(() => {});
@@ -296,6 +403,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const history = path.map((m) => ({
           role: m.role,
           content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
+          parts: m.role === 'assistant' ? m.parts : undefined,
         }));
         await generate(req, reply, {
           chat,
@@ -303,7 +411,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           userMessage: toMessageDTO(userRow),
           assistantId,
           history,
-          effort: body.effort ?? 'low',
+          ...chosenMode(body),
           isFirstExchange,
           userText: body.content,
         });
@@ -347,6 +455,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const history = path.map((m) => ({
           role: m.role,
           content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
+          parts: m.role === 'assistant' ? m.parts : undefined,
         }));
         const lastUser = [...path].reverse().find((m) => m.role === 'user');
         await generate(req, reply, {
@@ -355,7 +464,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           userMessage: null,
           assistantId,
           history,
-          effort: body.effort ?? 'low',
+          ...chosenMode(body),
           isFirstExchange: false,
           userText: lastUser?.content ?? '',
         });
@@ -370,7 +479,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
            from chats c
           where m.id = $1 and m.chat_id = c.id and c.user_id = $2 and m.role = 'assistant'
           returning m.id, m.chat_id, m.parent_id, m.role, m.content, m.reasoning, m.reasoning_ms, m.status,
-                    m.model, m.attachments, m.feedback, m.created_at`,
+                    m.model, m.attachments, m.parts, m.feedback, m.created_at`,
         [req.params.id, req.user!.id, value],
       );
       if (!r.rows[0]) throw notFound('Mesaj bulunamadı.');

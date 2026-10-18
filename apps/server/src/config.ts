@@ -26,8 +26,37 @@ const schema = z.object({
   AI_BASE_URL: z.string().url().default('https://text.pollinations.ai/openai'),
   AI_MODEL: z.string().default('openai-fast'),
   AI_API_KEY: z.string().optional().default(''),
+  /**
+   * Çalışma modlarına göre sağlayıcılar. Hızlı = yukarıdaki AI_* (Pollinations). Dengeli ve Derin OVH AI Endpoints'te;
+   * `*_BASE_URL` boş bırakılırsa o mod Hızlı sağlayıcıya düşer.
+   */
+  AI_BALANCED_BASE_URL: z.string().default('https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions'),
+  AI_BALANCED_MODEL: z.string().default('gpt-oss-120b'),
+  AI_BALANCED_API_KEY: z.string().optional().default(''),
+  AI_DEEP_BASE_URL: z.string().default('https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions'),
+  AI_DEEP_MODEL: z.string().default('Qwen3.8-27B'),
+  AI_DEEP_API_KEY: z.string().optional().default(''),
+  /**
+   * Yedek: Amazon Bedrock'taki Claude (Converse API). Diğer sağlayıcılar hata verirse (hız sınırı, kesinti, 200 dışı yanıt,
+   * boş yanıt) istek buraya düşer. `BEDROCK_MODEL_ID` ve bir kimlik bilgisi (API anahtarı ya da IAM anahtarı) verilmezse kapalıdır.
+   */
+  BEDROCK_MODEL_ID: z.string().optional().default(''),
+  BEDROCK_REGION: z.string().optional().default('us-east-1'),
+  BEDROCK_API_KEY: z.string().optional().default(''),
+  BEDROCK_ACCESS_KEY_ID: z.string().optional().default(''),
+  BEDROCK_SECRET_ACCESS_KEY: z.string().optional().default(''),
+  BEDROCK_SESSION_TOKEN: z.string().optional().default(''),
   AI_MAX_CONCURRENCY: z.coerce.number().int().min(1).default(2),
   AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).default(120_000),
+  /** Model araç (web arama vb.) kullanabilsin mi? Kapalıysa yalnızca düz sohbet. */
+  TOOLS_ENABLED: z
+    .enum(['true', 'false', '1', '0', ''])
+    .optional()
+    .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
+
+  /** sandboxd adresi (ör. http://sandboxd:8791). Boşsa bash/read/write/edit araçları kapalıdır. */
+  SANDBOXD_URL: z.string().optional().default(''),
+  SANDBOXD_TOKEN: z.string().optional().default(''),
 
   SMTP_HOST: z.string().optional().default(''),
   SMTP_PORT: z.coerce.number().int().default(587),

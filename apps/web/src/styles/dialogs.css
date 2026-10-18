@@ -37,7 +37,7 @@
   bottom: -90px;
   width: 280px;
   height: 280px;
-  background: radial-gradient(closest-side, rgba(255, 106, 26, 0.28), transparent);
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--text) 16%, transparent), transparent);
 }
 .auth-aside-top {
   display: flex;

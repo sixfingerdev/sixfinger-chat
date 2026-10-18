@@ -30,13 +30,53 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-dev-only-secret-change-me}
       PUBLIC_WEB_URL: ${PUBLIC_WEB_URL:-http://localhost:8787}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8787}
-      TRUST_PROXY: 'false'
+      # Cloudflare/Tailscale gibi bir tünel ya da reverse proxy arkasındaysan .env'de TRUST_PROXY=true yap
+      TRUST_PROXY: ${TRUST_PROXY:-false}
       AI_API_KEY: ${AI_API_KEY:-}
+      # Yedek model (Amazon Bedrock'ta Claude): diğer sağlayıcılar hata verirse devreye girer. Boşsa kapalı (bkz. docs/bedrock.md).
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
+      BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
+      BEDROCK_API_KEY: ${BEDROCK_API_KEY:-}
+      BEDROCK_ACCESS_KEY_ID: ${BEDROCK_ACCESS_KEY_ID:-}
+      BEDROCK_SECRET_ACCESS_KEY: ${BEDROCK_SECRET_ACCESS_KEY:-}
+      BEDROCK_SESSION_TOKEN: ${BEDROCK_SESSION_TOKEN:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-SixFinger <no-reply@localhost>}
+      # Sandbox araçları (bash/read/write/edit): .env'de SANDBOXD_URL=http://sandboxd:8791 ve SANDBOXD_TOKEN ver,
+      # sonra `docker compose --profile sandbox up -d --build` (bkz. docs/sandbox.md). Boşsa araçlar kapalıdır.
+      SANDBOXD_URL: ${SANDBOXD_URL:-}
+      SANDBOXD_TOKEN: ${SANDBOXD_TOKEN:-}
+
+  # Modelin komut çalıştırdığı yalıtılmış ortamın yöneticisi. Docker soketi YALNIZCA bu serviste bulunur.
+  sandboxd:
+    profiles: ['sandbox']
+    build:
+      context: .
+      dockerfile: apps/sandboxd/Dockerfile
+    restart: unless-stopped
+    user: node
+    # Ana makinedeki docker grubunun kimliği: `getent group docker | cut -d: -f3`
+    group_add: ['${DOCKER_GID:-999}']
+    mem_limit: 256m
+    environment:
+      SANDBOXD_TOKEN: ${SANDBOXD_TOKEN:?SANDBOXD_TOKEN gerekli (openssl rand -base64 32)}
+      SANDBOX_NETWORK: ${SANDBOX_NETWORK:-none}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-sixfinger-sandbox:latest}
+      MAX_CONTAINERS: ${SANDBOX_MAX_CONTAINERS:-6}
+      MAX_CONCURRENT_EXEC: ${SANDBOX_MAX_CONCURRENT_EXEC:-4}
+      MAX_QUEUE: ${SANDBOX_MAX_QUEUE:-12}
+      MEM_MB: ${SANDBOX_MEM_MB:-320}
+      CPUS: ${SANDBOX_CPUS:-0.5}
+      WORK_MB: ${SANDBOX_WORK_MB:-64}
+      IDLE_SECONDS: ${SANDBOX_IDLE_SECONDS:-300}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Boştaki sandbox'ların anlık görüntüleri. Harici diske geçince SANDBOX_DATA_DIR_HOST=/mnt/hdd/sandbox yap.
+      - ${SANDBOX_DATA_DIR_HOST:-sandbox-data}:/var/lib/sixfinger-sandbox
 
 volumes:
   pgdata:
+  sandbox-data:

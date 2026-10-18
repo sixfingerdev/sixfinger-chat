@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', 'apps/web/android/**', 'apps/web/public/**', 'coverage/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'apps/web/android/**', 'apps/web/public/**', 'apps/mobile/android/**', 'apps/mobile/.expo/**', 'coverage/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -18,9 +18,15 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/web/src/**/*.{ts,tsx}'],
+    files: ['apps/web/src/**/*.{ts,tsx}', 'apps/mobile/src/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: { ...reactHooks.configs.recommended.rules },
   },
   { files: ['**/*.mjs', 'apps/web/scripts/**'], languageOptions: { globals: globals.node } },
+  // Expo/Metro yapılandırma dosyaları CommonJS'tir.
+  {
+    files: ['apps/mobile/*.js', 'apps/mobile/plugins/*.js'],
+    languageOptions: { globals: globals.node, sourceType: 'commonjs' },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
 );

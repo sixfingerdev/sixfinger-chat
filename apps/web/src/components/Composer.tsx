@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, Brain, Check, FileText, Lock, Mic, MicOff, Paperclip, Square, X } from 'lucide-react';
+import { ArrowUp, FileText, Lock, Mic, MicOff, Paperclip, Square, X } from 'lucide-react';
+import { CHAT_MODES, THINKING_LEVELS, modeSupportsThinkingLevel, type ChatMode } from '@sixfinger/shared';
 import type { Effort, PendingAttachment } from '../lib/types.ts';
 import { clsx, timeUntil } from '../lib/format.ts';
 import { ACCEPT_ATTR, readTextFile } from '../lib/files.ts';
@@ -9,6 +10,7 @@ import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi } from '../store/ui.ts';
 import { Popover } from './Popover.tsx';
+import { SlashMeter } from './SlashMeter.tsx';
 
 const drafts = new Map<string, string>();
 const MAX_HEIGHT = 220;
@@ -26,9 +28,12 @@ export function Composer({
   const locale = useLocale();
   const user = useAuth((s) => s.user);
   const config = useUi((s) => s.config);
+  const mode = useUi((s) => s.mode);
+  const setMode = useUi((s) => s.setMode);
   const effort = useUi((s) => s.effort);
   const setEffort = useUi((s) => s.setEffort);
   const generating = useChats((s) => s.generating);
+  const prefill = useUi((s) => s.prefill);
   const draftKey = chatId ?? 'new';
 
   const [value, setValue] = useState(() => drafts.get(draftKey) ?? '');
@@ -59,6 +64,14 @@ export function Composer({
       ta.current?.focus();
     }
   }, [seed]);
+
+  useEffect(() => {
+    if (prefill) {
+      setValue(prefill.text);
+      drafts.set(draftKey, prefill.text);
+      ta.current?.focus();
+    }
+  }, [prefill]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resize = useCallback(() => {
     const el = ta.current;
@@ -138,12 +151,11 @@ export function Composer({
     }
   };
 
-  const efforts: Array<{ id: Effort; label: string; hint: string }> = [
-    { id: 'low', label: t('composer.effort.low'), hint: t('composer.effort.lowHint') },
-    { id: 'medium', label: t('composer.effort.medium'), hint: t('composer.effort.mediumHint') },
-    { id: 'high', label: t('composer.effort.high'), hint: t('composer.effort.highHint') },
-  ];
-  const currentEffort = efforts.find((e) => e.id === effort) ?? efforts[1]!;
+  const modes: Array<{ id: ChatMode; label: string; hint: string }> = CHAT_MODES.map((id) => ({ id, label: t(`composer.mode.${id}`), hint: t(`composer.mode.${id}Hint`) }));
+  const levels: Array<{ id: Effort; label: string; hint: string }> = THINKING_LEVELS.map((id) => ({ id, label: t(`composer.thinking.${id}`), hint: t(`composer.thinking.${id}Hint`) }));
+  const currentMode = modes.find((m) => m.id === mode) ?? modes[0]!;
+  const depthOf = (m: ChatMode): 1 | 2 | 3 => (m === 'fast' ? 1 : m === 'balanced' ? 2 : 3);
+  const currentLevel = levels.find((l) => l.id === effort) ?? levels[1]!;
   const over = value.length > maxChars;
   const showCounter = value.length > maxChars * 0.8;
   const lowQuota = remaining !== null && (user?.isGuest || remaining <= 5);
@@ -228,32 +240,42 @@ export function Composer({
               menuClassName="effort-menu"
               trigger={({ toggle, open }) => (
                 <button className={clsx('effort-btn', open && 'is-active')} onClick={toggle} aria-haspopup="menu" aria-expanded={open}>
-                  <Brain size={15} />
-                  <span>{currentEffort.label}</span>
+                  <SlashMeter level={depthOf(mode)} />
+                  <span>{currentMode.label}</span>
                 </button>
               )}
             >
-              {(close) => (
+              {() => (
                 <>
-                  <div className="menu-label">{t('composer.effort')}</div>
-                  {efforts.map((e) => (
-                    <button
-                      key={e.id}
-                      className="menu-item"
-                      role="menuitemradio"
-                      aria-checked={effort === e.id}
-                      onClick={() => {
-                        setEffort(e.id);
-                        close();
-                      }}
-                    >
+                  {modes.map((m) => (
+                    <button key={m.id} className="mode-row" role="menuitemradio" aria-checked={mode === m.id} onClick={() => setMode(m.id)}>
                       <span className="grow">
-                        {e.label}
-                        <small>{e.hint}</small>
+                        {m.label}
+                        <small>{m.hint}</small>
                       </span>
-                      {effort === e.id && <Check size={16} />}
+                      <SlashMeter level={depthOf(m.id)} />
                     </button>
                   ))}
+                  <div className="think">
+                    <div className="think-head">
+                      <span>{t('composer.thinking')}</span>
+                      {modeSupportsThinkingLevel(mode) && <span className="think-now">{currentLevel.label}</span>}
+                    </div>
+                    {modeSupportsThinkingLevel(mode) ? (
+                      <>
+                        <div className="seg" role="radiogroup" aria-label={t('composer.thinking')}>
+                          {levels.map((l) => (
+                            <button key={l.id} role="radio" aria-checked={effort === l.id} onClick={() => setEffort(l.id)}>
+                              <span>{l.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <small className="think-hint">{currentLevel.hint}</small>
+                      </>
+                    ) : (
+                      <small className="think-hint">{t('composer.thinking.auto')}</small>
+                    )}
+                  </div>
                 </>
               )}
             </Popover>

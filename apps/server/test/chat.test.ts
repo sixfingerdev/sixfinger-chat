@@ -67,6 +67,21 @@ describe('mesajlaşma ve akış', () => {
     expect(call.messages.at(-1)).toMatchObject({ role: 'user', content: 'Kimsin?' });
   });
 
+  it('mod ve düşünme düzeyi modele ayrı ayrı iletilir; eski istemcide effort modu belirler', async () => {
+    const m = await member(env);
+    const chat = await newChat(env.app, m);
+    await send(m, chat.id, { content: 'a', mode: 'balanced', effort: 'high' });
+    expect(env.ai.calls[0]).toMatchObject({ mode: 'balanced', effort: 'high' });
+    await send(m, chat.id, { content: 'b', mode: 'deep' });
+    expect(env.ai.calls.find((c) => c.mode === 'deep')).toMatchObject({ effort: 'medium' });
+    env.ai.calls.length = 0;
+    await send(m, chat.id, { content: 'c', effort: 'high' });
+    expect(env.ai.calls[0]).toMatchObject({ mode: 'deep', effort: 'medium' });
+    env.ai.calls.length = 0;
+    await send(m, chat.id, { content: 'd' });
+    expect(env.ai.calls[0]).toMatchObject({ mode: 'fast', effort: 'medium' });
+  });
+
   it('ikinci mesajda geçmiş modele iletilir', async () => {
     const m = await member(env);
     const chat = await newChat(env.app, m);

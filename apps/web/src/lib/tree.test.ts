@@ -14,6 +14,7 @@ const m = (id: string, parentId: string | null, role: 'user' | 'assistant', t: n
   attachments: [],
   feedback: null,
   reasoningMs: null,
+  parts: [],
   createdAt: new Date(2026, 0, 1, 0, 0, t).toISOString(),
 });
 

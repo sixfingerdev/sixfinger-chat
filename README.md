@@ -40,6 +40,13 @@ E-posta doğrulama ve şifre sıfırlama 6 haneli kodla (SMTP).
 
 **Güvenlik**: scrypt parola özeti, kısa ömürlü JWT + dönen refresh token (yeniden kullanım tespiti), oturum listesi/iptali, rate limit, parametreli SQL, ham HTML temizleme (sanitize), Helmet, CORS beyaz listesi.
 
+## Araçlar, artifact'lar ve sandbox
+
+- **Web araçları** (herkes): `web_search` (DuckDuckGo, Bing yedekli) ve `web_fetch` (SSRF korumalı; fiyat/stok gibi somut veriler için sayfa içi JSON-LD'yi de okur).
+- **Artifact'lar** (herkes): model tek dosyalık uygulama/oyun/SVG/diyagram/belge üretir; web'de yan panelde, mobilde tam ekranda, izole iframe/WebView içinde çalışır.
+- **Widget'lar** (herkes): mesajın içinde küçük etkileşimli parçalar (grafik, hesaplayıcı); uygulama temasına uyar.
+- **Sandbox** (yalnızca doğrulanmış üyeler): `bash`, `read`, `write`, `edit` — izole Docker konteynerinde, kaynak sınırlı, isteğe bağlı kısıtlı internet. Kurulum ve güvenlik modeli: [docs/sandbox.md](docs/sandbox.md).
+
 ## Mimari
 
 ```
@@ -51,8 +58,22 @@ packages/
 docs/       API, dağıtım ve Android rehberleri
 ```
 
-Yapay zekâ sağlayıcısı: **Pollinations** `openai-fast` (GPT-OSS 20B, akıl yürütmeli). `AI_BASE_URL`/`AI_MODEL`/`AI_API_KEY`
-ile başka bir OpenAI uyumlu uca çevrilebilir (`apps/server/src/services/ai.ts`).
+Yapay zekâ sağlayıcıları (çalışma moduna göre, `apps/server/src/services/ai.ts`):
+
+| Mod | Sağlayıcı / model | Ayarlar |
+|---|---|---|
+| Hızlı | Pollinations `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
+| Dengeli | OVH AI Endpoints `gpt-oss-120b` | `AI_BALANCED_BASE_URL`, `AI_BALANCED_MODEL`, `AI_BALANCED_API_KEY` |
+| Derin | OVH AI Endpoints `Qwen3.8-27B` (akıl yürütmeli) | `AI_DEEP_BASE_URL`, `AI_DEEP_MODEL`, `AI_DEEP_API_KEY` |
+
+Hepsi OpenAI uyumlu uçlardır (Dengeli `reasoning_effort` gönderir; Derin göndermez — Qwen bununla boş yanıt verir, o yüzden Derin'e başka bir model koyarsan `ai.ts`'teki bayrağı gözden geçir). Dengeli/Derin sağlayıcı yanıt vermeye başlamadan hata verirse istek otomatik olarak Hızlı
+sağlayıcıya düşer; `AI_BALANCED_BASE_URL=` (boş) vermek o modu doğrudan Hızlı'ya yönlendirir.
+Başlık üretimi ve hafıza gibi arka plan işleri Hızlı sağlayıcıyı kullanır.
+**Yedek:** bunlardan biri hata verir, hız sınırına takılır ya da boş yanıt dönerse istek otomatik olarak Amazon Bedrock'taki
+Claude'a düşer (isteğe bağlı; bkz. [docs/bedrock.md](docs/bedrock.md)).
+
+İstemci iki ayrı değer gönderir: `mode` (`fast`/`balanced`/`deep`, hangi model) ve `effort` (`low`/`medium`/`high`, düşünme düzeyi).
+Düşünme düzeyi Hızlı ve Dengeli'de uygulanır; Derin'de menüde gizlenir. `mode` göndermeyen eski istemcilerde `effort` modu belirler.
 
 > **Not (kota):** Pollinations anonim katmanı IP başına kısa bekleme uygular (402/429). Sunucu bunu
 > kuyruklayıp aralıklarla yeniden dener (`AI_MAX_CONCURRENCY`), ama çok kullanıcılı üretimde
@@ -83,6 +104,7 @@ docker compose up --build        # http://localhost:8787
 ```
 
 Dağıtım (Render, Docker, kendi sunucun) için → [docs/deploy.md](docs/deploy.md).
+Raspberry Pi'ye adım adım kurulum → [docs/raspberry-pi.md](docs/raspberry-pi.md).
 
 ## Android
 
@@ -96,5 +118,5 @@ iş akışıyla ya da yerelde üretilir → [docs/android.md](docs/android.md).
 ## Tasarım
 
 Marka işareti: diyagonal bir kesikle bölünmüş altıgen blok. Arayüzde aynı kesik dil olarak aktif sohbet
-işaretinde, akış imlecinde ve bekleme çizgisinde tekrar eder. Yazı tipi Geist; yüzeyler tek vurgu rengiyle
-(turuncu) sade tutulur.
+işaretinde, akış imlecinde ve bekleme çizgisinde tekrar eder. Yazı tipi Geist; yüzeyler monokrom (siyah-beyaz)
+bir paletle sade tutulur; vurgu rengi logodaki gibi koyuda beyaz, açıkta siyahtır.

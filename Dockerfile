@@ -8,6 +8,7 @@ COPY package.json package-lock.json ./
 COPY packages/shared/package.json packages/shared/
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
+COPY apps/sandboxd/package.json apps/sandboxd/
 RUN npm ci --ignore-scripts
 COPY . .
 # Android için ayrı derlenir; web imajına capacitor kabuğu gerekmez.
