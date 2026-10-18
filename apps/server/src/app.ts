@@ -21,6 +21,7 @@ import { messageRoutes } from './routes/messages.ts';
 import { meRoutes } from './routes/me.ts';
 import { publicRoutes } from './routes/public.ts';
 import { createAi, type AiProvider } from './services/ai.ts';
+import { createRunHub } from './services/runs.ts';
 import { createSandboxClient, createTools, type Tools } from './services/tools/index.ts';
 import { createCodes } from './services/codes.ts';
 import { createSessions } from './services/sessions.ts';
@@ -61,6 +62,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     sessions: createSessions(db, config, jwt),
     codes: createCodes(db, config),
     usage: createUsage(db),
+    runs: createRunHub(),
     ai: opts.ai ?? createAi(config, app.log),
     tools:
       opts.tools ??

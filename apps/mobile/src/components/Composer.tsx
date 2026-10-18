@@ -31,7 +31,7 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
   const setMode = useUi((s) => s.setMode);
   const effort = useUi((s) => s.effort);
   const setEffort = useUi((s) => s.setEffort);
-  const generating = useChats((s) => s.generating);
+  const generating = useChats((s) => (chatId ? s.generating[chatId] : undefined));
   const prefill = useUi((s) => s.prefill);
   const draftKey = chatId ?? 'new';
 
@@ -183,7 +183,7 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
             {showCounter && <RNText style={{ fontFamily: fonts.mono, fontSize: 11.5, color: over ? c.danger : c.text3 }}>{t('composer.chars', { n: value.length, max: maxChars })}</RNText>}
             <Animated.View style={sendStyle}>
               {busy ? (
-                <Press scale={0.9} accessibilityLabel={t('composer.stop')} onPress={() => { haptic.press(); useChats.getState().stop(); }} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' }}>
+                <Press scale={0.9} accessibilityLabel={t('composer.stop')} onPress={() => { haptic.press(); if (chatId) useChats.getState().stop(chatId); }} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.accent, alignItems: 'center', justifyContent: 'center' }}>
                   <Square size={14} color={c.onAccent} fill={c.onAccent} />
                 </Press>
               ) : (

@@ -47,7 +47,15 @@ const schema = z.object({
   BEDROCK_SECRET_ACCESS_KEY: z.string().optional().default(''),
   BEDROCK_SESSION_TOKEN: z.string().optional().default(''),
   AI_MAX_CONCURRENCY: z.coerce.number().int().min(1).default(2),
+  /** Üst servise bağlanma / ilk yanıt (başlıklar) ve akışsız çağrılar için süre. Akış başladıktan sonra uygulanmaz. */
   AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).default(120_000),
+  /** Akış sırasında bu kadar süre hiç veri gelmezse kopmuş sayılır. Uzun yanıtlar bundan etkilenmez. */
+  AI_IDLE_TIMEOUT_MS: z.coerce.number().int().min(10_000).default(90_000),
+  /** Tek bir yanıtın mutlak üst süresi (araç turları ayrı sayılır). */
+  AI_TOTAL_TIMEOUT_MS: z.coerce.number().int().min(60_000).default(1_200_000),
+  /** Bir yanıtta üretilebilecek en çok token (büyük artifact'lar için yüksek tutulur). */
+  AI_MAX_TOKENS: z.coerce.number().int().min(256).default(32_768),
+  BEDROCK_MAX_TOKENS: z.coerce.number().int().min(256).default(32_000),
   /** Model araç (web arama vb.) kullanabilsin mi? Kapalıysa yalnızca düz sohbet. */
   TOOLS_ENABLED: z
     .enum(['true', 'false', '1', '0', ''])

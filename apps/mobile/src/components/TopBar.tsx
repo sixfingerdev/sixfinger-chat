@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, Text as RNText, View } from 'react-native';
+import { Text as RNText, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Archive, ArchiveRestore, ChevronDown, Download, Ellipsis, FileJson, Lock, Menu, Pin, PinOff, Pencil, Share2, Trash2 } from 'lucide-react-native';
@@ -98,20 +98,20 @@ export function TopBar({ chatId }: { chatId: string | undefined }) {
           label: t('common.delete'),
           danger: true,
           run: () =>
-            Alert.alert(t('chat.deleteConfirm'), chat.title, [
-              { text: t('common.cancel'), style: 'cancel' },
-              {
-                text: t('common.delete'),
-                style: 'destructive',
-                onPress: async () => {
-                  if (await useChats.getState().deleteChat(chat.id)) {
-                    haptic.success();
-                    useUi.getState().toast({ kind: 'success', text: t('chat.deleted') });
-                    useChats.getState().newChat();
-                  }
-                },
+            useUi.getState().askConfirm({
+              title: t('chat.deleteConfirm'),
+              message: chat.title,
+              confirmLabel: t('common.delete'),
+              cancelLabel: t('common.cancel'),
+              destructive: true,
+              onConfirm: async () => {
+                if (await useChats.getState().deleteChat(chat.id)) {
+                  haptic.success();
+                  useUi.getState().toast({ kind: 'success', text: t('chat.deleted') });
+                  useChats.getState().newChat();
+                }
               },
-            ]),
+            }),
         },
       ]
     : [];

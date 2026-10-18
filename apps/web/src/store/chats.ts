@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ChatDTO, MessageDTO, MessagePartDTO, StreamEvent } from '@sixfinger/shared';
-import { api, streamRequest } from '../lib/api.ts';
+import { ApiError, api, streamGet, streamRequest } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { translate } from '../lib/i18n/index.ts';
 import type { PendingAttachment } from '../lib/types.ts';
@@ -16,7 +16,12 @@ export interface Generating {
   chatId: string;
   assistantId: string;
   abort: AbortController;
+  /** Ön plana dönünce bağlantıyı bilerek kesip yeniden izlemeye başlamak için. */
+  reconnect?: boolean;
 }
+
+type EventSource = (onEvent: (e: StreamEvent) => void, signal: AbortSignal) => Promise<void>;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface ChatsState {
   chats: ChatDTO[];
@@ -26,7 +31,8 @@ interface ChatsState {
   activeId: string | null;
   loadingId: string | null;
   loadError: 'notfound' | 'error' | null;
-  generating: Generating | null;
+  /** Sohbet kimliği → o sohbette süren üretim. Her sohbet bağımsızdır: birinde üretim sürerken diğerine mesaj gönderilebilir. */
+  generating: Record<string, Generating>;
   draftPersona: string | null;
 
   reset: () => void;
@@ -45,7 +51,11 @@ interface ChatsState {
     onChatCreated?: (id: string) => void;
   }) => Promise<void>;
   regenerate: (chatId: string, messageId: string) => Promise<void>;
-  stop: () => void;
+  stop: (chatId: string) => void;
+  /** Süren (sunucuda arka planda devam eden) bir üretimi yeniden izler; yoksa son durumu yükler. */
+  follow: (chatId: string) => Promise<void>;
+  /** Uygulama ön plana gelince / ağ dönünce: açık sohbeti sunucuyla eşitler ve akışı yeniden bağlar. */
+  refreshActive: () => void;
   switchVersion: (chatId: string, messageId: string) => void;
 
   renameChat: (id: string, title: string) => Promise<void>;
@@ -61,6 +71,20 @@ function appendText(parts: MessagePartDTO[], text: string): MessagePartDTO[] {
   const last = parts[parts.length - 1];
   if (last?.type === 'text') return [...parts.slice(0, -1), { type: 'text', text: last.text + text }];
   return [...parts, { type: 'text', text }];
+}
+
+/** Akan düşünceyi, son parça düşünceyse ona ekler; değilse (araç ya da metinden sonra) yeni düşünce parçası açar. */
+function appendReasoning(parts: MessagePartDTO[], text: string): MessagePartDTO[] {
+  const last = parts[parts.length - 1];
+  if (last?.type === 'reasoning') return [...parts.slice(0, -1), { ...last, text: last.text + text }];
+  return [...parts, { type: 'reasoning', text, ms: null }];
+}
+
+/** Son düşünce parçasının süresini yazar (sonraki parça başlayınca). */
+function closeReasoning(parts: MessagePartDTO[], ms: number): MessagePartDTO[] {
+  const last = parts[parts.length - 1];
+  if (last?.type === 'reasoning' && last.ms === null) return [...parts.slice(0, -1), { ...last, ms }];
+  return parts;
 }
 
 const sortChats = (list: ChatDTO[]) =>
@@ -102,37 +126,84 @@ export const useChats = create<ChatsState>((set, get) => {
     patchDetail(chat.id, (d) => ({ ...d, chat }));
   };
 
-  /** Akış olaylarını işleyen ortak gövde (gönder + yeniden üret). */
-  async function runStream(
-    chatId: string,
-    path: string,
-    body: object,
-    tmp: { userId?: string; assistantId: string },
-  ) {
+  const setGen = (chatId: string, g: Generating) => set({ generating: { ...get().generating, [chatId]: g } });
+  const clearGen = (chatId: string, abort: AbortController) => {
+    if (get().generating[chatId]?.abort !== abort) return;
+    const { [chatId]: _gone, ...rest } = get().generating;
+    void _gone;
+    set({ generating: rest });
+  };
+
+  /**
+   * Akış olaylarını işleyen ortak gövde (gönder, yeniden üret, süren üretimi izle).
+   * Döner: bağlantı yarıda koptuysa true (sunucuda üretim sürüyor olabilir; çağıran yeniden izler).
+   */
+  async function runStream(chatId: string, source: EventSource, tmp: { userId?: string; assistantId: string | null }): Promise<boolean> {
     const abort = new AbortController();
-    let assistantId = tmp.assistantId;
-    set({ generating: { chatId, assistantId, abort } });
+    let assistantId = tmp.assistantId ?? '';
+    const gen: Generating = { chatId, assistantId, abort };
+    setGen(chatId, gen);
 
     // Delta'ları kare başına bir kez uygula (uzun yanıtlarda render maliyetini düşürür).
     let bufContent = '';
     let bufReasoning = '';
     let raf = 0;
+    let tm: ReturnType<typeof setTimeout> | undefined;
+    /** Şimdiye dek gelen metin miktarı: çok büyük yanıtlarda (artifact) güncellemeler seyreltilir. */
+    let total = 0;
+    /** Güncel düşünce parçasının başlangıcı (süre göstermek için). */
+    let reasonStart = 0;
     const flush = () => {
       raf = 0;
+      tm = undefined;
       if (!bufContent && !bufReasoning) return;
       const c = bufContent;
       const r = bufReasoning;
       bufContent = '';
       bufReasoning = '';
-      patchMessage(chatId, assistantId, (m) => ({ ...m, content: m.content + c, reasoning: m.reasoning + r, parts: c ? appendText(m.parts, c) : m.parts }));
+      patchMessage(chatId, assistantId, (m) => {
+        let parts = m.parts;
+        if (r) {
+          if (!reasonStart) reasonStart = Date.now();
+          parts = appendReasoning(parts, r);
+        }
+        if (c) {
+          if (reasonStart) parts = closeReasoning(parts, Date.now() - reasonStart);
+          reasonStart = 0;
+          parts = appendText(parts, c);
+        }
+        return { ...m, content: m.content + c, reasoning: m.reasoning + r, parts };
+      });
     };
     const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(flush);
+      if (raf || tm) return;
+      // Küçük yanıtta kare başına bir kez; 8 bin karakteri aşınca 120 ms'de bir (ayrıştırma/çizim maliyeti kodun boyuyla büyür).
+      if (total > 8_000) tm = setTimeout(flush, 120);
+      else raf = requestAnimationFrame(flush);
     };
 
     let finished = false;
+    let gotEvent = false;
+    let dropped = false;
     const onEvent = (e: StreamEvent) => {
+      gotEvent = true;
       switch (e.type) {
+        case 'snapshot': {
+          // Sunucuda süren üretime yeniden bağlandık: o ana kadarki mesaj durumu gelir, sonrası canlı akar.
+          bufContent = '';
+          bufReasoning = '';
+          const snap = e.assistantMessage;
+          patchDetail(chatId, (d) => ({
+            ...d,
+            messages: d.messages.some((m) => m.id === snap.id) ? d.messages.map((m) => (m.id === snap.id ? snap : m)) : [...d.messages, snap],
+            chat: { ...d.chat, leafId: snap.id },
+          }));
+          total = snap.content.length + snap.reasoning.length;
+          assistantId = snap.id;
+          gen.assistantId = snap.id;
+          setGen(chatId, gen);
+          break;
+        }
         case 'start': {
           flush();
           const realA = e.assistantMessage;
@@ -146,25 +217,29 @@ export const useChats = create<ChatsState>((set, get) => {
             chat: { ...d.chat, leafId: realA.id, lastMessageAt: realA.createdAt },
           }));
           assistantId = realA.id;
-          set({ generating: { chatId, assistantId, abort } });
+          gen.assistantId = realA.id;
+          setGen(chatId, gen);
           const d = get().detail[chatId];
           if (d) set({ chats: upsert(get().chats, d.chat) });
           break;
         }
         case 'reasoning':
           bufReasoning += e.delta;
+          total += e.delta.length;
           schedule();
           break;
         case 'delta':
           bufContent += e.delta;
+          total += e.delta.length;
           schedule();
           break;
         case 'tool_start':
           flush();
           patchMessage(chatId, assistantId, (m) => ({
             ...m,
-            parts: [...m.parts, { type: 'tool', id: e.id, name: e.name, args: e.args, status: 'running' }],
+            parts: [...(reasonStart ? closeReasoning(m.parts, Date.now() - reasonStart) : m.parts), { type: 'tool', id: e.id, name: e.name, args: e.args, status: 'running' }],
           }));
+          reasonStart = 0;
           break;
         case 'tool_end':
           flush();
@@ -193,36 +268,43 @@ export const useChats = create<ChatsState>((set, get) => {
           finished = true;
           flush();
           patchMessage(chatId, assistantId, () => ({ ...e.assistantMessage, parts: e.assistantMessage.parts ?? [] }));
-          set({ generating: null });
+          clearGen(chatId, abort);
           break;
       }
     };
 
     try {
-      await streamRequest(path, body, onEvent, abort.signal);
+      await source(onEvent, abort.signal);
+      // Sunucu olay gönderdi ama 'done' gelmeden bağlantıyı kapattı (ör. sunucu yeniden başladı): kopma say.
+      if (!finished && gotEvent && !abort.signal.aborted) dropped = true;
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
+      const network = err instanceof ApiError && err.status === 0;
+      if (abort.signal.aborted) {
+        dropped = Boolean(gen.reconnect);
+      } else if (network && assistantId && !assistantId.startsWith('tmp-')) {
+        // İstek sunucuya ulaşmıştı (gerçek kimlik var): ağ koptu / uygulama arka plana alındı. Sunucuda üretim sürer; yeniden izlenecek.
+        dropped = true;
+      } else {
         reportError(err);
-        // Başlamadan hata: geçici mesajları geri al.
-        if (!finished) {
-          flush();
-          patchDetail(chatId, (d) => ({
-            ...d,
-            messages: d.messages.map((m) => (m.id === assistantId && m.status === 'streaming' ? { ...m, status: 'error' } : m)),
-          }));
-        }
+        flush();
+        patchDetail(chatId, (d) => ({
+          ...d,
+          messages: d.messages.map((m) => (m.id === assistantId && m.status === 'streaming' ? { ...m, status: 'error' } : m)),
+        }));
       }
     } finally {
       if (raf) cancelAnimationFrame(raf);
+      if (tm) clearTimeout(tm);
       flush();
-      if (!finished) {
-        // Durdurma ya da bağlantı kopması: yerel durumu işaretle.
+      if (!finished && !dropped) {
+        // Kullanıcı durdurdu ya da yerel hata: yerel durumu işaretle.
         patchMessage(chatId, assistantId, (m) => (m.status === 'streaming' ? { ...m, status: abort.signal.aborted ? 'stopped' : 'error' } : m));
       }
-      if (get().generating?.abort === abort) set({ generating: null });
-      // Sunucu ile kesin eşitleme (gerçek kimlikler, durum).
-      void get().openChat(chatId, true);
+      clearGen(chatId, abort);
+      // Sunucu ile kesin eşitleme (gerçek kimlikler, durum). Kopma durumunda yeniden izleme bunu zaten yapar.
+      if (!dropped) void get().openChat(chatId, true);
     }
+    return dropped;
   }
 
   return {
@@ -233,11 +315,11 @@ export const useChats = create<ChatsState>((set, get) => {
     activeId: null,
     loadingId: null,
     loadError: null,
-    generating: null,
+    generating: {},
     draftPersona: null,
 
     reset: () =>
-      set({ chats: [], archived: null, chatsLoaded: false, detail: {}, activeId: null, loadingId: null, loadError: null, generating: null }),
+      set({ chats: [], archived: null, chatsLoaded: false, detail: {}, activeId: null, loadingId: null, loadError: null, generating: {} }),
 
     async loadChats() {
       try {
@@ -259,13 +341,15 @@ export const useChats = create<ChatsState>((set, get) => {
 
     async openChat(id: string, silent = false) {
       if (!silent) set({ activeId: id });
-      if (get().generating?.chatId === id) return;
+      if (get().generating[id]) return;
       if (!silent) set({ loadingId: get().detail[id] ? null : id, loadError: null });
       try {
         const d = await api.chat(id);
-        if (get().generating?.chatId === id) return; // akış sürerken üzerine yazma
+        if (get().generating[id]) return; // akış sürerken üzerine yazma
         set({ detail: { ...get().detail, [id]: { chat: d.chat, messages: d.messages } }, loadingId: null });
         if (get().chats.some((c) => c.id === id)) patchChat(d.chat);
+        // Sunucuda hâlâ üretilen bir yanıt varsa (uygulama kapatılıp açıldı, başka cihazdan başlatıldı…) canlı izle.
+        if (d.messages.some((m) => m.role === 'assistant' && m.status === 'streaming')) void get().follow(id);
       } catch (err) {
         const notFound = (err as { status?: number }).status === 404;
         set({ loadingId: null, loadError: notFound ? 'notfound' : 'error' });
@@ -277,7 +361,7 @@ export const useChats = create<ChatsState>((set, get) => {
     setDraftPersona: (draftPersona) => set({ draftPersona }),
 
     async send({ content, attachments = [], chatId, parentId, onChatCreated }) {
-      if (get().generating) return;
+      if (chatId && get().generating[chatId]) return;
       let id = chatId ?? null;
       try {
         if (!id) {
@@ -309,41 +393,74 @@ export const useChats = create<ChatsState>((set, get) => {
         chat: { ...d.chat, leafId: asstTmp.id },
       }));
 
-      await runStream(
-        id,
-        `/chats/${id}/messages`,
-        {
-          content,
-          parentId: parent,
-          mode: useUi.getState().mode,
-          effort: useUi.getState().effort,
-          attachments: attachments.length ? attachments.map(({ name, mime, text }) => ({ name, mime, text })) : undefined,
-        },
-        { userId: userTmp.id, assistantId: asstTmp.id },
-      );
+      const chat = id;
+      const body = {
+        content,
+        parentId: parent,
+        mode: useUi.getState().mode,
+        effort: useUi.getState().effort,
+        attachments: attachments.length ? attachments.map(({ name, mime, text }) => ({ name, mime, text })) : undefined,
+      };
+      const dropped = await runStream(chat, (onEvent, signal) => streamRequest(`/chats/${chat}/messages`, body, onEvent, signal), {
+        userId: userTmp.id,
+        assistantId: asstTmp.id,
+      });
+      if (dropped) void get().follow(chat);
     },
 
     async regenerate(chatId, messageId) {
-      if (get().generating) return;
+      if (get().generating[chatId]) return;
       const detail = get().detail[chatId];
       const target = detail?.messages.find((m) => m.id === messageId);
       if (!detail || !target?.parentId) return;
       const asstTmp = blankMessage({ id: tmpId('a'), chatId, role: 'assistant', parentId: target.parentId, status: 'streaming' });
       patchDetail(chatId, (d) => ({ ...d, messages: [...d.messages, asstTmp], chat: { ...d.chat, leafId: asstTmp.id } }));
-      await runStream(
-        chatId,
-        `/chats/${chatId}/regenerate`,
-        { messageId, mode: useUi.getState().mode, effort: useUi.getState().effort },
-        { assistantId: asstTmp.id },
-      );
+      const body = { messageId, mode: useUi.getState().mode, effort: useUi.getState().effort };
+      const dropped = await runStream(chatId, (onEvent, signal) => streamRequest(`/chats/${chatId}/regenerate`, body, onEvent, signal), {
+        assistantId: asstTmp.id,
+      });
+      if (dropped) void get().follow(chatId);
     },
 
-    stop() {
-      get().generating?.abort.abort();
+    stop(chatId) {
+      const g = get().generating[chatId];
+      if (!g) return;
+      // Sunucuda üretim bağlantıdan bağımsız sürdüğü için durdurma ayrıca bildirilir.
+      void api.stopChat(chatId).catch(() => {});
+      g.abort.abort();
+    },
+
+    async follow(chatId) {
+      if (get().generating[chatId]) return;
+      // Kopma sürerse (ağ yok, uygulama arka planda) artan aralıklarla birkaç kez dene.
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const streaming = get().detail[chatId]?.messages.find((m) => m.role === 'assistant' && m.status === 'streaming');
+        const dropped = await runStream(chatId, (onEvent, signal) => streamGet(`/chats/${chatId}/stream`, onEvent, signal), {
+          assistantId: streaming?.id ?? null,
+        });
+        if (!dropped) return;
+        await sleep(1_200 * (attempt + 1));
+        if (get().generating[chatId]) return; // bu arada başka biri yeniden bağlandı
+      }
+      void get().openChat(chatId, true);
+    },
+
+    refreshActive() {
+      const id = get().activeId;
+      if (!id) return;
+      const g = get().generating[id];
+      if (g) {
+        // Arka plandayken soket sessizce ölmüş olabilir: bilerek kesip anlık görüntüyle yeniden bağlan.
+        g.reconnect = true;
+        g.abort.abort();
+        void sleep(50).then(() => get().follow(id));
+        return;
+      }
+      void get().openChat(id, true);
     },
 
     switchVersion(chatId, messageId) {
-      if (get().generating) return;
+      if (get().generating[chatId]) return;
       const d = get().detail[chatId];
       if (!d) return;
       const leaf = deepestLeaf(indexMessages(d.messages), messageId);

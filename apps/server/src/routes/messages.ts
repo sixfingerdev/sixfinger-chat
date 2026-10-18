@@ -14,6 +14,7 @@ import {
 import type { AppContext } from '../context.ts';
 import type { Guard } from '../guard.ts';
 import type { AuthUser } from '../lib/types.ts';
+import type { Run } from '../services/runs.ts';
 import { HttpError, badRequest, notFound, tierRestricted } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
 import type { AiMessage, AiToolCall, Effort } from '../services/ai.ts';
@@ -46,6 +47,22 @@ function chosenMode(body: { mode?: ChatMode; effort?: Effort }): { mode: ChatMod
   return { mode: legacyModeFromEffort(body.effort), effort: DEFAULT_THINKING_LEVEL };
 }
 
+/** Kesilen yanıtta kapanmamış <artifact>/<widget> etiketlerini kapatır (önizleme sonsuza dek "yazılıyor" kalmasın). */
+export function closeOpenTags(text: string): string {
+  let out = '';
+  for (const tag of ['artifact', 'widget']) {
+    const opened = (text.match(new RegExp(`<${tag}[\\s>]`, 'g')) ?? []).length;
+    const closed = (text.match(new RegExp(`</${tag}>`, 'g')) ?? []).length;
+    if (opened > closed) out += `\n</${tag}>`;
+  }
+  return out;
+}
+
+const truncationNote = (locale: string) =>
+  locale === 'tr'
+    ? '\n\n*Yanıt uzunluk sınırına ulaştığı için burada kesildi. “Devam et” yazarak sürdürebilirsin.*'
+    : '\n\n*The reply was cut off at the length limit. Type “continue” to carry on.*';
+
 const MEMORY_TRIGGER = /(hatırla|hatirla|aklında tut|aklinda tut|unutma|remember (that|this|me|my)|keep in mind)/i;
 
 interface GenerationInput {
@@ -63,7 +80,7 @@ interface GenerationInput {
 }
 
 export function messageRoutes(ctx: AppContext, guard: Guard) {
-  const { db, ai, usage, log, tools, config } = ctx;
+  const { db, ai, usage, log, tools, config, runs } = ctx;
 
   /** Bu kullanıcının bu yanıtta kullanabileceği araçlar. */
   const toolsFor = (user: AuthUser) => (config.TOOLS_ENABLED ? tools.forUser(user) : []);
@@ -84,16 +101,20 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     });
   }
 
-  async function assertNotBusy(chatId: string) {
-    const r = await db.query(
-      `select 1 from messages where chat_id = $1 and status = 'streaming' and created_at > now() - interval '3 minutes' limit 1`,
-      [chatId],
-    );
-    if (r.rowCount) throw new HttpError(409, 'conflict', 'Bu sohbette bir yanıt zaten üretiliyor.');
+  async function assertCanStart(chatId: string, user: AuthUser) {
+    if (runs.forChat(chatId)) throw new HttpError(409, 'conflict', 'Bu sohbette bir yanıt zaten üretiliyor.');
+    // Kullanıcı başına eşzamanlı üretim sınırı: arka planda sürenler de sayılır.
+    const limit = user.isGuest ? 2 : 4;
+    if (runs.countForUser(user.id) >= limit) {
+      throw new HttpError(409, 'conflict', 'Aynı anda çok fazla yanıt üretiliyor. Biri bitince tekrar dene.');
+    }
   }
 
-  /** SSE yanıtını açar ve olay gönderici döner. */
-  function openStream(req: FastifyRequest, reply: FastifyReply) {
+  /**
+   * SSE yanıtını açıp bir üretime bağlar. Bağlantı kapanırsa yalnızca bu dinleyici ayrılır; üretim sürer
+   * (durdurmak için ayrı bir uç var). `withSnapshot` ise önce o ana kadarki mesaj gönderilir.
+   */
+  function attach(reply: FastifyReply, run: Run, withSnapshot: boolean) {
     reply.hijack();
     const raw = reply.raw;
     const inherited: Record<string, string | number | string[]> = {};
@@ -106,44 +127,55 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       'x-accel-buffering': 'no',
     });
     raw.write(': sixfinger\n\n');
-    const ac = new AbortController();
     let closed = false;
-    raw.on('close', () => {
-      closed = true;
-      if (!raw.writableFinished) ac.abort();
-    });
     const ping = setInterval(() => {
       if (!closed) raw.write(': ping\n\n');
     }, 15_000);
-    return {
-      signal: ac.signal,
-      get closed() {
-        return closed;
+    const unsubscribe = run.subscribe(
+      {
+        send: (event) => {
+          if (!closed) raw.write(`data: ${JSON.stringify(event)}\n\n`);
+        },
+        close: () => {
+          clearInterval(ping);
+          if (!closed) raw.end();
+        },
       },
-      send(event: StreamEvent) {
-        if (!closed) raw.write(`data: ${JSON.stringify(event)}\n\n`);
-      },
-      end() {
-        clearInterval(ping);
-        if (!closed) raw.end();
-      },
-    };
+      withSnapshot,
+    );
+    raw.on('close', () => {
+      closed = true;
+      clearInterval(ping);
+      unsubscribe();
+    });
   }
 
-  async function generate(req: FastifyRequest, reply: FastifyReply, g: GenerationInput) {
-    const stream = openStream(req, reply);
-    try {
-      await runGeneration(req, stream, g);
-    } catch (err) {
-      log.error({ err }, 'akış beklenmedik şekilde sonlandı');
-      stream.send({ type: 'error', code: 'internal', message: 'Beklenmeyen bir hata oluştu.' });
-    } finally {
-      stream.end();
-    }
+  /** Üretimi başlatır, istek sahibini ona bağlar ve beklemeden döner; üretim arka planda sürer. */
+  function generate(req: FastifyRequest, reply: FastifyReply, g: GenerationInput) {
+    const run = runs.start(g.chat.id, g.user.id, g.assistantId);
+    attach(reply, run, false);
+    const ip = req.ip;
+    // Tek bir yanıt için mutlak üst süre: takılı kalan bir üretim sonsuza dek yer tutmasın.
+    const cap = setTimeout(() => run.stop(), config.AI_TOTAL_TIMEOUT_MS + 60_000);
+    void (async () => {
+      try {
+        await runGeneration(ip, run, g);
+      } catch (err) {
+        log.error({ err }, 'akış beklenmedik şekilde sonlandı');
+        run.emit({ type: 'error', code: 'internal', message: 'Beklenmeyen bir hata oluştu.' });
+        await db.query(`update messages set status = 'error' where id = $1 and status = 'streaming'`, [g.assistantId]).catch(() => {});
+      } finally {
+        clearTimeout(cap);
+        run.finish();
+        runs.remove(run);
+      }
+    })();
   }
 
-  async function runGeneration(req: FastifyRequest, stream: ReturnType<typeof openStream>, g: GenerationInput) {
+  async function runGeneration(ip: string, run: Run, g: GenerationInput) {
     const { chat, user } = g;
+    // Eski kodla uyum: `stream` üretimin olay gönderici ve iptal sinyali görünümüdür.
+    const stream = { signal: run.signal, send: (e: StreamEvent) => run.emit(e) };
     const system = await loadPromptContext(user, chat.persona_id).catch(() => '');
     const assistantRow = await db.query<MessageRow>(`select ${MESSAGE_COLUMNS} from messages where id = $1`, [g.assistantId]);
     stream.send({ type: 'start', userMessage: g.userMessage, assistantMessage: toMessageDTO(assistantRow.rows[0]!) });
@@ -157,9 +189,31 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     let reasoning = '';
     let reasoningStart = 0;
     let reasoningMs: number | null = null;
+    let truncated = false;
     let status: MessageDTO['status'] = 'complete';
     let errorMessage: { code: HttpError['code']; message: string } | null = null;
     const parts: MessagePartDTO[] = [];
+    // Son düşünce parçasının süresi: sonraki parça (metin/araç) başlayınca ya da üretim bitince kapanır.
+    let partStart = 0;
+    const closeReasoning = () => {
+      const last = parts[parts.length - 1];
+      if (last?.type === 'reasoning' && last.ms === null) last.ms = Date.now() - partStart;
+    };
+
+    // Geri dönen istemciye gösterilecek anlık görüntü ve (sunucu çökerse kaybolmasın diye) 2 sn'de bir veritabanına yazım.
+    const base = toMessageDTO(assistantRow.rows[0]!);
+    run.snapshot = () => ({ ...base, content, reasoning, reasoningMs, status: 'streaming', parts: JSON.parse(JSON.stringify(parts)) });
+    let lastPersist = Date.now();
+    const persist = () => {
+      if (Date.now() - lastPersist < 2_000) return;
+      lastPersist = Date.now();
+      db.query('update messages set content = $2, reasoning = $3, parts = $4 where id = $1 and status = \'streaming\'', [
+        g.assistantId,
+        content,
+        reasoning,
+        JSON.stringify(parts),
+      ]).catch(() => {});
+    };
 
     const defs = toolsFor(user);
     const specs = toolSpecs(defs);
@@ -196,8 +250,17 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           if (chunk.type === 'reasoning') {
             if (!reasoningStart) reasoningStart = Date.now();
             reasoning += chunk.text;
+            // Her tur kendi düşünce parçasını açar: araç sonucundan sonra yeniden düşünürse eskisine eklenmez.
+            const lastPart = parts[parts.length - 1];
+            if (lastPart?.type === 'reasoning') lastPart.text += chunk.text;
+            else {
+              parts.push({ type: 'reasoning', text: chunk.text, ms: null });
+              partStart = Date.now();
+            }
             stream.send({ type: 'reasoning', delta: chunk.text });
+            persist();
           } else if (chunk.type === 'content') {
+            closeReasoning();
             if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
             content += chunk.text;
             stepText += chunk.text;
@@ -205,11 +268,24 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
             if (last?.type === 'text') last.text += chunk.text;
             else parts.push({ type: 'text', text: chunk.text });
             stream.send({ type: 'delta', delta: chunk.text });
+            persist();
+          } else if (chunk.type === 'truncated') {
+            truncated = true;
           } else {
             calls = chunk.calls;
           }
         }
         if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
+        if (truncated) {
+          // Çıktı sınırında kesildi: açık kalmış artifact/widget'ı kapat ve kullanıcıya nasıl sürdüreceğini söyle.
+          const tail = closeOpenTags(content) + truncationNote(user.locale);
+          content += tail;
+          const last = parts[parts.length - 1];
+          if (last?.type === 'text') last.text += tail;
+          else parts.push({ type: 'text', text: tail });
+          stream.send({ type: 'delta', delta: tail });
+          break;
+        }
         if (!calls.length) break;
 
         // Modelin araç isteğini konuşmaya ekle, sonra çalıştır.
@@ -229,6 +305,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
             args: shownArgs,
             status: 'running',
           };
+          closeReasoning();
           parts.push(part);
           stream.send({ type: 'tool_start', id: part.id, name: part.name, args: part.args });
           const key = `${call.function.name}:${JSON.stringify(Object.fromEntries(Object.entries(shownArgs).filter(([k]) => k !== 'max_chars').sort()))}`;
@@ -272,6 +349,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       }
       if (reasoningStart && reasoningMs === null) reasoningMs = Date.now() - reasoningStart;
     }
+    closeReasoning();
     // Yarıda kalan araçlar "çalışıyor" görünmesin.
     for (const p of parts) {
       if (p.type === 'tool' && p.status === 'running') {
@@ -282,7 +360,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     }
 
     // Hiç çıktı üretilemediyse hakkı geri ver.
-    if (status === 'error' && !content) await usage.refund(user.id, user.isGuest ? req.ip : null).catch(() => {});
+    if (status === 'error' && !content) await usage.refund(user.id, user.isGuest ? ip : null).catch(() => {});
 
     const saved = await db.query<MessageRow>(
       `update messages set content = $2, reasoning = $3, reasoning_ms = $4, status = $5, model = $6, tokens_out = $7, parts = $8
@@ -370,7 +448,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           if (p.rows[0].role !== 'assistant') throw badRequest('Bir kullanıcı mesajının altına mesaj eklenemez.');
         }
 
-        await assertNotBusy(chat.id);
+        await assertCanStart(chat.id, user);
         await usage.consume(user.id, user.tier, user.isGuest ? req.ip : null);
 
         let userRow: MessageRow, assistantId: string;
@@ -405,7 +483,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
           parts: m.role === 'assistant' ? m.parts : undefined,
         }));
-        await generate(req, reply, {
+        generate(req, reply, {
           chat,
           user,
           userMessage: toMessageDTO(userRow),
@@ -434,7 +512,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const t = target.rows[0];
         if (!t || t.role !== 'assistant' || !t.parent_id) throw badRequest('Bu mesaj yeniden üretilemez.');
 
-        await assertNotBusy(chat.id);
+        await assertCanStart(chat.id, user);
         await usage.consume(user.id, user.tier, user.isGuest ? req.ip : null);
 
         let assistantId: string;
@@ -458,7 +536,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           parts: m.role === 'assistant' ? m.parts : undefined,
         }));
         const lastUser = [...path].reverse().find((m) => m.role === 'user');
-        await generate(req, reply, {
+        generate(req, reply, {
           chat,
           user,
           userMessage: null,
@@ -470,6 +548,25 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         });
       },
     );
+
+    // --- Üretimi durdur ---
+    // Bağlantı kopması üretimi durdurmaz (uygulama kapanınca sunucuda sürer); durdurmak için bu uç çağrılır.
+    app.post<{ Params: { id: string } }>('/chats/:id/stop', async (req) => {
+      const chat = await getOwnedChat(db, req.params.id, req.user!.id);
+      if (!chat) throw notFound('Sohbet bulunamadı.');
+      const run = runs.forChat(chat.id);
+      run?.stop();
+      return { stopped: Boolean(run) };
+    });
+
+    // --- Süren üretimi izle (uygulama yeniden açılınca): önce anlık görüntü, sonra canlı olaylar (SSE) ---
+    app.get<{ Params: { id: string } }>('/chats/:id/stream', async (req, reply) => {
+      const chat = await getOwnedChat(db, req.params.id, req.user!.id);
+      if (!chat) throw notFound('Sohbet bulunamadı.');
+      const run = runs.forChat(chat.id);
+      if (!run || !run.snapshot) return reply.code(204).send();
+      attach(reply, run, true);
+    });
 
     // --- Geri bildirim ---
     app.put<{ Params: { id: string } }>('/messages/:id/feedback', async (req) => {

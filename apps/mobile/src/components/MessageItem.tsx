@@ -1,19 +1,18 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useState } from 'react';
 import { Text as RNText, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Check, ChevronLeft, ChevronRight, Copy, FileText, Pencil, RefreshCw, Square, ThumbsDown, ThumbsUp, Volume2 } from 'lucide-react-native';
-import type { MessageDTO } from '@sixfinger/shared';
+import { Check, ChevronLeft, ChevronRight, Copy, FileText, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react-native';
+import type { MessageDTO, MessagePartDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { copyText } from '../lib/format.ts';
-import { useLocale, useT } from '../lib/i18n/index.ts';
+import { useT } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
-import { speak, stopSpeaking } from '../lib/speech.ts';
 import type { Versions } from '../lib/tree.ts';
 import { useChats } from '../store/chats.ts';
+import { useUi } from '../store/ui.ts';
 import { LogoMark } from './Logo.tsx';
 import { RichText } from './RichText.tsx';
-import { ReasoningBlock } from './ReasoningBlock.tsx';
 import { ToolCard } from './ToolCard.tsx';
 import { WaitingLine } from './WaitingLine.tsx';
 import { Press } from './Ui.tsx';
@@ -140,99 +139,92 @@ function UserMessage({ msg, versions, busy, onEdit, onMenu }: MessageProps) {
   );
 }
 
-function AssistantMessage({ msg, versions, isLast, live, busy, onMenu }: MessageProps) {
-  const { c } = useTheme();
-  const t = useT();
-  const locale = useLocale();
-  const [speaking, setSpeaking] = useState(false);
-  const streaming = live || msg.status === 'streaming';
-  const hasAnswer = msg.content.length > 0;
-  const parts = msg.parts ?? [];
-  const hasParts = parts.length > 0;
-  const waiting = streaming && !hasAnswer && !msg.reasoning && !hasParts;
-
-  useEffect(
-    () => () => {
-      if (speaking) stopSpeaking();
-    },
-    [speaking],
-  );
-
+/** Asistan mesajının metin / araç kartı dilimi (düşünce parçaları arasındaki kısım). */
+export const AssistantSegment = memo(function AssistantSegment({ msg, parts, onMenu }: { msg: MessageDTO; parts: MessagePartDTO[]; onMenu: (m: MessageDTO) => void }) {
+  const hasText = parts.some((p) => p.type === 'text' && p.text);
   return (
-    <View style={{ paddingHorizontal: 16, paddingVertical: 8 }}>
-      {streaming && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <LogoMark size={13} animate />
-        </View>
-      )}
+    <View style={{ paddingHorizontal: 16, paddingVertical: 4 }}>
       <Press
         scale={1}
         delayLongPress={380}
         onLongPress={() => {
-          if (!hasAnswer) return;
+          if (!hasText) return;
           haptic.press();
           onMenu(msg);
         }}
         style={{ minWidth: 0 }}
       >
-        {waiting && <WaitingLine />}
-        <ReasoningBlock text={msg.reasoning} streaming={streaming} hasAnswer={hasAnswer} ms={msg.reasoningMs} />
-        {hasParts
-          ? parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
-          : hasAnswer && <RichText text={msg.content} />}
-        {!streaming && msg.status === 'stopped' && <RNText style={[type.small, { color: c.text3, marginTop: 6 }]}>{t('msg.stopped')}</RNText>}
-        {!streaming && msg.status === 'error' && (
-          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 6 }}>
-            <RNText style={[type.small, { color: c.danger }]}>{t('msg.failed')}</RNText>
-            <Press haptics="tap" disabled={busy} onPress={() => void useChats.getState().regenerate(msg.chatId, msg.id)}>
-              <RNText style={[type.small, { color: c.accent, fontFamily: fonts.sansSemibold }]}>{t('common.retry')}</RNText>
-            </Press>
-          </View>
-        )}
-        {!streaming && (hasAnswer || msg.status === 'error') && isLast && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, marginLeft: -8, flexWrap: 'wrap' }}>
-            <VersionNav versions={versions} chatId={msg.chatId} disabled={busy} />
-            {hasAnswer && <CopyBtn text={msg.content} />}
-            {hasAnswer && (
-              <>
-                <IconBtn label={t('msg.good')} active={msg.feedback === 1} onPress={() => void useChats.getState().setFeedback(msg.chatId, msg.id, msg.feedback === 1 ? null : 1)}>
-                  <ThumbsUp size={16} color={msg.feedback === 1 ? c.accent : c.text2} />
-                </IconBtn>
-                <IconBtn label={t('msg.bad')} active={msg.feedback === -1} onPress={() => void useChats.getState().setFeedback(msg.chatId, msg.id, msg.feedback === -1 ? null : -1)}>
-                  <ThumbsDown size={16} color={msg.feedback === -1 ? c.accent : c.text2} />
-                </IconBtn>
-                <IconBtn
-                  label={speaking ? t('msg.stopRead') : t('msg.read')}
-                  active={speaking}
-                  onPress={() => {
-                    if (speaking) {
-                      stopSpeaking();
-                      setSpeaking(false);
-                    } else {
-                      setSpeaking(true);
-                      speak(msg.content, locale, () => setSpeaking(false));
-                    }
-                  }}
-                >
-                  {speaking ? <Square size={15} color={c.accent} /> : <Volume2 size={16} color={c.text2} />}
-                </IconBtn>
-              </>
-            )}
-            <IconBtn label={t('msg.regenerate')} disabled={busy} onPress={() => void useChats.getState().regenerate(msg.chatId, msg.id)}>
-              <RefreshCw size={16} color={c.text2} />
-            </IconBtn>
-          </View>
-        )}
-        {!streaming && !isLast && versions.total > 1 && (
-          <View style={{ marginLeft: -8 }}>
-            <VersionNav versions={versions} chatId={msg.chatId} disabled={busy} />
-          </View>
-        )}
+        {parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : p.type === 'tool' ? <ToolCard key={p.id} part={p} /> : null))}
       </Press>
     </View>
   );
-}
+});
 
+/** Asistan mesajının altı: yazıyor göstergesi, durum notları ve eylem düğmeleri (son mesajda). */
+export const AssistantFooter = memo(function AssistantFooter({ msg, versions, isLast, live, busy }: { msg: MessageDTO; versions: Versions; isLast: boolean; live: boolean; busy: boolean }) {
+  const { c } = useTheme();
+  const t = useT();
+  const streaming = live || msg.status === 'streaming';
+  const hasAnswer = msg.content.length > 0;
+  const waiting = streaming && !hasAnswer && !msg.reasoning && !(msg.parts ?? []).length;
+  const showActions = !streaming && (hasAnswer || msg.status === 'error') && isLast;
+  const likeStyle = (on: boolean) => ({ color: on ? c.text : c.text2, fill: on ? c.text : 'none' });
+  const like = likeStyle(msg.feedback === 1);
+  const dislike = likeStyle(msg.feedback === -1);
+
+  const rate = (value: 1 | -1) => {
+    const next = msg.feedback === value ? null : value;
+    haptic.select();
+    void useChats.getState().setFeedback(msg.chatId, msg.id, next);
+    if (next !== null) useUi.getState().toast({ kind: 'success', text: t('msg.feedbackThanks') });
+  };
+
+  return (
+    <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+      {streaming && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4, marginBottom: 2 }}>
+          <LogoMark size={13} animate />
+        </View>
+      )}
+      {waiting && <WaitingLine />}
+      {!streaming && msg.status === 'stopped' && <RNText style={[type.small, { color: c.text3, marginTop: 6 }]}>{t('msg.stopped')}</RNText>}
+      {!streaming && msg.status === 'error' && (
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 6 }}>
+          <RNText style={[type.small, { color: c.danger }]}>{t('msg.failed')}</RNText>
+          <Press haptics="tap" disabled={busy} onPress={() => void useChats.getState().regenerate(msg.chatId, msg.id)}>
+            <RNText style={[type.small, { color: c.text, fontFamily: fonts.sansSemibold }]}>{t('common.retry')}</RNText>
+          </Press>
+        </View>
+      )}
+      {showActions && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, marginLeft: -8, flexWrap: 'wrap' }}>
+          <VersionNav versions={versions} chatId={msg.chatId} disabled={busy} />
+          {hasAnswer && <CopyBtn text={msg.content} />}
+          {hasAnswer && (
+            <>
+              <IconBtn label={t('msg.good')} active={msg.feedback === 1} onPress={() => rate(1)}>
+                <ThumbsUp size={16} color={like.color} fill={like.fill} />
+              </IconBtn>
+              <IconBtn label={t('msg.bad')} active={msg.feedback === -1} onPress={() => rate(-1)}>
+                <ThumbsDown size={16} color={dislike.color} fill={dislike.fill} />
+              </IconBtn>
+            </>
+          )}
+          <IconBtn label={t('msg.regenerate')} disabled={busy} onPress={() => void useChats.getState().regenerate(msg.chatId, msg.id)}>
+            <RefreshCw size={16} color={c.text2} />
+          </IconBtn>
+        </View>
+      )}
+      {!streaming && !isLast && versions.total > 1 && (
+        <View style={{ marginLeft: -8 }}>
+          <VersionNav versions={versions} chatId={msg.chatId} disabled={busy} />
+        </View>
+      )}
+    </View>
+  );
+});
+
+/** Kullanıcı mesajı (asistan mesajı ChatScreen'de parçalara bölünerek çizilir). */
 export const MessageItem = memo(function MessageItem(props: MessageProps) {
-  return props.msg.role === 'user' ? <UserMessage {...props} /> : <AssistantMessage {...props} />;
+  return <UserMessage {...props} />;
 });

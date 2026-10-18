@@ -53,7 +53,14 @@ const RAW = `Ham HTML (stil yok):
 <table><tr><th>Ay</th><th>Taksit</th></tr><tr><td>12</td><td>24.180 ₺</td></tr><tr><td>24</td><td>13.420 ₺</td></tr></table>
 </widget>`;
 
+/** BIGART: yaklaşık 150 KB'lık, 3000 satırlık tek dosya HTML artifact (kasma/ANR denemeleri için). */
+function bigArtifact() {
+  const rows = Array.from({ length: 3000 }, (_, i) => `  <div class="row r${i % 7}" data-i="${i}">Satır ${i}: lorem ipsum dolor sit amet, consectetur adipiscing elit.</div>`).join('\n');
+  return `Hazır:\n<artifact id="big" title="Büyük Sayfa" type="html">\n<!doctype html><html><head><style>.row{padding:2px 8px;font:12px system-ui}.r1{background:#eee}</style></head><body>\n${rows}\n</body></html>\n</artifact>\nBitti.`;
+}
+
 function answerFor(text) {
+  if (/BIGART/.test(text)) return bigArtifact();
   if (/KITCALC/.test(text)) return 'Dene:\n' + WIDGET_EXAMPLES.CALCULATOR + '\nBitti.';
   if (/KITCHART/.test(text)) return 'Grafik:\n' + WIDGET_EXAMPLES.BAR_CHART + '\nBitti.';
   if (/WIDGETRAW/.test(text)) return RAW;
@@ -89,13 +96,37 @@ createServer(async (req, res) => {
   }
   res.writeHead(200, { 'content-type': 'text/event-stream' });
   const send = (delta) => res.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta }] })}\n\n`);
-  for (const w of 'Kullanıcı bir şey soruyor, kısa cevap vermeliyim.'.split(' ')) {
-    send({ reasoning: `${w} `, role: 'assistant' });
-    await sleep(15);
+  // TOOLTHINK: iki turlu ajan. 1. tur düşünür ve web_search çağırır; araç sonucundan sonra 2. tur yeniden düşünüp cevaplar.
+  if (/TOOLTHINK/.test(String(last)) || (body.messages ?? []).some((m) => m.role === 'tool')) {
+    const hasTool = (body.messages ?? []).some((m) => m.role === 'tool');
+    if (/TOOLTHINK/.test(JSON.stringify(body.messages ?? []))) {
+      const words = (hasTool ? 'Sonuçlar geldi, şimdi bunları özetleyip cevabı yazıyorum.' : 'Önce bunu aramam gerekiyor, web aramasıyla başlıyorum.').split(' ');
+      for (const w of words) { send({ reasoning: `${w} `, role: 'assistant' }); await sleep(40); }
+      if (!hasTool && (body.tools ?? []).length) {
+        send({ role: 'assistant', tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ query: 'sixfinger' }) } }] });
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      for (const ch of 'Arama sonuçlarına göre özet: SixFinger bir sohbet uygulaması.'.match(/.{1,6}/g)) { send({ content: ch, role: 'assistant' }); await sleep(15); }
+      res.write('data: [DONE]\n\n');
+      res.end();
+      return;
+    }
   }
-  for (const ch of text.match(/.{1,6}/gs) ?? []) {
+  // LONGTHINK: uzun ve yavaş akan düşünce (kaydırma / yapışkan başlık denemeleri için).
+  const long = /LONGTHINK/.test(String(last));
+  const thought = long
+    ? Array.from({ length: 40 }, (_, i) => `Adım ${i + 1}: önce durumu değerlendiriyorum, sonra seçenekleri tek tek karşılaştırıp en uygun olanı seçmeye çalışıyorum.\n\n`).join('')
+    : 'Kullanıcı bir şey soruyor, kısa cevap vermeliyim.';
+  for (const w of thought.split(' ')) {
+    send({ reasoning: `${w} `, role: 'assistant' });
+    await sleep(long ? 45 : 15);
+  }
+  const big = text.length > 20_000;
+  for (const ch of text.match(big ? /.{1,150}/gs : /.{1,6}/gs) ?? []) {
     send({ content: ch, role: 'assistant' });
-    await sleep(12);
+    await sleep(big ? 6 : 12);
   }
   res.write('data: [DONE]\n\n');
   res.end();

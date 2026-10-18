@@ -16,8 +16,6 @@ export interface BedrockSender {
   send(command: ConverseCommand | ConverseStreamCommand, opts?: { abortSignal?: AbortSignal }): Promise<unknown>;
 }
 
-const DEFAULT_MAX_TOKENS = 8192;
-
 const text = (t: string): ContentBlock => ({ text: t });
 
 function parseArgs(raw: string): Record<string, unknown> {
@@ -71,13 +69,13 @@ function toolConfig(req: AiRequest): ToolConfiguration | undefined {
   };
 }
 
-function input(req: AiRequest, modelId: string) {
+function input(req: AiRequest, modelId: string, defaultMax: number) {
   const { system, messages } = toConverse(req.messages);
   return {
     modelId,
     messages,
     ...(system.length ? { system } : {}),
-    inferenceConfig: { maxTokens: req.maxTokens ?? DEFAULT_MAX_TOKENS, temperature: req.temperature ?? 0.7 },
+    inferenceConfig: { maxTokens: req.maxTokens ?? defaultMax, temperature: req.temperature ?? 0.7 },
     ...(toolConfig(req) ? { toolConfig: toolConfig(req) } : {}),
   };
 }
@@ -117,15 +115,17 @@ export function createBedrock(config: Config, sender?: BedrockSender): AiProvide
   async function* stream(req: AiRequest): AsyncGenerator<AiChunk, void, void> {
     let res: ConverseStreamCommandOutput;
     try {
-      res = (await client.send(new ConverseStreamCommand(input(req, modelId)), { abortSignal: req.signal })) as ConverseStreamCommandOutput;
+      res = (await client.send(new ConverseStreamCommand(input(req, modelId, config.BEDROCK_MAX_TOKENS)), { abortSignal: req.signal })) as ConverseStreamCommandOutput;
     } catch (err) {
       if (req.signal?.aborted) throw err;
       throw upstreamError(err);
     }
     if (!res.stream) throw new HttpError(502, 'upstream_unavailable', 'Boş yanıt alındı.');
     const calls = new Map<number, AiToolCall>();
+    let truncated = false;
     try {
       for await (const ev of res.stream) {
+        if (ev.messageStop?.stopReason === 'max_tokens') truncated = true;
         const idx = ev.contentBlockStart?.contentBlockIndex ?? ev.contentBlockDelta?.contentBlockIndex ?? 0;
         const tu = ev.contentBlockStart?.start?.toolUse;
         if (tu) calls.set(idx, { id: tu.toolUseId ?? '', type: 'function', function: { name: tu.name ?? '', arguments: '' } });
@@ -143,11 +143,12 @@ export function createBedrock(config: Config, sender?: BedrockSender): AiProvide
     }
     const list = [...calls.entries()].sort((a, b) => a[0] - b[0]).map(([, c], n) => ({ ...c, id: c.id || `call_${Date.now().toString(36)}_${n}` }));
     if (list.length) yield { type: 'tool_calls', calls: list };
+    if (truncated) yield { type: 'truncated' };
   }
 
   async function complete(req: AiRequest): Promise<string> {
     try {
-      const res = (await client.send(new ConverseCommand(input(req, modelId)), { abortSignal: req.signal })) as {
+      const res = (await client.send(new ConverseCommand(input(req, modelId, config.BEDROCK_MAX_TOKENS)), { abortSignal: req.signal })) as {
         output?: { message?: { content?: ContentBlock[] } };
       };
       return (res.output?.message?.content ?? []).map((b) => ('text' in b && typeof b.text === 'string' ? b.text : '')).join('');

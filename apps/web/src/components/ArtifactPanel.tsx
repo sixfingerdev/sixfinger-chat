@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, Download, Maximize2, X } from 'lucide-react';
+import { useThrottled } from '../lib/useThrottled.ts';
 import { collectArtifacts, type ArtifactKind } from '@sixfinger/shared';
 import { copyText } from '../lib/format.ts';
 import { useT } from '../lib/i18n/index.ts';
@@ -27,8 +28,15 @@ export function ArtifactPanel() {
   const t = useT();
   const id = useUi((s) => s.artifactId);
   const close = useUi((s) => s.closeArtifact);
-  const detail = useChats((s) => (s.activeId ? s.detail[s.activeId] : undefined));
-  const entries = useMemo(() => collectArtifacts(selectPath(detail).map((m) => (m.role === 'assistant' ? m.content : ''))), [detail]);
+  const liveDetail = useChats((s) => (s.activeId ? s.detail[s.activeId] : undefined));
+  const generating = useChats((s) => Boolean(s.activeId && s.generating[s.activeId]));
+  // Üretim sürerken içerik her karede değişir: panel en çok 400 ms'de bir güncellenir (donmayı önler).
+  const detail = useThrottled(liveDetail, 400, generating);
+  // Kapalıyken hiçbir şey ayrıştırılmaz.
+  const entries = useMemo(
+    () => (id ? collectArtifacts(selectPath(detail).map((m) => (m.role === 'assistant' ? m.content : ''))) : []),
+    [id, detail],
+  );
   const entry = entries.find((e) => e.id === id);
 
   const [version, setVersion] = useState<number | null>(null); // null = en yeni
@@ -126,7 +134,17 @@ export function ArtifactPanel() {
       <div className="artifact-body">
         {tab === 'code' ? (
           <div className="artifact-code">
-            {current.content ? <Markdown text={fenced(current.content, LANG[entry.kind])} /> : <p className="artifact-empty">{t('artifact.empty')}</p>}
+            {!current.content ? (
+              <p className="artifact-empty">{t('artifact.empty')}</p>
+            ) : writing ? (
+              // Yazılırken yalnızca son satırlar, renklendirmesiz: maliyet kodun boyuna bağlı değil.
+              <>
+                <p className="artifact-lines">{t('artifact.lines', { n: current.content.split('\n').length })}</p>
+                <pre className="artifact-tail">{current.content.split('\n').slice(-60).join('\n')}</pre>
+              </>
+            ) : (
+              <Markdown text={fenced(current.content, LANG[entry.kind])} />
+            )}
           </div>
         ) : entry.kind === 'markdown' ? (
           <div className="artifact-doc">

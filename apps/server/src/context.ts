@@ -8,6 +8,7 @@ import type { Codes } from './services/codes.ts';
 import type { Usage } from './services/usage.ts';
 import type { AiProvider } from './services/ai.ts';
 import type { Tools } from './services/tools/index.ts';
+import type { RunHub } from './services/runs.ts';
 
 export interface AppContext {
   config: Config;
@@ -20,4 +21,6 @@ export interface AppContext {
   usage: Usage;
   ai: AiProvider;
   tools: Tools;
+  /** Sunucuda çalışan yanıt üretimleri (istemciden bağımsız). */
+  runs: RunHub;
 }

@@ -112,6 +112,7 @@ export function expandAssistant(item: HistoryItem): AiMessage[] {
     results = [];
   };
   for (const p of parts) {
+    if (p.type === 'reasoning') continue; // düşünce modele geri verilmez
     if (p.type === 'text') {
       flush();
       text += p.text;

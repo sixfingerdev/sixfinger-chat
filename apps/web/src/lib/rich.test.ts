@@ -81,9 +81,10 @@ describe('buildSandboxDoc', () => {
     }
   });
 
-  it('widget kiti tema rengine göre gömülür', () => {
-    const dark = buildSandboxDoc({ ...base, kind: 'html', content: '<div class="sf-card">x</div>' });
-    const light = buildSandboxDoc({ ...base, dark: false, kind: 'html', content: '<div class="sf-card">x</div>' });
+  it('widget: stil kiti ve tema, koyu/açık palete göre gömülür', () => {
+    const wbase = { ...base, mode: 'widget' as const };
+    const dark = buildSandboxDoc({ ...wbase, kind: 'html', content: '<div class="sf-card">x</div>' });
+    const light = buildSandboxDoc({ ...wbase, dark: false, kind: 'html', content: '<div class="sf-card">x</div>' });
     for (const doc of [dark, light]) {
       expect(doc).toContain('.sf-card');
       expect(doc).toContain('--sf-c1');
@@ -91,6 +92,28 @@ describe('buildSandboxDoc', () => {
     }
     expect(dark).toContain('--sf-c2:#6aa8ff');
     expect(light).toContain('--sf-c2:#1d63c9');
+  });
+
+  it('artifact: uygulama temasına HİÇ dokunulmaz (renk, yazı tipi, arka plan, color-scheme, stil kiti yok)', () => {
+    const page = '<!doctype html><html><head><title>T</title></head><body style="background:#123"><h1>Merhaba</h1></body></html>';
+    for (const [kind, content] of [['html', page], ['svg', '<svg></svg>'], ['mermaid', 'graph TD; A-->B']] as const) {
+      for (const dark of [true, false]) {
+        const doc = buildSandboxDoc({ ...base, dark, kind, content });
+        expect(doc).not.toContain('--sf-');
+        expect(doc).not.toContain('color-scheme');
+        expect(doc).not.toContain('font-family');
+        expect(doc).not.toMatch(/background:\s*#(000|0b0b0c|fafaf9)/i);
+        expect(doc).not.toContain('.sf-card');
+        expect(doc).not.toContain('sf-artifact');
+        // yalnızca güvenlik ve köprü eklenir
+        expect(doc).toContain(SANDBOX_CSP);
+        expect(doc).toContain('window.sf=');
+      }
+    }
+    // modelin sayfası olduğu gibi kalır
+    expect(buildSandboxDoc({ ...base, kind: 'html', content: page })).toContain('<body style="background:#123"><h1>Merhaba</h1></body>');
+    // mermaid temaya göre değişmez
+    expect(buildSandboxDoc({ ...base, dark: true, kind: 'mermaid', content: 'graph TD; A-->B' })).toContain("theme:'default'");
   });
 
   it('tam HTML belgesinin head\'ine enjekte eder', () => {

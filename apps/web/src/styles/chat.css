@@ -715,7 +715,8 @@
   width: 100%;
   min-height: 0;
   border: 0;
-  background: var(--bg);
+  /* Artifact modelin yazdığı gibi gösterilir: uygulama temasına uyarlanmaz, normal bir tarayıcı sayfası gibi beyaz zemin. */
+  background: #fff;
 }
 .artifact-code,
 .artifact-doc {
@@ -769,4 +770,19 @@
 .widget-hint {
   font-size: 13px;
   color: var(--text-3);
+}
+
+.artifact-lines {
+  margin: 0 0 8px;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+.artifact-tail {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
 }

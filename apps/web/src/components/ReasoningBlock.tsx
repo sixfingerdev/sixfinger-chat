@@ -3,19 +3,9 @@ import { ChevronRight } from 'lucide-react';
 import { formatDuration } from '../lib/format.ts';
 import { useT } from '../lib/i18n/index.ts';
 
-export function ReasoningBlock({
-  text,
-  streaming,
-  hasAnswer,
-  ms,
-}: {
-  text: string;
-  streaming: boolean;
-  hasAnswer: boolean;
-  ms: number | null;
-}) {
+/** Bir düşünce parçası. `thinking`: bu parça şu an akıyor (arkasından metin/araç gelmedi). */
+export function ReasoningBlock({ text, thinking, ms }: { text: string; thinking: boolean; ms: number | null }) {
   const t = useT();
-  const thinking = streaming && !hasAnswer;
   const [open, setOpen] = useState(thinking);
   const touched = useRef(false);
 
@@ -42,7 +32,12 @@ export function ReasoningBlock({
         <span className="reasoning-label">{label}</span>
         {thinking && <span className="reasoning-dots" aria-hidden />}
       </button>
-      {open && <div className="reasoning-body">{text}</div>}
+      {/* Gövde hep bağlı kalır; açılıp kapanma yüksekliği CSS ile animasyonlanır. */}
+      <div className="reasoning-collapse" aria-hidden={!open}>
+        <div className="reasoning-clip">
+          <div className="reasoning-body">{text}</div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -81,6 +81,8 @@ export type ToolStatus = 'running' | 'done' | 'error';
  */
 export type MessagePartDTO =
   | { type: 'text'; text: string }
+  /** Modelin bir turdaki düşüncesi. Araç sonucundan sonra yeniden düşünürse yeni bir parça açılır (eskisine eklenmez). */
+  | { type: 'reasoning'; text: string; ms: number | null }
   | {
       type: 'tool';
       id: string;
@@ -162,6 +164,8 @@ export interface ApiError {
 // ---------- Akış (SSE) olayları ----------
 export type StreamEvent =
   | { type: 'start'; userMessage: MessageDTO | null; assistantMessage: MessageDTO }
+  /** Üretim sürerken (ör. uygulama yeniden açılınca) bağlanan istemciye, o ana kadarki mesaj durumu. */
+  | { type: 'snapshot'; assistantMessage: MessageDTO }
   | { type: 'reasoning'; delta: string }
   | { type: 'delta'; delta: string }
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }

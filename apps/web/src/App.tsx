@@ -40,8 +40,8 @@ function Shell() {
       } else if (mod && e.key === '/') {
         e.preventDefault();
         useUi.getState().toggleSidebar();
-      } else if (e.key === 'Escape' && useChats.getState().generating) {
-        useChats.getState().stop();
+      } else if (e.key === 'Escape' && activeGenerating()) {
+        useChats.getState().stop(useChats.getState().activeId!);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -58,7 +58,7 @@ function Shell() {
       else if (ui.authMode) ui.closeAuth();
       else if (ui.settingsTab) ui.closeSettings();
       else if (ui.mobileSidebarOpen) ui.setMobileSidebar(false);
-      else if (useChats.getState().generating) useChats.getState().stop();
+      else if (activeGenerating()) useChats.getState().stop(useChats.getState().activeId!);
       else if (window.location.pathname !== '/' && canGoBack) nav(-1);
       else if (window.location.pathname !== '/') nav('/');
       else void exitApp();
@@ -115,7 +115,29 @@ function Shell() {
   );
 }
 
+/** Açık sohbette süren bir üretim var mı? */
+const activeGenerating = () => {
+  const s = useChats.getState();
+  return Boolean(s.activeId && s.generating[s.activeId]);
+};
+
 export function App() {
+  // Sekme uzun süre arka plandaysa ya da ağ geri geldiyse süren üretimi yeniden bağla (üretim sunucuda sürer).
+  useEffect(() => {
+    let hiddenAt = 0;
+    const onVisible = () => {
+      if (document.visibilityState === 'hidden') hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > 15_000) useChats.getState().refreshActive();
+    };
+    const onOnline = () => useChats.getState().refreshActive();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onOnline);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onOnline);
+    };
+  }, []);
+
   useEffect(() => {
     if (!isNative || getApiBase()) void useAuth.getState().boot();
     void setStatusBar(document.documentElement.dataset.theme !== 'light');

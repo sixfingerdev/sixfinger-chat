@@ -274,7 +274,7 @@ export function ChatPage() {
   const detail = useChats((s) => (chatId ? s.detail[chatId] : undefined));
   const loadError = useChats((s) => s.loadError);
   const loadingId = useChats((s) => s.loadingId);
-  const generating = useChats((s) => s.generating);
+  const generating = useChats((s) => (chatId ? s.generating[chatId] : undefined));
 
   useEffect(() => {
     if (chatId) void useChats.getState().openChat(chatId);
@@ -290,11 +290,16 @@ export function ChatPage() {
   const [showJump, setShowJump] = useState(false);
   const last = path[path.length - 1];
 
+  const lastTop = useRef(0);
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
     const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
-    stick.current = dist < 140;
+    // Alta yakınsa akışı takip et; uzaktaysa ve kullanıcı yukarı çektiyse bırak.
+    // (İçerik büyümesi ve kendi kaydırmamız scrollTop'u yalnızca artırır, takibi bozmaz.)
+    if (dist <= 24) stick.current = true;
+    else if (el.scrollTop < lastTop.current - 1) stick.current = false;
+    lastTop.current = el.scrollTop;
     setShowJump(dist > 360);
   };
 

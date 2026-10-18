@@ -7,6 +7,15 @@ import { kv } from '../lib/storage.ts';
 
 export type ThemePref = 'dark' | 'light' | 'system';
 
+export interface ConfirmRequest {
+  title: string;
+  message?: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+}
+
 export interface Toast {
   id: number;
   kind: 'info' | 'error' | 'success';
@@ -36,6 +45,15 @@ interface UiState {
   /** Kenar çekmecesi açık mı? (Sürükleme animasyonu bileşen içinde; bu yalnızca mantıksal durum.) */
   drawerOpen: boolean;
   setDrawer: (open: boolean) => void;
+
+  /** Düşünce bloklarının elle açılıp kapatılma durumu (mesaj kimliği → açık mı). Yoksa otomatik: düşünürken açık, cevap başlayınca kapalı. */
+  reasoningOpen: Record<string, boolean>;
+  setReasoningOpen: (id: string, open: boolean) => void;
+
+  /** Uygulama içi onay paneli (native Android uyarı kutusu yerine). */
+  confirmReq: ConfirmRequest | null;
+  askConfirm: (req: ConfirmRequest) => void;
+  closeConfirm: () => void;
 
   /** Tam ekran açılan artifact (kimlik). */
   artifactId: string | null;
@@ -97,6 +115,13 @@ export const useUi = create<UiState>((set, get) => ({
     kv.set('sf.thinking', effort);
     set({ effort });
   },
+
+  confirmReq: null,
+  askConfirm: (confirmReq) => set({ confirmReq }),
+  closeConfirm: () => set({ confirmReq: null }),
+
+  reasoningOpen: {},
+  setReasoningOpen: (id, open) => set((s) => ({ reasoningOpen: { ...s.reasoningOpen, [id]: open } })),
 
   drawerOpen: false,
   setDrawer: (drawerOpen) => set({ drawerOpen }),

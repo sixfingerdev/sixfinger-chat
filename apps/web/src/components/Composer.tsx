@@ -32,7 +32,7 @@ export function Composer({
   const setMode = useUi((s) => s.setMode);
   const effort = useUi((s) => s.effort);
   const setEffort = useUi((s) => s.setEffort);
-  const generating = useChats((s) => s.generating);
+  const generating = useChats((s) => (chatId ? s.generating[chatId] : undefined));
   const prefill = useUi((s) => s.prefill);
   const draftKey = chatId ?? 'new';
 
@@ -285,7 +285,7 @@ export function Composer({
               <span className={clsx('counter', over && 'over')}>{t('composer.chars', { n: value.length, max: maxChars })}</span>
             )}
             {busy ? (
-              <button className="send-btn stop" onClick={() => useChats.getState().stop()} aria-label={t('composer.stop')} title={t('composer.stop')}>
+              <button className="send-btn stop" onClick={() => chatId && useChats.getState().stop(chatId)} aria-label={t('composer.stop')} title={t('composer.stop')}>
                 <Square size={14} fill="currentColor" />
               </button>
             ) : (

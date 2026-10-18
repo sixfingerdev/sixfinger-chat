@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Alert, ScrollView, Switch, Text as RNText, View } from 'react-native';
+import { ScrollView, Switch, Text as RNText, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -109,10 +109,7 @@ export default function SettingsScreen() {
   };
 
   const confirm = (title: string, run: () => void, destructive = true) =>
-    Alert.alert(title, undefined, [
-      { text: t('common.cancel'), style: 'cancel' },
-      { text: t('common.confirm'), style: destructive ? 'destructive' : 'default', onPress: run },
-    ]);
+    useUi.getState().askConfirm({ title, confirmLabel: t('common.confirm'), cancelLabel: t('common.cancel'), destructive, onConfirm: run });
 
   const used = config?.usage.used ?? 0;
   const limit = config?.usage.limit ?? 1;
