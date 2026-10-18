@@ -162,6 +162,8 @@ export interface ApiError {
 // ---------- Akış (SSE) olayları ----------
 export type StreamEvent =
   | { type: 'start'; userMessage: MessageDTO | null; assistantMessage: MessageDTO }
+  /** Üretim sürerken (ör. uygulama yeniden açılınca) bağlanan istemciye, o ana kadarki mesaj durumu. */
+  | { type: 'snapshot'; assistantMessage: MessageDTO }
   | { type: 'reasoning'; delta: string }
   | { type: 'delta'; delta: string }
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }

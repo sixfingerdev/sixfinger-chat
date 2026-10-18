@@ -23,7 +23,7 @@ describe('Pollinations sağlayıcısı', () => {
       sse([delta({ role: 'assistant', content: '' }), delta({ reasoning: 'hmm' }), delta({ content: 'Mer' }), delta({ content: 'haba' })]);
     const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
     const out: Array<[string, string]> = [];
-    for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }] })) if (c.type !== 'tool_calls') out.push([c.type, c.text]);
+    for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }] })) if (c.type === 'reasoning' || c.type === 'content') out.push([c.type, c.text]);
     expect(out).toEqual([
       ['reasoning', 'hmm'],
       ['content', 'Mer'],
@@ -140,6 +140,62 @@ describe('Pollinations sağlayıcısı', () => {
       const r = await run('deep', (url) => (url === config.AI_DEEP_BASE_URL ? new Response('{}', { status: 400 }) : ok()));
       expect(r.text).toBe('ok');
       expect(r.calls.map((c) => c.body.model)).toEqual(['Qwen3.8-27B', 'openai-fast']);
+    });
+  });
+
+  describe('zaman aşımı', () => {
+    /** Gövdesi `chunks` kadar parçayı `gapMs` arayla gönderen, iptal sinyaline uyan sahte yanıt. */
+    const slow = (signal: AbortSignal | null | undefined, chunks: string[], gapMs: number, hang = false) =>
+      new Response(
+        new ReadableStream({
+          async start(c) {
+            signal?.addEventListener('abort', () => c.error(signal.reason), { once: true });
+            const enc = new TextEncoder();
+            for (const ch of chunks) {
+              await new Promise((r) => setTimeout(r, gapMs));
+              c.enqueue(enc.encode(`data: ${JSON.stringify(delta({ content: ch }))}\n\n`));
+            }
+            if (!hang) {
+              c.enqueue(enc.encode('data: [DONE]\n\n'));
+              c.close();
+            }
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'text/event-stream' } },
+      );
+
+    it('toplam süre bağlanma süresini aşan ama akmaya devam eden yanıtı kesmez', async () => {
+      const cfg = { ...config, AI_TIMEOUT_MS: 80 };
+      const fetchMock = async (_u: string, init: RequestInit) => slow(init.signal, Array.from({ length: 12 }, (_, i) => `p${i} `), 25);
+      const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
+      let text = '';
+      for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }], mode: 'fast' })) if (c.type === 'content') text += c.text;
+      expect(text).toContain('p11');
+    });
+
+    it('akış arası sessizlik uzun sürerse anlaşılır bir hatayla kesilir', async () => {
+      const cfg = { ...config, AI_IDLE_TIMEOUT_MS: 150 };
+      const fetchMock = async (_u: string, init: RequestInit) => slow(init.signal, ['bir'], 10, true);
+      const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
+      const got: string[] = [];
+      await expect(
+        (async () => {
+          for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }], mode: 'fast' })) if (c.type === 'content') got.push(c.text);
+        })(),
+      ).rejects.toMatchObject({ code: 'upstream_unavailable', message: expect.stringContaining('yarıda kaldı') });
+      expect(got).toEqual(['bir']);
+    });
+
+    it('istekte yüksek bir max_tokens gönderilir', async () => {
+      let sent: any;
+      const fetchMock = async (_u: string, init: RequestInit) => {
+        sent = JSON.parse(String(init.body));
+        return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+      };
+      const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+      await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast' });
+      expect(sent.max_tokens).toBe(config.AI_MAX_TOKENS);
+      expect(config.AI_MAX_TOKENS).toBeGreaterThanOrEqual(16_000);
     });
   });
 });

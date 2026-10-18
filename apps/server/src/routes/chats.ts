@@ -81,6 +81,14 @@ export function chatRoutes(ctx: AppContext, guard: Guard) {
     app.get<{ Params: { id: string } }>('/chats/:id', async (req): Promise<ChatDetailDTO> => {
       const chat = await getOwnedChat(db, req.params.id, req.user!.id);
       if (!chat) throw notFound('Sohbet bulunamadı.');
+      // Sunucu yeniden başlamışsa ya da üretim ölmüşse 'streaming' kalmış mesajlar sonsuza dek "yazıyor" görünmesin.
+      // (Kısa bir süre tanınır: yeni başlayan üretim kaydı henüz oluşuyor olabilir.)
+      await db.query(
+        `update messages set status = 'stopped'
+          where chat_id = $1 and status = 'streaming' and created_at < now() - interval '20 seconds'
+            and not (id = any($2::uuid[]))`,
+        [chat.id, ctx.runs.activeIds(chat.id)],
+      );
       const m = await db.query<MessageRow>(
         `select ${MESSAGE_COLUMNS} from messages where chat_id = $1 order by seq`,
         [chat.id],

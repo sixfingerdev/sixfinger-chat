@@ -46,7 +46,9 @@ export type AiChunk =
   | { type: 'reasoning'; text: string }
   | { type: 'content'; text: string }
   /** Akış bitince, model araç çağırmak istediyse bir kez gelir. */
-  | { type: 'tool_calls'; calls: AiToolCall[] };
+  | { type: 'tool_calls'; calls: AiToolCall[] }
+  /** Yanıt çıktı sınırına (max_tokens) takılıp kesildi. */
+  | { type: 'truncated' };
 
 export interface AiProvider {
   stream(req: AiRequest): AsyncGenerator<AiChunk, void, void>;
@@ -120,6 +122,9 @@ interface Profile {
   sendEffort: boolean;
 }
 
+/** Zaman aşımı hatası (bağlanma ya da akış arası sessizlik): yeniden denenebilir sayılır. */
+const timeoutError = () => new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+
 function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl: typeof fetch): AiProvider {
   const gate = new Semaphore(config.AI_MAX_CONCURRENCY);
 
@@ -136,7 +141,7 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
       stream,
       temperature: req.temperature ?? 0.7,
       ...(profile.sendEffort ? { reasoning_effort: req.effort ?? 'medium' } : {}),
-      ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
+      max_tokens: req.maxTokens ?? config.AI_MAX_TOKENS,
       ...(req.tools?.length ? { tools: req.tools, tool_choice: 'auto' } : {}),
     });
   }
@@ -155,14 +160,16 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
   }
 
   /** Başarılı bir yanıt alana kadar (ya da vazgeçene dek) isteği dener. */
-  async function open(req: AiRequest, stream: boolean): Promise<Response> {
+  async function open(req: AiRequest, stream: boolean): Promise<{ res: Response; ctl: AbortController; timer: ReturnType<typeof setTimeout> }> {
     let throttled = 0;
     let failed = 0;
     let lastStatus = 0;
     for (;;) {
       await pace(req.signal);
-      const timeout = AbortSignal.timeout(config.AI_TIMEOUT_MS);
-      const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
+      // Süre yalnızca bağlanma/ilk yanıt için geçerlidir; akış başladıktan sonra boşta kalma süresiyle (stream) denetlenir.
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(timeoutError()), config.AI_TIMEOUT_MS);
+      const signal = req.signal ? AbortSignal.any([req.signal, ctl.signal]) : ctl.signal;
       let res: Response | undefined;
       try {
         res = await fetchImpl(profile.baseUrl, {
@@ -172,9 +179,11 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
           signal,
         });
       } catch (err) {
+        clearTimeout(timer);
         if (req.signal?.aborted) throw err;
       }
-      if (res?.ok) return res;
+      if (res?.ok) return { res, ctl, timer };
+      clearTimeout(timer);
 
       let delay: number | undefined;
       if (res) {
@@ -211,17 +220,27 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
   async function* stream(req: AiRequest): AsyncGenerator<AiChunk, void, void> {
     const release = await gate.acquire(req.signal, 25_000);
     try {
-      const res = await open(req, true);
+      const { res, ctl, timer } = await open(req, true);
+      clearTimeout(timer);
       if (!res.body) throw new HttpError(502, 'upstream_unavailable', 'Boş yanıt alındı.');
+      // Bekçiler: akış arası sessizlik ve mutlak üst süre. Süre dolarsa gövde okuması hata fırlatır.
+      let idle = setTimeout(() => ctl.abort(timeoutError()), config.AI_IDLE_TIMEOUT_MS);
+      const total = setTimeout(() => ctl.abort(timeoutError()), config.AI_TOTAL_TIMEOUT_MS);
+      const touch = () => {
+        clearTimeout(idle);
+        idle = setTimeout(() => ctl.abort(timeoutError()), config.AI_IDLE_TIMEOUT_MS);
+      };
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
       const calls = new Map<number, AiToolCall>();
       let sawContent = false;
+      let truncated = false;
       try {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
+          touch();
           buf += decoder.decode(value, { stream: true });
           let idx: number;
           while ((idx = buf.indexOf('\n')) >= 0) {
@@ -239,6 +258,7 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
             if (json.error) {
               throw new HttpError(502, 'upstream_unavailable', 'Yapay zekâ servisi bir hata bildirdi.');
             }
+            if (json.choices?.[0]?.finish_reason === 'length') truncated = true;
             const delta = json.choices?.[0]?.delta;
             if (!delta) continue;
             const reasoning = delta.reasoning ?? delta.reasoning_content;
@@ -271,7 +291,16 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
             .filter((c) => c.function.name);
           if (list.length) yield { type: 'tool_calls', calls: list };
         }
+        if (truncated) yield { type: 'truncated' };
+      } catch (err) {
+        // Süre aşımı: kullanıcıya anlaşılır bir hata; kendi iptalimiz (kullanıcı durdurdu) olduğu gibi geçer.
+        if (!req.signal?.aborted && (err as Error)?.name === 'TimeoutError') {
+          throw new HttpError(502, 'upstream_unavailable', 'Yapay zekâ servisi uzun süre yanıt vermedi, yanıt yarıda kaldı.');
+        }
+        throw err;
       } finally {
+        clearTimeout(idle);
+        clearTimeout(total);
         reader.cancel().catch(() => {});
       }
     } finally {
@@ -282,8 +311,13 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
   async function complete(req: AiRequest): Promise<string> {
     const release = await gate.acquire(req.signal, 25_000);
     try {
-      const res = await open(req, false);
-      const json: any = await res.json();
+      const { res, timer } = await open(req, false);
+      let json: any;
+      try {
+        json = await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
       const content = json?.choices?.[0]?.message?.content;
       return typeof content === 'string' ? content : '';
     } finally {
