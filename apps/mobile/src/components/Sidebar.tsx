@@ -1,14 +1,15 @@
 import { memo, useMemo, useState } from 'react';
 import { SectionList, Text as RNText, TextInput, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Archive, ArchiveRestore, ChevronDown, ChevronUp, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2 } from 'lucide-react-native';
+import { Archive, ArchiveRestore, ChevronDown, ChevronUp, MessageSquare, Pencil, Pin, PinOff, Plus, Search, Settings, SquareCode, Trash2 } from 'lucide-react-native';
 import type { ChatDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { groupChats, initials, type GroupKey } from '../lib/format.ts';
 import { useT } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
+import { enterCode, leaveCode } from '../lib/code-nav.ts';
 import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi } from '../store/ui.ts';
@@ -74,6 +75,9 @@ export function Sidebar() {
   const loaded = useChats((s) => s.chatsLoaded);
   const activeId = useChats((s) => s.activeId);
   const features = useUi((s) => s.config?.limits.features);
+  const codeAllowed = useUi((s) => s.config?.code?.allowed);
+  const pathname = usePathname();
+  const inCode = pathname.startsWith('/code');
   const [query, setQuery] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   const [menuFor, setMenuFor] = useState<ChatDTO | null>(null);
@@ -90,11 +94,19 @@ export function Sidebar() {
   const open = (chat: ChatDTO) => {
     drawer.close();
     void useChats.getState().openChat(chat.id);
+    if (inCode) leaveCode();
   };
   const newChat = () => {
     haptic.tap();
     useChats.getState().newChat();
     drawer.close();
+    if (inCode) leaveCode();
+  };
+  const goTab = (tab: 'chat' | 'code') => {
+    haptic.select();
+    drawer.close();
+    if (tab === 'code') enterCode(pathname);
+    else if (inCode) leaveCode();
   };
 
   const confirmDelete = (chat: ChatDTO) => {
@@ -140,6 +152,27 @@ export function Sidebar() {
       <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 14 }}>
         <Brand size={22} />
       </View>
+
+      {codeAllowed && (
+        <View style={{ flexDirection: 'row', marginHorizontal: 12, marginBottom: 12, padding: 3, borderRadius: radius.md, backgroundColor: c.surface2, borderWidth: 1, borderColor: c.line }}>
+          {(
+            [
+              { id: 'chat', label: t('code.m.tabChat'), Icon: MessageSquare, on: !inCode },
+              { id: 'code', label: t('code.nav'), Icon: SquareCode, on: inCode },
+            ] as const
+          ).map(({ id, label, Icon, on }) => (
+            <Press
+              key={id}
+              scale={0.97}
+              onPress={() => goTab(id)}
+              style={{ flex: 1, height: 38, borderRadius: radius.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: on ? c.surface3 : 'transparent', borderWidth: on ? 1 : 0, borderColor: c.lineStrong }}
+            >
+              <Icon size={16} color={on ? c.text : c.text2} />
+              <RNText style={{ fontFamily: on ? fonts.sansSemibold : fonts.sansMedium, fontSize: 13.5, color: on ? c.text : c.text2 }}>{label}</RNText>
+            </Press>
+          ))}
+        </View>
+      )}
 
       <View style={{ paddingHorizontal: 12, gap: 10, paddingBottom: 8 }}>
         <Press

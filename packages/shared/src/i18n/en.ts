@@ -356,4 +356,6 @@ export const en: Record<DictKey, string> = {
   'code.disk.used': '{used} / {total}',
   'code.changes': 'Changes',
   'code.openPr': 'Open PR',
+  'code.m.model': 'Model',
+  'code.m.tabChat': 'Chat',
 };

@@ -368,6 +368,8 @@ export const tr = {
   'code.disk.used': '{used} / {total}',
   'code.changes': 'Değişiklikler',
   'code.openPr': 'PR aç',
+  'code.m.model': 'Model',
+  'code.m.tabChat': 'Sohbet',
 } as const;
 
 export type DictKey = keyof typeof tr;
