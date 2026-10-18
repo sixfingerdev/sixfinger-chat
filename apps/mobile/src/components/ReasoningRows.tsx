@@ -53,12 +53,13 @@ export function ReasoningHead({ id, part, thinking }: { id: string; part: Reason
   );
 }
 
-/** Düşünce metni (açıkken). Kenar çizgisi yok: yalnızca soluk metin, başlığın hizasında girintili. */
+/** Düşünce metni (açıkken): solda düz, ince bir çizgi; başlığın chevron'u ile aynı hizada. */
 export function ReasoningBody({ text }: { text: string }) {
   const { c } = useTheme();
   return (
-    <View style={{ paddingLeft: 36, paddingRight: 16, paddingBottom: 8 }}>
-      <RNText selectable style={[type.small, { color: c.text3, lineHeight: 19 }]}>
+    <View style={{ flexDirection: 'row', gap: 12, paddingLeft: 21, paddingRight: 16, paddingBottom: 8 }}>
+      <View style={{ width: 2, backgroundColor: c.line, borderRadius: 1 }} />
+      <RNText selectable style={[type.small, { flex: 1, color: c.text3, lineHeight: 19 }]}>
         {text}
       </RNText>
     </View>
