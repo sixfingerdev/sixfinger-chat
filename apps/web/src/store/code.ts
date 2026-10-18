@@ -35,6 +35,8 @@ interface CodeState {
   /** Ana ekran açılırken: durum + (izinliyse) ortamlar ve oturumlar. */
   refresh: () => Promise<void>;
   connect: () => Promise<void>;
+  /** GitHub'dan dönen kodu oturumumuzla tamamlar (state'i başlatan kullanıcı biziz). */
+  completeGithub: (code: string, state: string) => Promise<boolean>;
   disconnect: () => Promise<boolean>;
   saveEnv: (id: string | null, input: object) => Promise<CodeEnvironmentDTO | null>;
   deleteEnv: (id: string) => Promise<boolean>;
@@ -95,6 +97,16 @@ export const useCode = create<CodeState>((set, get) => ({
       window.location.href = url;
     } catch (err) {
       reportError(err);
+    }
+  },
+  async completeGithub(code, state) {
+    try {
+      await api.codeGithubComplete(code, state);
+      await get().loadStatus();
+      return true;
+    } catch (err) {
+      reportError(err);
+      return false;
     }
   },
   async disconnect() {

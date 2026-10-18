@@ -114,6 +114,8 @@ export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 
 // ---------- Code ----------
 export const githubStartSchema = z.object({ target: z.enum(['web', 'app']).default('web') });
+/** GitHub'dan dönen tek kullanımlık kod + imzalı `state`; bağlantıyı oturumlu istemci tamamlar. */
+export const githubCompleteSchema = z.object({ code: z.string().min(1).max(200), state: z.string().min(1).max(2_000) });
 
 const DOMAIN_RE = /^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/;
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;

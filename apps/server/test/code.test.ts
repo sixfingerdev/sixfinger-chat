@@ -52,14 +52,19 @@ beforeEach(async () => {
 
 const coder = () => member(env, { email: 'coder@example.com' });
 
-/** OAuth akışını tamamlayıp GitHub'ı bağlar. */
+/** OAuth akışı: start → (GitHub) → callback → istemcide complete. */
 async function connect(a: Awaited<ReturnType<typeof coder>>, target: 'web' | 'app' = 'web') {
   const start = await env.app.inject({ method: 'POST', url: '/api/code/github/start', headers: auth(a), payload: { target } });
   expect(start.statusCode).toBe(200);
   const url = new URL(start.json().url);
   const state = url.searchParams.get('state')!;
   const cb = await env.app.inject({ method: 'GET', url: `/api/code/github/callback?code=good-code&state=${encodeURIComponent(state)}` });
-  return { start: url, cb };
+  // Geri dönüş kodu istemciye taşır; bağlantıyı istemci kendi oturumuyla tamamlar.
+  const loc = cb.headers.location ? new URL(String(cb.headers.location)) : new URL(/href="([^"]+)"/.exec(cb.body)![1]!.replaceAll('&amp;', '&'));
+  const code = loc.searchParams.get('gh_code');
+  const st = loc.searchParams.get('gh_state');
+  const complete = code && st ? await env.app.inject({ method: 'POST', url: '/api/code/github/complete', headers: auth(a), payload: { code, state: st } }) : null;
+  return { start: url, cb, loc, complete, state };
 }
 
 describe('erişim', () => {
@@ -100,11 +105,15 @@ describe('GitHub OAuth', () => {
     expect(start.searchParams.get('redirect_uri')).toBe('http://localhost:5173/api/code/github/callback');
   });
 
-  it('web: geri dönüş uygulamaya yönlendirir, bağlantı kaydedilir ve token şifreli saklanır', async () => {
+  it('web: geri dönüş kodu uygulamaya taşır, bağlantıyı istemci tamamlar; token şifreli saklanır', async () => {
     const a = await coder();
-    const { cb } = await connect(a);
+    const { cb, complete, loc } = await connect(a);
     expect(cb.statusCode).toBe(302);
-    expect(cb.headers.location).toBe('http://localhost:5173/code?github=ok');
+    expect(loc.origin + loc.pathname).toBe('http://localhost:5173/code');
+    // Geri dönüş tek başına hesabı bağlamaz.
+    expect((await env.ctx.db.query('select 1 from github_connections')).rowCount).toBe(1);
+    expect(complete!.statusCode).toBe(200);
+    expect(complete!.json().github).toEqual({ login: 'octo', avatarUrl: 'https://a/b.png' });
     const st = await env.app.inject({ method: 'GET', url: '/api/code/status', headers: auth(a) });
     expect(st.json().github).toEqual({ login: 'octo', avatarUrl: 'https://a/b.png' });
     const row = await env.ctx.db.query<{ token_enc: string }>('select token_enc from github_connections');
@@ -112,21 +121,60 @@ describe('GitHub OAuth', () => {
     expect(JSON.stringify(st.json())).not.toContain('gho_secrettoken');
   });
 
-  it('mobil: özel şemaya dönen küçük sayfa verir', async () => {
+  it('geri dönüş oturumsuz çağrıldığında hesap bağlamaz', async () => {
     const a = await coder();
-    const { cb } = await connect(a, 'app');
-    expect(cb.statusCode).toBe(200);
-    expect(cb.body).toContain('sixfinger://code?github=ok');
+    const start = await env.app.inject({ method: 'POST', url: '/api/code/github/start', headers: auth(a), payload: {} });
+    const state = new URL(start.json().url).searchParams.get('state')!;
+    const cb = await env.app.inject({ method: 'GET', url: `/api/code/github/callback?code=good-code&state=${encodeURIComponent(state)}` });
+    expect(cb.statusCode).toBe(302);
+    expect((await env.ctx.db.query('select 1 from github_connections')).rowCount).toBe(0);
+    expect((await env.app.inject({ method: 'GET', url: '/api/code/status', headers: auth(a) })).json().github).toBeNull();
   });
 
-  it('sahte ya da bozuk state reddedilir, hatalı kod bağlantı kurmaz', async () => {
+  it('SALDIRI: başkasının başlattığı akış, kurbanın oturumuyla tamamlanamaz (hesap bağlama CSRF)', async () => {
+    const attacker = await coder();
+    env.ctx.config.codeAllowed.emails.add('victim@example.com'); // kurban da Code kullanabilen biri: engel izin değil, kullanıcı eşleşmesi olmalı
+    const victim = await member(env, { email: 'victim@example.com' });
+    // Saldırgan akışı başlatıp URL'yi kurbana yollar; kurban GitHub'da onaylar, geri dönüş kurbanın tarayıcısında çalışır.
+    const start = await env.app.inject({ method: 'POST', url: '/api/code/github/start', headers: auth(attacker), payload: {} });
+    const state = new URL(start.json().url).searchParams.get('state')!;
+    const cb = await env.app.inject({ method: 'GET', url: `/api/code/github/callback?code=good-code&state=${encodeURIComponent(state)}` });
+    const loc = new URL(String(cb.headers.location));
+    // Kurbanın SixFinger oturumu (varsa) ile tamamlama denemesi state'teki kullanıcıyla eşleşmediği için reddedilir...
+    const asVictim = await env.app.inject({
+      method: 'POST', url: '/api/code/github/complete', headers: auth(victim),
+      payload: { code: loc.searchParams.get('gh_code'), state: loc.searchParams.get('gh_state') },
+    });
+    expect(asVictim.statusCode).toBe(400);
+    // ...ve oturumsuz tamamlama da olmaz.
+    const anon = await env.app.inject({ method: 'POST', url: '/api/code/github/complete', payload: { code: 'x', state } });
+    expect(anon.statusCode).toBe(401);
+    expect((await env.ctx.db.query('select 1 from github_connections')).rowCount).toBe(0);
+  });
+
+  it('mobil: özel şemalı bağlantıda kod ve state taşınır (HTML güvenli kaçışlı)', async () => {
+    const a = await coder();
+    const { cb, complete } = await connect(a, 'app');
+    expect(cb.statusCode).toBe(200);
+    expect(cb.body).toContain('sixfinger://code?gh_code=good-code&amp;gh_state=');
+    expect(cb.headers['referrer-policy']).toBe('no-referrer');
+    expect(complete!.statusCode).toBe(200);
+  });
+
+  it('sahte ya da bozuk state reddedilir, hatalı kod bağlantı kurmaz, süresi dolan state geçersizdir', async () => {
     const a = await coder();
     const bad = await env.app.inject({ method: 'GET', url: '/api/code/github/callback?code=good-code&state=abc.def' });
     expect(bad.statusCode).toBe(400);
     const start = await env.app.inject({ method: 'POST', url: '/api/code/github/start', headers: auth(a), payload: {} });
     const state = new URL(start.json().url).searchParams.get('state')!;
-    const fail = await env.app.inject({ method: 'GET', url: `/api/code/github/callback?code=wrong&state=${encodeURIComponent(state)}` });
-    expect(fail.headers.location).toBe('http://localhost:5173/code?github=error');
+    const denied = await env.app.inject({ method: 'GET', url: `/api/code/github/callback?error=access_denied&state=${encodeURIComponent(state)}` });
+    expect(denied.headers.location).toBe('http://localhost:5173/code?github=error');
+    // GitHub kodu reddederse tamamlama 400 döner ve bağlantı kurulmaz.
+    const wrong = await env.app.inject({ method: 'POST', url: '/api/code/github/complete', headers: auth(a), payload: { code: 'wrong', state } });
+    expect(wrong.statusCode).toBe(400);
+    const expired = env.ctx.secrets!.signState({ u: a.user.id, t: 'web' }, -1);
+    const exp = await env.app.inject({ method: 'POST', url: '/api/code/github/complete', headers: auth(a), payload: { code: 'good-code', state: expired } });
+    expect(exp.statusCode).toBe(400);
     expect((await env.app.inject({ method: 'GET', url: '/api/code/status', headers: auth(a) })).json().github).toBeNull();
   });
 

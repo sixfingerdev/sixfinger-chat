@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Cloud, Code2, GitBranch, Github, Plus } from 'lucide-react';
 import type { CodeEnvironmentDTO, CodeSessionDTO } from '@sixfinger/shared';
@@ -61,13 +61,23 @@ export function CodePage() {
     void useCode.getState().refresh();
   }, []);
 
-  // GitHub'dan dönüş: ?github=ok|error
+  // GitHub'dan dönüş: ?gh_code&gh_state (bağlantıyı bu oturumla tamamla) ya da ?github=error.
+  // Kod adres çubuğunda ve geçmişte kalmasın diye önce temizlenir.
+  const handled = useRef(new Set<string>());
   useEffect(() => {
-    const g = params.get('github');
-    if (!g) return;
-    useUi.getState().toast(g === 'ok' ? { kind: 'success', text: t('code.github.ok') } : { kind: 'error', text: t('code.github.error') });
+    const code = params.get('gh_code');
+    const state = params.get('gh_state');
+    const failed = params.get('github') === 'error';
+    if (!code && !failed) return;
     setParams({}, { replace: true });
-    void useCode.getState().loadStatus();
+    const ui = useUi.getState();
+    if (failed || !code || !state) return void ui.toast({ kind: 'error', text: t('code.github.error') });
+    if (handled.current.has(state)) return; // StrictMode çift çalıştırma
+    handled.current.add(state);
+    void useCode
+      .getState()
+      .completeGithub(code, state)
+      .then((ok) => ok && ui.toast({ kind: 'success', text: t('code.github.ok') }));
   }, [params, setParams, t]);
 
   const disconnect = async () => {

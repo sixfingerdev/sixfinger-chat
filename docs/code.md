@@ -83,7 +83,8 @@ Hepsi `/api` altında, Bearer token ister. İzin yoksa `403`, GitHub bağlı de�
 |---|---|
 | `GET /code/status` | `{available, allowed, github, credits}` (izinsiz kullanıcıda da `200`) |
 | `POST /code/github/start` `{target:'web'\|'app'}` | GitHub yetkilendirme adresi |
-| `GET /code/github/callback` | GitHub geri dönüşü (oturumsuz; imzalı `state` doğrular) |
+| `GET /code/github/callback` | GitHub geri dönüşü (oturumsuz): yalnızca imzalı `state`i doğrulayıp kodu istemciye yönlendirir, hesabı **bağlamaz** |
+| `POST /code/github/complete` `{code, state}` | Bağlantıyı tamamlar; `state`'i başlatan kullanıcıyla bu oturum aynı olmalı (hesap-bağlama CSRF'ine karşı) |
 | `DELETE /code/github` | Bağlantıyı keser, GitHub yetkisini iptal etmeyi dener |
 | `GET /code/repos?q=` · `GET /code/branches?repo=owner/name` | Repo ve branch listesi |
 | `GET/POST /code/environments` · `GET/PATCH/DELETE /code/environments/:id` | Ortamlar (değişkenler yalnızca tekil okumada döner) |

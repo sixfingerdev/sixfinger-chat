@@ -302,6 +302,8 @@ export const api = {
   // code
   codeStatus: () => request<CodeStatusDTO>('GET', '/code/status'),
   codeGithubStart: () => request<{ url: string }>('POST', '/code/github/start', { target: 'web' }),
+  codeGithubComplete: (code: string, state: string) =>
+    request<{ github: { login: string; avatarUrl: string } }>('POST', '/code/github/complete', { code, state }),
   codeGithubDisconnect: () => request<void>('DELETE', '/code/github'),
   codeRepos: (q?: string) => request<{ repos: GithubRepoDTO[] }>('GET', '/code/repos', undefined, { query: { q } }),
   codeBranches: (repo: string) => request<GithubBranchesDTO>('GET', '/code/branches', undefined, { query: { repo } }),

@@ -3,6 +3,7 @@ import {
   branchesQuery,
   createCodeEnvSchema,
   createCodeSessionSchema,
+  githubCompleteSchema,
   githubStartSchema,
   listReposQuery,
   updateCodeEnvSchema,
@@ -20,23 +21,27 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
   const { code, github, secrets, config } = ctx;
   const repoCache = new Map<string, { at: number; repos: GithubRepoDTO[] }>();
 
-  const backTo = (target: 'web' | 'app', ok: boolean): string =>
-    target === 'app'
-      ? `sixfinger://code?github=${ok ? 'ok' : 'error'}`
-      : `${config.PUBLIC_WEB_URL.replace(/\/$/, '')}/code?github=${ok ? 'ok' : 'error'}`;
+  const webBase = config.PUBLIC_WEB_URL.replace(/\/$/, '');
 
-  /** Mobil: tarayıcılar özel şemalı yönlendirmeyi sessizce yutabilir; JS + düğmeli küçük bir sayfa göster. */
-  function finish(reply: FastifyReply, target: 'web' | 'app', ok: boolean) {
-    const url = backTo(target, ok);
-    if (target === 'web') return reply.redirect(url);
-    const msg = ok ? 'GitHub bağlandı. Uygulamaya dönebilirsin.' : 'GitHub bağlantısı kurulamadı.';
+  /**
+   * GitHub geri dönüşü oturumsuz bir tarayıcı isteğidir; hesabı bağlamaz, yalnızca kodu istemciye taşır.
+   * Bağlantıyı istemci kendi oturumuyla tamamlar (`/code/github/complete`), böylece saldırganın başlattığı bir akış
+   * kurbanın GitHub hesabını saldırganın hesabına bağlayamaz.
+   */
+  function bounce(reply: FastifyReply, target: 'web' | 'app', params: Record<string, string>) {
+    const qs = new URLSearchParams(params).toString();
+    if (target === 'web') return reply.redirect(`${webBase}/code?${qs}`);
+    // Mobil: tarayıcılar özel şemalı yönlendirmeyi sessizce yutabilir; JS + düğmeli küçük bir sayfa göster.
+    const url = `sixfinger://code?${qs}`;
+    const msg = params.github === 'error' ? 'GitHub bağlantısı kurulamadı.' : 'GitHub yetkisi alındı. Uygulamaya dönülüyor…';
     return reply
       .header('cache-control', 'no-store')
+      .header('referrer-policy', 'no-referrer')
       .type('text/html; charset=utf-8')
       .send(
         `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SixFinger</title>` +
           `<body style="font:16px system-ui;background:#111;color:#eee;display:grid;place-items:center;height:100vh;margin:0;text-align:center">` +
-          `<div><p>${msg}</p><p><a style="color:#fff" href="${url}">Uygulamaya dön</a></p></div><script>location.href=${JSON.stringify(url)}</script>`,
+          `<div><p>${msg}</p><p><a style="color:#fff" href="${url.replace(/&/g, '&amp;')}">Uygulamaya dön</a></p></div><script>location.href=${JSON.stringify(url).replace(/</g, '\\u003c')}</script>`,
       );
   }
 
@@ -53,24 +58,17 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
   }
 
   return async function (app: FastifyInstance) {
-    // --- GitHub geri dönüşü: tarayıcıdan gelir, oturum başlığı yoktur; kimlik imzalı `state` ile doğrulanır ---
+    // --- GitHub geri dönüşü: tarayıcıdan gelir, oturum başlığı yoktur; yalnızca imzalı `state`i doğrular ve istemciye yönlendirir ---
     app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
       '/code/github/callback',
       { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
       async (req, reply) => {
-        const st = secrets?.verifyState<{ u: string; t: 'web' | 'app' }>(req.query.state ?? '');
+        const state = req.query.state ?? '';
+        const st = secrets?.verifyState<{ u: string; t: 'web' | 'app' }>(state);
         if (!st || !code.enabled) return reply.code(400).type('text/plain').send('Geçersiz ya da süresi dolmuş istek.');
         const target = st.t === 'app' ? 'app' : 'web';
-        if (req.query.error || !req.query.code) return finish(reply, target, false);
-        try {
-          const { token, scope } = await github.exchange(req.query.code);
-          const who = await github.user(token);
-          await code.saveConnection(st.u, who, token, scope);
-          return finish(reply, target, true);
-        } catch (err) {
-          req.log.warn({ err }, 'GitHub bağlantısı kurulamadı');
-          return finish(reply, target, false);
-        }
+        if (req.query.error || !req.query.code) return bounce(reply, target, { github: 'error' });
+        return bounce(reply, target, { gh_code: req.query.code, gh_state: state });
       },
     );
 
@@ -101,6 +99,19 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
         const { target } = parse(githubStartSchema, req.body);
         const state = secrets!.signState({ u: req.user!.id, t: target }, 600);
         return { url: github.authorizeUrl(state) };
+      });
+
+      /** Bağlantıyı tamamlar: state'i başlatan kullanıcı ile bu isteği yapan oturum aynı olmalı. */
+      authed.post('/code/github/complete', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req) => {
+        const user = req.user!;
+        const body = parse(githubCompleteSchema, req.body);
+        const st = secrets!.verifyState<{ u: string }>(body.state);
+        if (!st || st.u !== user.id) throw badRequest('GitHub bağlantı isteği geçersiz ya da süresi dolmuş. Tekrar dene.');
+        const { token, scope } = await github.exchange(body.code);
+        const who = await github.user(token);
+        await code.saveConnection(user.id, who, token, scope);
+        repoCache.delete(user.id);
+        return { github: { login: who.login, avatarUrl: who.avatarUrl } };
       });
 
       authed.delete('/code/github', async (req, reply) => {
