@@ -12,6 +12,8 @@ function host(url: unknown): string {
   }
 }
 
+const oneLine = (v: unknown): string => String(v ?? '').split('\n')[0]!.slice(0, 80);
+
 /** Araç kartının başlığı ve tek satırlık ayrıntısı (iki istemci de aynı metni kullanır). */
 export function describeTool(part: ToolPart, locale: 'tr' | 'en'): { label: string; detail: string } {
   const d = locale === 'tr' ? tr : en;
@@ -21,6 +23,14 @@ export function describeTool(part: ToolPart, locale: 'tr' | 'en'): { label: stri
       return { label: running ? d['tool.searching'] : d['tool.web_search'], detail: String(part.args.query ?? '') };
     case 'web_fetch':
       return { label: running ? d['tool.fetching'] : d['tool.web_fetch'], detail: host(part.args.url) };
+    case 'bash':
+      return { label: running ? d['tool.running.bash'] : d['tool.bash'], detail: oneLine(part.args.command) };
+    case 'read':
+      return { label: running ? d['tool.running.read'] : d['tool.read'], detail: String(part.args.path ?? '') };
+    case 'write':
+      return { label: running ? d['tool.running.write'] : d['tool.write'], detail: String(part.args.path ?? '') };
+    case 'edit':
+      return { label: running ? d['tool.running.edit'] : d['tool.edit'], detail: String(part.args.path ?? '') };
     default:
       return { label: part.name, detail: '' };
   }

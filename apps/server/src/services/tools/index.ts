@@ -3,10 +3,12 @@ import type { AiToolCall, AiToolSpec } from '../ai.ts';
 import type { AuthUser } from '../../lib/types.ts';
 import { ToolError } from './errors.ts';
 import type { ToolContext, ToolDef, ToolResult } from './types.ts';
+import { createSandboxTools, type SandboxClient } from './sandbox.ts';
 import { createWebFetchTool, createWebSearchTool } from './web.ts';
 
 export { ToolError } from './errors.ts';
 export type { ToolContext, ToolDef, ToolResult } from './types.ts';
+export { createSandboxClient, type SandboxClient } from './sandbox.ts';
 
 /** Modele geri verilen araç çıktısı için üst sınır (bağlamı şişirmemek için). */
 export const MAX_TOOL_OUTPUT_CHARS = 12_000;
@@ -16,8 +18,13 @@ export interface Tools {
   forUser(user: AuthUser): ToolDef[];
 }
 
-export function createTools(extra: ToolDef[] = []): Tools {
-  const all: ToolDef[] = [createWebSearchTool(), createWebFetchTool(), ...extra];
+export interface ToolsOptions {
+  /** sandboxd yapılandırıldıysa bash/read/write/edit araçları eklenir. */
+  sandbox?: SandboxClient;
+}
+
+export function createTools(extra: ToolDef[] = [], opts: ToolsOptions = {}): Tools {
+  const all: ToolDef[] = [createWebSearchTool(), createWebFetchTool(), ...(opts.sandbox ? createSandboxTools(opts.sandbox) : []), ...extra];
   return { forUser: (user) => all.filter((t) => t.available(user)) };
 }
 

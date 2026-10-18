@@ -34,6 +34,10 @@ const schema = z.object({
     .optional()
     .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
 
+  /** sandboxd adresi (ör. http://sandboxd:8791). Boşsa bash/read/write/edit araçları kapalıdır. */
+  SANDBOXD_URL: z.string().optional().default(''),
+  SANDBOXD_TOKEN: z.string().optional().default(''),
+
   SMTP_HOST: z.string().optional().default(''),
   SMTP_PORT: z.coerce.number().int().default(587),
   SMTP_USER: z.string().optional().default(''),

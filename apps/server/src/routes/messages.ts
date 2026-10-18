@@ -70,7 +70,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       settings: features.customInstructions ? settings : { ...settings, customName: '', about: '', instructions: '' },
       memories,
       displayName: user.isGuest ? '' : row!.display_name,
-      tools: { web: toolsFor(user).some((t) => t.name === 'web_search') },
+      tools: { web: toolsFor(user).some((t) => t.name === 'web_search'), sandbox: toolsFor(user).some((t) => t.name === 'bash') },
     });
   }
 
@@ -230,7 +230,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
                 ms: 0,
                 args: shownArgs,
               }
-            : await runToolCall(defs, call, { user, signal: stream.signal });
+            : await runToolCall(defs, call, { user, signal: stream.signal, chatId: chat.id });
           if (!earlier && run.status === 'done') seenCalls.set(key, run.output);
           part.status = run.status;
           part.output = run.output;

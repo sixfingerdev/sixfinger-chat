@@ -3,6 +3,8 @@ import type { AuthUser } from '../../lib/types.ts';
 export interface ToolContext {
   user: AuthUser;
   signal: AbortSignal;
+  /** Araçların sohbet başına izole çalışma alanı için. */
+  chatId?: string;
 }
 
 export interface ToolResult {

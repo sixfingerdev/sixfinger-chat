@@ -40,6 +40,13 @@ E-posta doğrulama ve şifre sıfırlama 6 haneli kodla (SMTP).
 
 **Güvenlik**: scrypt parola özeti, kısa ömürlü JWT + dönen refresh token (yeniden kullanım tespiti), oturum listesi/iptali, rate limit, parametreli SQL, ham HTML temizleme (sanitize), Helmet, CORS beyaz listesi.
 
+## Araçlar, artifact'lar ve sandbox
+
+- **Web araçları** (herkes): `web_search` (DuckDuckGo, Bing yedekli) ve `web_fetch` (SSRF korumalı; fiyat/stok gibi somut veriler için sayfa içi JSON-LD'yi de okur).
+- **Artifact'lar** (herkes): model tek dosyalık uygulama/oyun/SVG/diyagram/belge üretir; web'de yan panelde, mobilde tam ekranda, izole iframe/WebView içinde çalışır.
+- **Widget'lar** (herkes): mesajın içinde küçük etkileşimli parçalar (grafik, hesaplayıcı); uygulama temasına uyar.
+- **Sandbox** (yalnızca doğrulanmış üyeler): `bash`, `read`, `write`, `edit` — izole Docker konteynerinde, kaynak sınırlı, isteğe bağlı kısıtlı internet. Kurulum ve güvenlik modeli: [docs/sandbox.md](docs/sandbox.md).
+
 ## Mimari
 
 ```

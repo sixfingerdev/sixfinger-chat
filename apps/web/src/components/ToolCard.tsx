@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { ChevronRight, CircleAlert, Globe, Loader, Check, Search, Wrench } from 'lucide-react';
+import { ChevronRight, CircleAlert, FilePlus, FileText, Globe, Loader, Check, Pencil, Search, Terminal, Wrench } from 'lucide-react';
 import { describeTool, type MessagePartDTO } from '@sixfinger/shared';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 
 type ToolPart = Extract<MessagePartDTO, { type: 'tool' }>;
 
-const ICONS = { web_search: Search, web_fetch: Globe } as const;
+const ICONS = { web_search: Search, web_fetch: Globe, bash: Terminal, read: FileText, write: FilePlus, edit: Pencil } as const;
 
 /** Modelin çağırdığı bir aracın katlanabilir kartı: durum, özet ve (açılınca) girdi/çıktı. */
 export function ToolCard({ part }: { part: ToolPart }) {

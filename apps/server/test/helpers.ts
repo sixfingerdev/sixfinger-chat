@@ -5,7 +5,7 @@ import { loadConfig } from '../src/config.ts';
 import type { AppContext } from '../src/context.ts';
 import type { AiChunk, AiProvider, AiRequest } from '../src/services/ai.ts';
 import type { Mailer } from '../src/lib/mailer.ts';
-import { createTools, type ToolDef } from '../src/services/tools/index.ts';
+import { createTools, type ToolDef, type ToolsOptions } from '../src/services/tools/index.ts';
 
 export interface FakeAi extends AiProvider {
   calls: AiRequest[];
@@ -55,7 +55,7 @@ export interface TestEnv {
   mails: Array<{ to: string; code: string; purpose: string }>;
 }
 
-export async function setup(extraTools: ToolDef[] = []): Promise<TestEnv> {
+export async function setup(extraTools: ToolDef[] = [], toolsOptions: ToolsOptions = {}): Promise<TestEnv> {
   const ai = createFakeAi();
   const mails: TestEnv['mails'] = [];
   const mailer: Mailer = {
@@ -63,7 +63,7 @@ export async function setup(extraTools: ToolDef[] = []): Promise<TestEnv> {
       mails.push({ to, code, purpose });
     },
   };
-  const { app, ctx } = await buildApp({ config: loadConfig(), ai, mailer, tools: createTools(extraTools), migrate: true });
+  const { app, ctx } = await buildApp({ config: loadConfig(), ai, mailer, tools: createTools(extraTools, toolsOptions), migrate: true });
   await app.ready();
   return { app, ctx, ai, mails };
 }

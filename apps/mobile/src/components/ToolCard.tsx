@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Text as RNText } from 'react-native';
 import Animated, { FadeIn, LinearTransition } from 'react-native-reanimated';
-import { Check, ChevronRight, CircleAlert, Globe, Search, Wrench } from 'lucide-react-native';
+import { Check, ChevronRight, CircleAlert, FilePlus, FileText, Globe, Pencil, Search, Terminal, Wrench } from 'lucide-react-native';
 import { describeTool, type MessagePartDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
@@ -9,7 +9,7 @@ import { useLocale, useT } from '../lib/i18n/index.ts';
 import { Press } from './Ui.tsx';
 
 type ToolPart = Extract<MessagePartDTO, { type: 'tool' }>;
-const ICONS = { web_search: Search, web_fetch: Globe } as const;
+const ICONS = { web_search: Search, web_fetch: Globe, bash: Terminal, read: FileText, write: FilePlus, edit: Pencil } as const;
 
 /** Modelin çağırdığı bir aracın katlanabilir kartı: durum, özet ve (açılınca) girdi/çıktı. */
 export function ToolCard({ part }: { part: ToolPart }) {

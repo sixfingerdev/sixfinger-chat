@@ -8,7 +8,8 @@
   "workspaces": [
     "packages/*",
     "apps/server",
-    "apps/web"
+    "apps/web",
+    "apps/sandboxd"
   ],
   "engines": {
     "node": ">=20.11"

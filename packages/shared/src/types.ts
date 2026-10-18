@@ -70,7 +70,7 @@ export interface AttachmentDTO {
 export type MessageStatus = 'complete' | 'streaming' | 'error' | 'stopped';
 
 /** Modelin çağırabildiği araçlar. */
-export type ToolName = 'web_search' | 'web_fetch';
+export type ToolName = 'web_search' | 'web_fetch' | 'bash' | 'read' | 'write' | 'edit';
 
 /** Bir araç çağrısının yaşam döngüsü. */
 export type ToolStatus = 'running' | 'done' | 'error';
