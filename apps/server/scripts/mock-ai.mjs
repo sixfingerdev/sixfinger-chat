@@ -37,7 +37,7 @@ const ARTIFACT = `Tamam, bir parçacık animasyonu hazırladım.
 <body><canvas id="c"></canvas><script>
 const c=document.getElementById('c'),x=c.getContext('2d');function rs(){c.width=innerWidth;c.height=innerHeight}rs();addEventListener('resize',rs);
 const ps=Array.from({length:90},()=>({x:Math.random()*c.width,y:Math.random()*c.height,vx:(Math.random()-.5)*2,vy:(Math.random()-.5)*2}));
-(function f(){x.fillStyle='rgba(17,17,17,.2)';x.fillRect(0,0,c.width,c.height);x.fillStyle='#ff6a1a';for(const p of ps){p.x=(p.x+p.vx+c.width)%c.width;p.y=(p.y+p.vy+c.height)%c.height;x.beginPath();x.arc(p.x,p.y,3,0,7);x.fill()}requestAnimationFrame(f)})();
+(function f(){x.fillStyle='rgba(17,17,17,.2)';x.fillRect(0,0,c.width,c.height);x.fillStyle='#f4f4f5';for(const p of ps){p.x=(p.x+p.vx+c.width)%c.width;p.y=(p.y+p.vy+c.height)%c.height;x.beginPath();x.arc(p.x,p.y,3,0,7);x.fill()}requestAnimationFrame(f)})();
 </script></body></html>
 </artifact>
 İstersen renkleri değiştirebilirim.`;

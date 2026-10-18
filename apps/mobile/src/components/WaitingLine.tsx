@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from 'react-native-reanimated';
 import { useTheme } from '../theme/index.tsx';
 
-/** Cevap beklenirken akan turuncu eğik çizgi. */
+/** Cevap beklenirken akan eğik çizgi. */
 export function WaitingLine() {
   const { c } = useTheme();
   const x = useSharedValue(-56);

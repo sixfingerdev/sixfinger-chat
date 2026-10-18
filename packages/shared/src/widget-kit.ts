@@ -20,7 +20,7 @@ interface Palette {
   warn: string;
 }
 
-// Seriler turuncu vurguyla ayırt edilebilir kalacak şekilde seçildi; her iki zeminde de okunur.
+// Ana vurgu (c1) monokrom; diğer seriler onunla ve birbiriyle ayırt edilebilir kalacak şekilde seçildi, her iki zeminde de okunur.
 const DARK: Palette = { c2: '#6aa8ff', c3: '#3ccf7e', c4: '#b99cff', c5: '#f5b53d', good: '#3ccf7e', bad: '#f2554d', warn: '#f5b53d' };
 const LIGHT: Palette = { c2: '#1d63c9', c3: '#1c9a58', c4: '#7a3fd0', c5: '#b97a06', good: '#1c9a58', bad: '#d6372f', warn: '#b97a06' };
 

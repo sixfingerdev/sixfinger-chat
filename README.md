@@ -116,5 +116,5 @@ iş akışıyla ya da yerelde üretilir → [docs/android.md](docs/android.md).
 ## Tasarım
 
 Marka işareti: diyagonal bir kesikle bölünmüş altıgen blok. Arayüzde aynı kesik dil olarak aktif sohbet
-işaretinde, akış imlecinde ve bekleme çizgisinde tekrar eder. Yazı tipi Geist; yüzeyler tek vurgu rengiyle
-(turuncu) sade tutulur.
+işaretinde, akış imlecinde ve bekleme çizgisinde tekrar eder. Yazı tipi Geist; yüzeyler monokrom (siyah-beyaz)
+bir paletle sade tutulur; vurgu rengi logodaki gibi koyuda beyaz, açıkta siyahtır.
