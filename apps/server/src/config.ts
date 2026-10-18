@@ -26,6 +26,16 @@ const schema = z.object({
   AI_BASE_URL: z.string().url().default('https://text.pollinations.ai/openai'),
   AI_MODEL: z.string().default('openai-fast'),
   AI_API_KEY: z.string().optional().default(''),
+  /**
+   * Çalışma modlarına göre sağlayıcılar. Hızlı = yukarıdaki AI_* (Pollinations). Dengeli ve Derin OVH AI Endpoints'te;
+   * `*_BASE_URL` boş bırakılırsa o mod Hızlı sağlayıcıya düşer.
+   */
+  AI_BALANCED_BASE_URL: z.string().default('https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions'),
+  AI_BALANCED_MODEL: z.string().default('Meta-Llama-3_3-70B-Instruct'),
+  AI_BALANCED_API_KEY: z.string().optional().default(''),
+  AI_DEEP_BASE_URL: z.string().default('https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions'),
+  AI_DEEP_MODEL: z.string().default('Qwen3.8-27B'),
+  AI_DEEP_API_KEY: z.string().optional().default(''),
   AI_MAX_CONCURRENCY: z.coerce.number().int().min(1).default(2),
   AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).default(120_000),
   /** Model araç (web arama vb.) kullanabilsin mi? Kapalıysa yalnızca düz sohbet. */

@@ -20,7 +20,7 @@ import { chatRoutes } from './routes/chats.ts';
 import { messageRoutes } from './routes/messages.ts';
 import { meRoutes } from './routes/me.ts';
 import { publicRoutes } from './routes/public.ts';
-import { createPollinations, type AiProvider } from './services/ai.ts';
+import { createAi, type AiProvider } from './services/ai.ts';
 import { createSandboxClient, createTools, type Tools } from './services/tools/index.ts';
 import { createCodes } from './services/codes.ts';
 import { createSessions } from './services/sessions.ts';
@@ -61,7 +61,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     sessions: createSessions(db, config, jwt),
     codes: createCodes(db, config),
     usage: createUsage(db),
-    ai: opts.ai ?? createPollinations(config, app.log),
+    ai: opts.ai ?? createAi(config, app.log),
     tools:
       opts.tools ??
       createTools([], { sandbox: config.SANDBOXD_URL && config.SANDBOXD_TOKEN ? createSandboxClient(config.SANDBOXD_URL, config.SANDBOXD_TOKEN) : undefined }),

@@ -58,8 +58,17 @@ packages/
 docs/       API, dağıtım ve Android rehberleri
 ```
 
-Yapay zekâ sağlayıcısı: **Pollinations** `openai-fast` (GPT-OSS 20B, akıl yürütmeli). `AI_BASE_URL`/`AI_MODEL`/`AI_API_KEY`
-ile başka bir OpenAI uyumlu uca çevrilebilir (`apps/server/src/services/ai.ts`).
+Yapay zekâ sağlayıcıları (çalışma moduna göre, `apps/server/src/services/ai.ts`):
+
+| Mod | Sağlayıcı / model | Ayarlar |
+|---|---|---|
+| Hızlı | Pollinations `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
+| Dengeli | OVH AI Endpoints `Meta-Llama-3_3-70B-Instruct` | `AI_BALANCED_BASE_URL`, `AI_BALANCED_MODEL`, `AI_BALANCED_API_KEY` |
+| Derin | OVH AI Endpoints `Qwen3.8-27B` (akıl yürütmeli) | `AI_DEEP_BASE_URL`, `AI_DEEP_MODEL`, `AI_DEEP_API_KEY` |
+
+Hepsi OpenAI uyumlu uçlardır. Dengeli/Derin sağlayıcı yanıt vermeye başlamadan hata verirse istek otomatik olarak Hızlı
+sağlayıcıya düşer; `AI_BALANCED_BASE_URL=` (boş) vermek o modu doğrudan Hızlı'ya yönlendirir.
+Başlık üretimi ve hafıza gibi arka plan işleri Hızlı sağlayıcıyı kullanır.
 
 > **Not (kota):** Pollinations anonim katmanı IP başına kısa bekleme uygular (402/429). Sunucu bunu
 > kuyruklayıp aralıklarla yeniden dener (`AI_MAX_CONCURRENCY`), ama çok kullanıcılı üretimde

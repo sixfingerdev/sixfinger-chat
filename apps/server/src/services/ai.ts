@@ -102,26 +102,33 @@ const sleep = (ms: number, signal?: AbortSignal) =>
     );
   });
 
-export function createPollinations(
-  config: Config,
-  log: { warn: (obj: object, msg: string) => void } = { warn: () => {} },
-  fetchImpl: typeof fetch = fetch,
-): AiProvider {
+type Logger = { warn: (obj: object, msg: string) => void };
+
+/** Tek bir OpenAI uyumlu uç nokta + model. */
+interface Profile {
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  /** `reasoning_effort` yalnızca bunu destekleyen sağlayıcıya gönderilir (Llama reddediyor, Qwen boş yanıt veriyor). */
+  sendEffort: boolean;
+}
+
+function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl: typeof fetch): AiProvider {
   const gate = new Semaphore(config.AI_MAX_CONCURRENCY);
 
   function headers(): Record<string, string> {
     const h: Record<string, string> = { 'content-type': 'application/json', accept: 'text/event-stream' };
-    if (config.AI_API_KEY) h.authorization = `Bearer ${config.AI_API_KEY}`;
+    if (profile.apiKey) h.authorization = `Bearer ${profile.apiKey}`;
     return h;
   }
 
   function body(req: AiRequest, stream: boolean) {
     return JSON.stringify({
-      model: config.AI_MODEL,
+      model: profile.model,
       messages: req.messages,
       stream,
       temperature: req.temperature ?? 0.7,
-      reasoning_effort: req.effort ?? 'medium',
+      ...(profile.sendEffort ? { reasoning_effort: req.effort ?? 'medium' } : {}),
       ...(req.maxTokens ? { max_tokens: req.maxTokens } : {}),
       ...(req.tools?.length ? { tools: req.tools, tool_choice: 'auto' } : {}),
     });
@@ -151,7 +158,7 @@ export function createPollinations(
       const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
       let res: Response | undefined;
       try {
-        res = await fetchImpl(config.AI_BASE_URL, {
+        res = await fetchImpl(profile.baseUrl, {
           method: 'POST',
           headers: headers(),
           body: body(req, stream),
@@ -201,6 +208,7 @@ export function createPollinations(
       const decoder = new TextDecoder();
       let buf = '';
       const calls = new Map<number, AiToolCall>();
+      let sawContent = false;
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -226,7 +234,14 @@ export function createPollinations(
             if (!delta) continue;
             const reasoning = delta.reasoning ?? delta.reasoning_content;
             if (typeof reasoning === 'string' && reasoning) yield { type: 'reasoning', text: reasoning };
-            if (typeof delta.content === 'string' && delta.content) yield { type: 'content', text: delta.content };
+            if (typeof delta.content === 'string' && delta.content) {
+              // Bazı modeller (Qwen) yanıtı boş satırlarla başlatır.
+              const text = sawContent ? delta.content : delta.content.trimStart();
+              if (text) {
+                sawContent = true;
+                yield { type: 'content', text };
+              }
+            }
             // Araç çağrıları parça parça gelir: `index` ile birleştirilir.
             if (Array.isArray(delta.tool_calls)) {
               for (const tc of delta.tool_calls) {
@@ -268,4 +283,54 @@ export function createPollinations(
   }
 
   return { stream, complete };
+}
+
+/**
+ * Çalışma moduna göre sağlayıcı seçer: low → Hızlı (Pollinations), medium → Dengeli, high → Derin.
+ * Dengeli/Derin sağlayıcı yanıt vermeye başlamadan hata verirse istek Hızlı sağlayıcıya düşer.
+ */
+export function createAi(
+  config: Config,
+  log: Logger = { warn: () => {} },
+  fetchImpl: typeof fetch = fetch,
+): AiProvider {
+  const fast = createEndpoint({ baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, apiKey: config.AI_API_KEY, sendEffort: true }, config, log, fetchImpl);
+  const make = (baseUrl: string, model: string, apiKey: string) =>
+    baseUrl ? createEndpoint({ baseUrl, model, apiKey, sendEffort: false }, config, log, fetchImpl) : undefined;
+  const balanced = make(config.AI_BALANCED_BASE_URL, config.AI_BALANCED_MODEL, config.AI_BALANCED_API_KEY);
+  const deep = make(config.AI_DEEP_BASE_URL, config.AI_DEEP_MODEL, config.AI_DEEP_API_KEY);
+
+  const pick = (effort: Effort | undefined): AiProvider | undefined =>
+    effort === 'high' ? deep : effort === 'low' ? undefined : balanced;
+  const aborted = (req: AiRequest, err: unknown) => req.signal?.aborted || (err as Error)?.name === 'AbortError';
+
+  return {
+    async *stream(req) {
+      const main = pick(req.effort);
+      if (!main) return yield* fast.stream(req);
+      let started = false;
+      try {
+        for await (const chunk of main.stream(req)) {
+          started = true;
+          yield chunk;
+        }
+        return;
+      } catch (err) {
+        if (started || aborted(req, err)) throw err;
+        log.warn({ effort: req.effort, err: String(err) }, 'ana sağlayıcı yanıt vermedi, Hızlı sağlayıcıya düşülüyor');
+      }
+      yield* fast.stream(req);
+    },
+    async complete(req) {
+      const main = pick(req.effort);
+      if (!main) return fast.complete(req);
+      try {
+        return await main.complete(req);
+      } catch (err) {
+        if (aborted(req, err)) throw err;
+        log.warn({ effort: req.effort, err: String(err) }, 'ana sağlayıcı yanıt vermedi, Hızlı sağlayıcıya düşülüyor');
+        return fast.complete(req);
+      }
+    },
+  };
 }

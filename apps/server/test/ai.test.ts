@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
-import { createPollinations } from '../src/services/ai.ts';
+import { createAi } from '../src/services/ai.ts';
 
 const config = loadConfig();
 const sse = (chunks: object[]) =>
@@ -21,7 +21,7 @@ describe('Pollinations sağlayıcısı', () => {
   it('akıştaki reasoning ve content parçalarını ayırır', async () => {
     const fetchMock = async () =>
       sse([delta({ role: 'assistant', content: '' }), delta({ reasoning: 'hmm' }), delta({ content: 'Mer' }), delta({ content: 'haba' })]);
-    const ai = createPollinations(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
     const out: Array<[string, string]> = [];
     for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }] })) if (c.type !== 'tool_calls') out.push([c.type, c.text]);
     expect(out).toEqual([
@@ -40,7 +40,7 @@ describe('Pollinations sağlayıcısı', () => {
         tc({ index: 0, function: { arguments: 'tanbul"}' } }),
         tc({ index: 1, id: 'c2', type: 'function', function: { name: 'web_fetch', arguments: '{"url":"https://a.com"}' } }),
       ]);
-    const ai = createPollinations(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
     const calls = [];
     for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }] })) if (c.type === 'tool_calls') calls.push(...c.calls);
     expect(calls.map((c) => [c.id, c.function.name, c.function.arguments])).toEqual([
@@ -55,7 +55,7 @@ describe('Pollinations sağlayıcısı', () => {
       sent = JSON.parse(String(init.body));
       return sse([delta({ content: 'ok' })]);
     };
-    const ai = createPollinations(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
     const tools = [{ type: 'function' as const, function: { name: 't', description: 'd', parameters: { type: 'object' } } }];
     for await (const _ of ai.stream({ messages: [{ role: 'user', content: 'x' }], tools })) void _;
     expect(sent.tools).toEqual(tools);
@@ -68,9 +68,9 @@ describe('Pollinations sağlayıcısı', () => {
       calls++;
       return calls === 1 ? new Response('{}', { status: 402 }) : sse([delta({ content: 'tamam' })]);
     };
-    const ai = createPollinations(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
     let text = '';
-    for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }] })) if (c.type === 'content') text += c.text;
+    for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }], effort: 'low' })) if (c.type === 'content') text += c.text;
     expect(text).toBe('tamam');
     expect(calls).toBe(2);
   });
@@ -81,8 +81,8 @@ describe('Pollinations sağlayıcısı', () => {
       calls++;
       return new Response('{}', { status: 400 });
     };
-    const ai = createPollinations(config, undefined, fetchMock as unknown as typeof fetch);
-    await expect(ai.complete({ messages: [{ role: 'user', content: 'x' }] })).rejects.toMatchObject({
+    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+    await expect(ai.complete({ messages: [{ role: 'user', content: 'x' }], effort: 'low' })).rejects.toMatchObject({
       code: 'upstream_unavailable',
     });
     expect(calls).toBe(1);
@@ -94,14 +94,14 @@ describe('Pollinations sağlayıcısı', () => {
       sent = JSON.parse(String(init.body));
       return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
     };
-    const ai = createPollinations(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
     expect(await ai.complete({ messages: [{ role: 'user', content: 'x' }], effort: 'low' })).toBe('ok');
     expect(sent).toMatchObject({ model: 'openai-fast', stream: false, reasoning_effort: 'low' });
   });
 
   it('iptal sinyali beklemeyi keser', async () => {
     const fetchMock = async () => new Response('{}', { status: 402 });
-    const ai = createPollinations(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
     const ac = new AbortController();
     setTimeout(() => ac.abort(), 100);
     await expect(
@@ -109,5 +109,38 @@ describe('Pollinations sağlayıcısı', () => {
         for await (const _ of ai.stream({ messages: [{ role: 'user', content: 'x' }], signal: ac.signal })) void _;
       })(),
     ).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  describe('moda göre sağlayıcı', () => {
+    const ok = () => new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+    const run = async (effort: 'low' | 'medium' | 'high', handler: (url: string, body: any) => Response) => {
+      const calls: Array<{ url: string; body: any }> = [];
+      const fetchMock = async (url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        calls.push({ url, body });
+        return handler(url, body);
+      };
+      const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+      const text = await ai.complete({ messages: [{ role: 'user', content: 'x' }], effort });
+      return { calls, text };
+    };
+
+    it('low Pollinations, medium Llama, high Qwen kullanır; düşünme derinliği yalnızca Pollinations\'a gider', async () => {
+      const low = await run('low', ok);
+      expect(low.calls[0]).toMatchObject({ url: config.AI_BASE_URL, body: { model: 'openai-fast', reasoning_effort: 'low' } });
+      const mid = await run('medium', ok);
+      expect(mid.calls[0]!.url).toBe(config.AI_BALANCED_BASE_URL);
+      expect(mid.calls[0]!.body.model).toBe('Meta-Llama-3_3-70B-Instruct');
+      expect(mid.calls[0]!.body).not.toHaveProperty('reasoning_effort');
+      const high = await run('high', ok);
+      expect(high.calls[0]!.body.model).toBe('Qwen3.8-27B');
+      expect(high.calls[0]!.body).not.toHaveProperty('reasoning_effort');
+    });
+
+    it('Dengeli/Derin sağlayıcı hata verirse Hızlı sağlayıcıya düşer', async () => {
+      const r = await run('high', (url) => (url === config.AI_DEEP_BASE_URL ? new Response('{}', { status: 400 }) : ok()));
+      expect(r.text).toBe('ok');
+      expect(r.calls.map((c) => c.body.model)).toEqual(['Qwen3.8-27B', 'openai-fast']);
+    });
   });
 });
