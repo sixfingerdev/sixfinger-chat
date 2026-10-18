@@ -29,6 +29,7 @@ export function Composer({
   const effort = useUi((s) => s.effort);
   const setEffort = useUi((s) => s.setEffort);
   const generating = useChats((s) => s.generating);
+  const prefill = useUi((s) => s.prefill);
   const draftKey = chatId ?? 'new';
 
   const [value, setValue] = useState(() => drafts.get(draftKey) ?? '');
@@ -59,6 +60,14 @@ export function Composer({
       ta.current?.focus();
     }
   }, [seed]);
+
+  useEffect(() => {
+    if (prefill) {
+      setValue(prefill.text);
+      drafts.set(draftKey, prefill.text);
+      ta.current?.focus();
+    }
+  }, [prefill]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resize = useCallback(() => {
     const el = ta.current;

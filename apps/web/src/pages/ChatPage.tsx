@@ -275,7 +275,6 @@ export function ChatPage() {
   const loadError = useChats((s) => s.loadError);
   const loadingId = useChats((s) => s.loadingId);
   const generating = useChats((s) => s.generating);
-  const [seed, setSeed] = useState<{ text: string; n: number } | null>(null);
 
   useEffect(() => {
     if (chatId) void useChats.getState().openChat(chatId);
@@ -367,7 +366,7 @@ export function ChatPage() {
       </div>
       <Composer
         chatId={chatId ?? null}
-        seed={seed}
+        seed={null}
         onChatCreated={(id) => nav(`/c/${id}`, { replace: false })}
       />
     </div>

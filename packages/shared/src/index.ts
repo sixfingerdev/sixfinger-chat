@@ -7,3 +7,4 @@ export { tr, type DictKey } from './i18n/tr.ts';
 export { en } from './i18n/en.ts';
 export * from './greetings.ts';
 export * from './tools.ts';
+export * from './rich.ts';

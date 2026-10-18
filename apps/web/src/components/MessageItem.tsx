@@ -7,7 +7,7 @@ import { speak, stopSpeaking, ttsSupported } from '../lib/speech.ts';
 import type { Versions } from '../lib/tree.ts';
 import { useChats } from '../store/chats.ts';
 import { LogoMark } from './Logo.tsx';
-import { Md as Markdown } from './MarkdownLazy.tsx';
+import { RichText } from './RichText.tsx';
 import { ReasoningBlock } from './ReasoningBlock.tsx';
 import { ToolCard } from './ToolCard.tsx';
 
@@ -182,8 +182,8 @@ function AssistantMessage({ msg, versions, isLast, live, busy }: Props) {
         {waiting && <div className="waiting-line" aria-label={t('msg.thinking')} />}
         <ReasoningBlock text={msg.reasoning} streaming={streaming} hasAnswer={hasAnswer} ms={msg.reasoningMs} />
         {hasParts
-          ? msg.parts.map((p, i) => (p.type === 'text' ? <Markdown key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
-          : hasAnswer && <Markdown text={msg.content} />}
+          ? msg.parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : <ToolCard key={p.id} part={p} />))
+          : hasAnswer && <RichText text={msg.content} />}
         {!streaming && msg.status === 'stopped' && <div className="msg-note">{t('msg.stopped')}</div>}
         {!streaming && msg.status === 'error' && (
           <div className="msg-note error">

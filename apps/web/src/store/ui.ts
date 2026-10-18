@@ -69,6 +69,15 @@ interface UiState {
   setEffort: (e: Effort) => void;
 
   online: boolean;
+
+  /** Açık artifact paneli (kimlik). */
+  artifactId: string | null;
+  openArtifact: (id: string) => void;
+  closeArtifact: () => void;
+
+  /** Widget'ın önerdiği metin: composer'a yazılır, kendiliğinden gönderilmez. */
+  prefill: { text: string; n: number } | null;
+  setPrefill: (text: string) => void;
 }
 
 let toastId = 0;
@@ -128,4 +137,11 @@ export const useUi = create<UiState>((set, get) => ({
   },
 
   online: typeof navigator === 'undefined' ? true : navigator.onLine,
+
+  artifactId: null,
+  openArtifact: (artifactId) => set({ artifactId, mobileSidebarOpen: false }),
+  closeArtifact: () => set({ artifactId: null }),
+
+  prefill: null,
+  setPrefill: (text) => set({ prefill: { text, n: Date.now() } }),
 }));

@@ -34,6 +34,19 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     `Tutum: Yardımsever ve doğrudan ol. Gereksiz özür, dolgu cümlesi ve uyarı yazma. Zararlı, yasa dışı veya başkalarına zarar verebilecek taleplerde nazikçe ve kısaca reddet, mümkünse güvenli bir alternatif öner.`,
   ];
 
+  parts.push(
+    `Artifact (tek dosyalık çıktı): Kullanıcı bir uygulama, oyun, web sayfası, hesaplayıcı, görselleştirme, SVG, diyagram ya da uzun bir belge istediğinde işi TEK bir artifact olarak ver:\n` +
+      `<artifact id="kisa-kimlik" type="html" title="Başlık">\n...içerik...\n</artifact>\n` +
+      `Türler: html (tek dosya; CSS ve JS içinde), svg, mermaid, markdown. Proje iskeleti, birden çok dosya ya da kurulum adımı yok: her şey tek dosyada olsun, çalışır ve eksiksiz yaz. ` +
+      `Gerekirse betiği yalnızca şu CDN'lerden yükle: cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com (ör. three.js, chart.js). Başka alan adlarına istek, localStorage, çerez ve form gönderimi çalışmaz. Sayfa telefonda da açılacak: duyarlı yaz (viewport'a sığsın) ve oyun/etkileşimlerde klavyenin yanında dokunma/kaydırma ya da ekran düğmeleri desteği ver. ` +
+      `Etiketten önce 1-2 cümleyle ne yaptığını söyle, etiketten sonra uzun anlatma. Aynı artifact'ı değiştirirken AYNI id'yi kullan ve dosyanın tamamını yaz. ` +
+      `Kısa kod parçaları, cevaplar ve açıklamalar için artifact kullanma; onlar için normal kod bloğu kullan. <artifact> ve <widget> etiketlerini ASLA kod bloğuna (\`\`\`) koyma ve içeriğini \`\`\` ile sarma: etiketin kendisi çalışır ve kullanıcı sonucu görür, kodu değil. Uzun soluklu çok adımlı proje geliştirme yapma.`,
+    `Widget (mesaj içi küçük etkileşimli parça): Açıklamanı güçlendirecek küçük bir görsel ya da etkileşim için (grafik, kaydırıcılı hesaplayıcı, şema, mini demo) metnin içine ` +
+      `<widget title="Kısa ad" height="320">...</widget> koy. İçerik tam sayfa değil, yalnızca HTML/CSS/JS gövdesi olsun. Renkleri var(--sf-text), var(--sf-bg), var(--sf-surface), var(--sf-line), var(--sf-accent) ` +
+      `değişkenleriyle ver ki koyu/açık temaya uysun; yazı tipi için font-family: var(--sf-font). Kullanıcıya takip sorusu önermek için window.sf.sendPrompt("...") kullanabilirsin. ` +
+      `Widget'ı küçük tut (en fazla ~400px yükseklik); oyun ve uygulama gibi büyük işler artifact olsun. Widget'tan sonra \"kodu yapıştır\" deme: kullanıcı onu zaten çalışır halde görür.`,
+  );
+
   if (ctx.tools?.web) {
     parts.push(
       `Araçlar: Güncel bilgi, haber, fiyat, sürüm numarası ya da bilmediğin/emin olmadığın konular için web_search kullan; ` +
