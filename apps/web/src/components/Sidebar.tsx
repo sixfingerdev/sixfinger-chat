@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink, useNavigate, useParams } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Archive,
   ArchiveRestore,
   ChevronDown,
+  Code2,
   Ellipsis,
   LogIn,
+  MessageSquare,
   Pencil,
   Pin,
   PinOff,
@@ -20,8 +22,10 @@ import { clsx, groupChats, initials } from '../lib/format.ts';
 import { useT } from '../lib/i18n/index.ts';
 import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
+import { useCode } from '../store/code.ts';
 import { useUi } from '../store/ui.ts';
 import { Brand } from './Logo.tsx';
+import { CodeCredits } from './CodeCredits.tsx';
 import { Popover } from './Popover.tsx';
 
 function ChatRow({ chat, active }: { chat: ChatDTO; active: boolean }) {
@@ -133,7 +137,51 @@ function ChatRow({ chat, active }: { chat: ChatDTO; active: boolean }) {
   );
 }
 
-function UserCard() {
+/** Code modunda kenar çubuğu gövdesi: yeni oturum + oturum listesi. */
+function CodeSidebarBody({ activeId }: { activeId: string | undefined }) {
+  const t = useT();
+  const nav = useNavigate();
+  const sessions = useCode((s) => s.sessions);
+  const setMobile = useUi((s) => s.setMobileSidebar);
+  useEffect(() => {
+    if (!useCode.getState().sessions) void useCode.getState().refresh();
+  }, []);
+  const go = (to: string) => {
+    setMobile(false);
+    nav(to);
+  };
+  return (
+    <>
+      <div className="sidebar-actions">
+        <button className="new-chat" onClick={() => go('/code/new')}>
+          <SquarePen size={17} />
+          <span>{t('code.newSession')}</span>
+        </button>
+      </div>
+      <nav className="chat-list">
+        <section className="chat-group">
+          <h3>{t('code.sessions')}</h3>
+          {sessions === null && [78, 64, 88].map((w, i) => <div key={i} className="skeleton" style={{ width: `${w}%`, height: 14, margin: '10px 12px' }} />)}
+          {sessions?.length === 0 && (
+            <div className="sidebar-empty">
+              <strong>{t('code.empty')}</strong>
+            </div>
+          )}
+          {sessions?.map((s) => (
+            <div key={s.chatId} className={clsx('chat-row', s.chatId === activeId && 'active')}>
+              <NavLink to={`/code/s/${s.chatId}`} className="chat-link" title={`${s.title} · ${s.repo}`} onClick={() => setMobile(false)}>
+                <i className={clsx('status-dot', s.status)} />
+                <span className="chat-title">{s.title === 'Yeni oturum' ? t('code.session.untitled') : s.title}</span>
+              </NavLink>
+            </div>
+          ))}
+        </section>
+      </nav>
+    </>
+  );
+}
+
+function UserCard({ code }: { code?: boolean }) {
   const t = useT();
   const user = useAuth((s) => s.user);
   const config = useUi((s) => s.config);
@@ -163,7 +211,8 @@ function UserCard() {
           <Settings size={18} />
         </button>
       </div>
-      {config && (
+      {code && <CodeCredits />}
+      {!code && config && (
         <div className="usage" title={`${used}/${limit}`}>
           <div className="usage-bar">
             <div className={clsx('usage-fill', pct >= 90 && 'hot')} style={{ width: `${pct}%` }} />
@@ -181,6 +230,9 @@ export function Sidebar() {
   const t = useT();
   const nav = useNavigate();
   const { chatId } = useParams();
+  const { pathname } = useLocation();
+  const isCode = pathname === '/code' || pathname.startsWith('/code/');
+  const codeAllowed = useUi((s) => s.config?.code?.allowed);
   const chats = useChats((s) => s.chats);
   const archived = useChats((s) => s.archived);
   const loaded = useChats((s) => s.chatsLoaded);
@@ -221,6 +273,21 @@ export function Sidebar() {
           </button>
         </div>
 
+        {codeAllowed && (
+          <div className="segmented mode-switch" role="group" aria-label="Chat / Code">
+            <button aria-pressed={!isCode} onClick={() => !isCode || nav('/')}>
+              <MessageSquare size={15} /> Chat
+            </button>
+            <button aria-pressed={isCode} onClick={() => isCode || nav('/code')}>
+              <Code2 size={15} /> {t('code.nav')}
+            </button>
+          </div>
+        )}
+
+        {isCode ? (
+          <CodeSidebarBody activeId={chatId} />
+        ) : (
+          <>
         <div className="sidebar-actions">
           <button className="new-chat" onClick={newChat}>
             <SquarePen size={17} />
@@ -272,8 +339,10 @@ export function Sidebar() {
             </div>
           )}
         </nav>
+          </>
+        )}
 
-        <UserCard />
+        <UserCard code={isCode} />
       </aside>
     </>
   );

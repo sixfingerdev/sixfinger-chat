@@ -281,6 +281,11 @@ export function ChatPage() {
     else useChats.getState().newChat();
   }, [chatId]);
 
+  // Code oturumları sohbet değil: /c/:id ile açılırsa Code sayfasına git.
+  useEffect(() => {
+    if (detail?.chat.kind === 'code') nav(`/code/s/${detail.chat.id}`, { replace: true });
+  }, [detail?.chat.kind, detail?.chat.id, nav]);
+
   const idx = useMemo(() => (detail ? indexMessages(detail.messages) : null), [detail?.messages]); // eslint-disable-line react-hooks/exhaustive-deps
   const path = useMemo(() => (idx && detail ? activePath(idx, detail.chat.leafId) : []), [idx, detail?.chat.leafId]); // eslint-disable-line react-hooks/exhaustive-deps
 
