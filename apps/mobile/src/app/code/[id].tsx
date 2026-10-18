@@ -23,7 +23,7 @@ function InfoRow({ icon, label, children }: { icon: ReactNode; label: string; ch
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 28 }}>
       <View style={{ width: 22, alignItems: 'center' }}>{icon}</View>
-      <RNText style={[type.small, { color: c.text3, width: 78 }]}>{label}</RNText>
+      <RNText style={[type.small, { color: c.text3, width: 96 }]}>{label}</RNText>
       <View style={{ flex: 1 }}>{children}</View>
     </View>
   );

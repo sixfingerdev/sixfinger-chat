@@ -4,7 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check, Trash2 } from 'lucide-react-native';
-import { CODE_DISK_DEFAULT_MB, CODE_DISK_MAX_MB, CODE_DISK_MIN_MB, type CodeNetwork } from '@sixfinger/shared';
+import { CODE_DISK_DEFAULT_MB, type CodeNetwork } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
 import { api } from '../../lib/api.ts';
@@ -198,11 +198,9 @@ export default function EnvEditor() {
             <Segmented<string>
               value={String(DISK_STEPS.includes(disk as never) ? disk : CODE_DISK_DEFAULT_MB)}
               onChange={(v) => setDisk(Number(v))}
-              options={DISK_STEPS.map((d) => ({ id: String(d), label: formatMb(d, locale).replace(' MB', '').replace(' GB', 'G') }))}
+              options={DISK_STEPS.map((d) => ({ id: String(d), label: formatMb(d, locale) }))}
             />
-            <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, color: c.text3 }}>
-              {t('code.env.diskHint')} ({formatMb(CODE_DISK_MIN_MB, locale)} – {formatMb(CODE_DISK_MAX_MB, locale)})
-            </RNText>
+            <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, color: c.text3 }}>{t('code.env.diskHint')}</RNText>
           </View>
 
           <Field
