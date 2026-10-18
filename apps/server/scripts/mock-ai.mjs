@@ -53,7 +53,14 @@ const RAW = `Ham HTML (stil yok):
 <table><tr><th>Ay</th><th>Taksit</th></tr><tr><td>12</td><td>24.180 ₺</td></tr><tr><td>24</td><td>13.420 ₺</td></tr></table>
 </widget>`;
 
+/** BIGART: yaklaşık 150 KB'lık, 3000 satırlık tek dosya HTML artifact (kasma/ANR denemeleri için). */
+function bigArtifact() {
+  const rows = Array.from({ length: 3000 }, (_, i) => `  <div class="row r${i % 7}" data-i="${i}">Satır ${i}: lorem ipsum dolor sit amet, consectetur adipiscing elit.</div>`).join('\n');
+  return `Hazır:\n<artifact id="big" title="Büyük Sayfa" type="html">\n<!doctype html><html><head><style>.row{padding:2px 8px;font:12px system-ui}.r1{background:#eee}</style></head><body>\n${rows}\n</body></html>\n</artifact>\nBitti.`;
+}
+
 function answerFor(text) {
+  if (/BIGART/.test(text)) return bigArtifact();
   if (/KITCALC/.test(text)) return 'Dene:\n' + WIDGET_EXAMPLES.CALCULATOR + '\nBitti.';
   if (/KITCHART/.test(text)) return 'Grafik:\n' + WIDGET_EXAMPLES.BAR_CHART + '\nBitti.';
   if (/WIDGETRAW/.test(text)) return RAW;
@@ -98,9 +105,10 @@ createServer(async (req, res) => {
     send({ reasoning: `${w} `, role: 'assistant' });
     await sleep(long ? 45 : 15);
   }
-  for (const ch of text.match(/.{1,6}/gs) ?? []) {
+  const big = text.length > 20_000;
+  for (const ch of text.match(big ? /.{1,150}/gs : /.{1,6}/gs) ?? []) {
     send({ content: ch, role: 'assistant' });
-    await sleep(12);
+    await sleep(big ? 6 : 12);
   }
   res.write('data: [DONE]\n\n');
   res.end();

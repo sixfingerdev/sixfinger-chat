@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, ScrollView, Share, Text as RNText, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check, Copy, Share2, X } from 'lucide-react-native';
@@ -10,17 +10,37 @@ import { haptic } from '../lib/haptics.ts';
 import { useT } from '../lib/i18n/index.ts';
 import { selectPath, useChats } from '../store/chats.ts';
 import { useUi } from '../store/ui.ts';
+import { CodeView } from './CodeView.tsx';
 import { Markdown } from './markdown/Markdown.tsx';
 import { SandboxWebView } from './SandboxWebView';
 import { Press } from './Ui.tsx';
 
 const LANG: Record<ArtifactKind, string> = { html: 'html', svg: 'xml', markdown: 'markdown', mermaid: 'text' };
 
-/** İçerikte geçen en uzun ` dizisinden daha uzun bir çit seçer (kodu bozmadan göstermek için). */
-function fenced(code: string, lang: string): string {
-  const longest = Math.max(2, ...[...code.matchAll(/`+/g)].map((m) => m[0].length));
-  const fence = '`'.repeat(longest + 1);
-  return `${fence}${lang}\n${code}\n${fence}`;
+/** Değer çok sık değişirken (akış) en çok `ms` aralıkla günceller; etkin değilse anında. */
+function useThrottled<T>(value: T, ms: number, enabled: boolean): T {
+  const [v, setV] = useState(value);
+  const last = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    if (!enabled) {
+      setV(value);
+      return;
+    }
+    const wait = last.current + ms - Date.now();
+    if (wait <= 0) {
+      last.current = Date.now();
+      setV(value);
+      return;
+    }
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      last.current = Date.now();
+      setV(value);
+    }, wait);
+    return () => clearTimeout(timer.current);
+  }, [value, ms, enabled]);
+  return v;
 }
 
 /** Artifact'ı tam ekranda gösterir: Önizleme / Kod sekmeleri, sürümler, kopyala ve paylaş. */
@@ -30,8 +50,15 @@ export function ArtifactViewer() {
   const insets = useSafeAreaInsets();
   const id = useUi((s) => s.artifactId);
   const close = useUi((s) => s.closeArtifact);
-  const detail = useChats((s) => (s.activeId ? s.detail[s.activeId] : undefined));
-  const entries = useMemo(() => collectArtifacts(selectPath(detail).map((m) => (m.role === 'assistant' ? m.content : ''))), [detail]);
+  const liveDetail = useChats((s) => (s.activeId ? s.detail[s.activeId] : undefined));
+  const generating = useChats((s) => Boolean(s.activeId && s.generating[s.activeId]));
+  // Üretim sürerken içerik her karede değişir: görüntüleyici en çok 400 ms'de bir güncellenir (donmayı önler).
+  const detail = useThrottled(liveDetail, 400, generating);
+  // Kapalıyken (artifact seçili değil) hiçbir şey ayrıştırılmaz.
+  const entries = useMemo(
+    () => (id ? collectArtifacts(selectPath(detail).map((m) => (m.role === 'assistant' ? m.content : ''))) : []),
+    [id, detail],
+  );
   const entry = entries.find((e) => e.id === id);
 
   const [version, setVersion] = useState<number | null>(null);
@@ -47,7 +74,7 @@ export function ArtifactViewer() {
     setVersion(null);
     setError(null);
   }, [id]);
-  // Yazılırken kodu göster; bitince önizlemeye geç.
+  // Yazılırken kodu (son satırlar) göster; bitince önizlemeye geç.
   useEffect(() => {
     setTab(writing ? 'code' : 'preview');
     if (!writing) setError(null);
@@ -101,15 +128,13 @@ export function ArtifactViewer() {
             <View style={{ flexDirection: 'row', backgroundColor: c.surface2, borderRadius: radius.md, padding: 3, borderWidth: 1, borderColor: c.line }}>
               {(['preview', 'code'] as const).map((k) => {
                 const on = tab === k;
-                const disabled = k === 'preview' && writing;
                 return (
                   <Press
                     key={k}
                     haptics="select"
                     scale={0.97}
-                    disabled={disabled}
                     onPress={() => setTab(k)}
-                    style={{ height: 32, paddingHorizontal: 16, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.surface3 : 'transparent', opacity: disabled ? 0.45 : 1 }}
+                    style={{ height: 32, paddingHorizontal: 16, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? c.surface3 : 'transparent' }}
                   >
                     <RNText style={{ fontFamily: on ? fonts.sansSemibold : fonts.sansMedium, fontSize: 13.5, color: on ? c.text : c.text2 }}>{t(k === 'preview' ? 'artifact.preview' : 'artifact.code')}</RNText>
                   </Press>
@@ -143,9 +168,11 @@ export function ArtifactViewer() {
 
           <View style={{ flex: 1 }}>
             {tab === 'code' ? (
-              <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: insets.bottom + 24 }}>
-                {current.content ? <Markdown text={fenced(current.content, LANG[entry.kind])} /> : <RNText style={[type.body, { color: c.text3, padding: 16 }]}>{t('artifact.empty')}</RNText>}
-              </ScrollView>
+              <CodeView code={current.content} lang={LANG[entry.kind]} writing={writing} bottomInset={insets.bottom} />
+            ) : writing ? (
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                <RNText style={[type.body, { color: c.text3, textAlign: 'center' }]}>{t('artifact.previewPending')}</RNText>
+              </View>
             ) : entry.kind === 'markdown' ? (
               <ScrollView contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 24 }}>
                 <Markdown text={current.content} />

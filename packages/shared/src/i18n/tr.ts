@@ -284,6 +284,8 @@ export const tr = {
   'artifact.fullscreen': 'Tam ekran',
   'artifact.version': 'Sürüm {n}',
   'artifact.error': 'Sayfada bir hata oluştu',
+  'artifact.previewPending': 'Yazılıyor… bitince önizleme açılır',
+  'artifact.lines': '{n} satır',
   'artifact.empty': 'Henüz içerik yok.',
   'artifact.kind.html': 'Web sayfası',
   'artifact.kind.svg': 'Görsel (SVG)',

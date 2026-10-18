@@ -3,6 +3,7 @@ import type { ChatDTO, MessageDTO, MessagePartDTO, StreamEvent } from '@sixfinge
 import { ApiError, api, streamGet, streamRequest } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { translate } from '../lib/i18n/index.ts';
+import { kv } from '../lib/storage.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 import { activePath, deepestLeaf, indexMessages } from '../lib/tree.ts';
 import { useUi } from './ui.ts';
@@ -129,13 +130,19 @@ export const useChats = create<ChatsState>((set, get) => {
     let assistantId = tmp.assistantId ?? '';
     const gen: Generating = { chatId, assistantId, abort };
     setGen(chatId, gen);
+    // Uygulama üretim sürerken kapatılırsa, yeniden açılınca bu sohbete dönülür (sonuç ya da canlı akış gösterilir).
+    kv.set('sf.pending', chatId);
 
     // Delta'ları kare başına bir kez uygula (uzun yanıtlarda render maliyetini düşürür).
     let bufContent = '';
     let bufReasoning = '';
     let raf = 0;
+    let tm: ReturnType<typeof setTimeout> | undefined;
+    /** Şimdiye dek gelen metin miktarı: çok büyük yanıtlarda (artifact) güncellemeler seyreltilir. */
+    let total = 0;
     const flush = () => {
       raf = 0;
+      tm = undefined;
       if (!bufContent && !bufReasoning) return;
       const c = bufContent;
       const r = bufReasoning;
@@ -144,7 +151,10 @@ export const useChats = create<ChatsState>((set, get) => {
       patchMessage(chatId, assistantId, (m) => ({ ...m, content: m.content + c, reasoning: m.reasoning + r, parts: c ? appendText(m.parts, c) : m.parts }));
     };
     const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(flush);
+      if (raf || tm) return;
+      // Küçük yanıtta kare başına bir kez; 8 bin karakteri aşınca 120 ms'de bir (ayrıştırma/çizim maliyeti kodun boyuyla büyür).
+      if (total > 8_000) tm = setTimeout(flush, 120);
+      else raf = requestAnimationFrame(flush);
     };
 
     let finished = false;
@@ -163,6 +173,7 @@ export const useChats = create<ChatsState>((set, get) => {
             messages: d.messages.some((m) => m.id === snap.id) ? d.messages.map((m) => (m.id === snap.id ? snap : m)) : [...d.messages, snap],
             chat: { ...d.chat, leafId: snap.id },
           }));
+          total = snap.content.length + snap.reasoning.length;
           assistantId = snap.id;
           gen.assistantId = snap.id;
           setGen(chatId, gen);
@@ -189,10 +200,12 @@ export const useChats = create<ChatsState>((set, get) => {
         }
         case 'reasoning':
           bufReasoning += e.delta;
+          total += e.delta.length;
           schedule();
           break;
         case 'delta':
           bufContent += e.delta;
+          total += e.delta.length;
           schedule();
           break;
         case 'tool_start':
@@ -255,12 +268,14 @@ export const useChats = create<ChatsState>((set, get) => {
       }
     } finally {
       if (raf) cancelAnimationFrame(raf);
+      if (tm) clearTimeout(tm);
       flush();
       if (!finished && !dropped) {
         // Kullanıcı durdurdu ya da yerel hata: yerel durumu işaretle.
         patchMessage(chatId, assistantId, (m) => (m.status === 'streaming' ? { ...m, status: abort.signal.aborted ? 'stopped' : 'error' } : m));
       }
       clearGen(chatId, abort);
+      if (!dropped && kv.get('sf.pending') === chatId) kv.remove('sf.pending');
       // Sunucu ile kesin eşitleme (gerçek kimlikler, durum). Kopma durumunda yeniden izleme bunu zaten yapar.
       if (!dropped) void get().openChat(chatId, true);
     }

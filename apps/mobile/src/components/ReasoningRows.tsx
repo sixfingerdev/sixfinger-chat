@@ -3,7 +3,7 @@ import { Text as RNText, View } from 'react-native';
 import Animated, { FadeIn, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { ChevronRight } from 'lucide-react-native';
 import type { MessageDTO } from '@sixfinger/shared';
-import { fonts, slash, useTheme } from '../theme/index.tsx';
+import { fonts, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { formatDuration } from '../lib/format.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
@@ -60,7 +60,8 @@ export function ReasoningBody({ text }: { text: string }) {
   const { c } = useTheme();
   return (
     <Animated.View entering={FadeIn.duration(180)} style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingBottom: 8 }}>
-      <View style={{ width: 2, backgroundColor: c.line, borderRadius: 1, transform: [{ skewX: slash.soft }] }} />
+      {/* Uzun düşüncede eğik çubuk metnin üstünden çapraz geçiyordu: düz, ince bir çizgi. */}
+      <View style={{ width: 2, backgroundColor: c.line, borderRadius: 1 }} />
       <RNText selectable style={[type.small, { flex: 1, color: c.text3, lineHeight: 19 }]}>
         {text}
       </RNText>

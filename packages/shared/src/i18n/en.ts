@@ -272,6 +272,8 @@ export const en: Record<DictKey, string> = {
   'artifact.fullscreen': 'Fullscreen',
   'artifact.version': 'Version {n}',
   'artifact.error': 'The page hit an error',
+  'artifact.previewPending': "Writing… the preview opens when it's done",
+  'artifact.lines': '{n} lines',
   'artifact.empty': 'Nothing here yet.',
   'artifact.kind.html': 'Web page',
   'artifact.kind.svg': 'Image (SVG)',

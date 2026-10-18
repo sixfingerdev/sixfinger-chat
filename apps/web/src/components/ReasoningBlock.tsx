@@ -42,7 +42,12 @@ export function ReasoningBlock({
         <span className="reasoning-label">{label}</span>
         {thinking && <span className="reasoning-dots" aria-hidden />}
       </button>
-      {open && <div className="reasoning-body">{text}</div>}
+      {/* Gövde hep bağlı kalır; açılıp kapanma yüksekliği CSS ile animasyonlanır. */}
+      <div className="reasoning-collapse" aria-hidden={!open}>
+        <div className="reasoning-clip">
+          <div className="reasoning-body">{text}</div>
+        </div>
+      </div>
     </div>
   );
 }

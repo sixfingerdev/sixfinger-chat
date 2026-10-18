@@ -35,6 +35,15 @@ function Shell() {
     void SystemUI.setBackgroundColorAsync(c.bg);
   }, [c.bg]);
 
+  // Üretim sürerken uygulama kapatılmış olabilir: açılışta o sohbete dön (sunucuda sürüyorsa canlı, bittiyse sonuç).
+  useEffect(() => {
+    if (!ready || !user) return;
+    const pending = kv.get('sf.pending');
+    if (!pending) return;
+    kv.remove('sf.pending');
+    void useChats.getState().openChat(pending);
+  }, [ready, user]);
+
   // Uygulama bir süre arka plandaysa üretim sunucuda sürmüş olabilir: ön plana dönünce eşitle / canlı izlemeye bağlan.
   useEffect(() => {
     let leftAt = 0;

@@ -3,7 +3,7 @@
     "name": "SixFinger",
     "slug": "sixfinger",
     "scheme": "sixfinger",
-    "version": "0.3.7",
+    "version": "0.3.8",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#0b0b0c",
@@ -11,7 +11,7 @@
     "newArchEnabled": true,
     "android": {
       "package": "live.sixfinger.chat",
-      "versionCode": 11,
+      "versionCode": 12,
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "adaptiveIcon": {
