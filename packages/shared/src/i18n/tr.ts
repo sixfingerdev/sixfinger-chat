@@ -585,6 +585,8 @@ export const tr = {
   'mcp.reconnect': 'Yeniden bağlan',
   'mcp.soon': 'Yakında',
   'mcp.needsAdmin': 'Yönetici kaydı gerekiyor',
+  'mcp.blocked': 'Şimdilik kullanılamıyor',
+  'mcp.blockedHint': 'Denendi: bu hizmet yalnızca kendi onayladığı uygulamaların yönlendirme adreslerini kabul ediyor, SixFinger’ı reddediyor. Erişim anahtarın (token) varsa “Özel URL ekle” ile bağlayabilirsin.',
   'mcp.unverified': 'Adres doğrulanmadı',
   'mcp.interactive': 'Etkileşimli',
   'mcp.popular': '#{n} popüler',

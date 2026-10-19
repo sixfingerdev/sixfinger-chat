@@ -100,10 +100,10 @@ export function mcpHost(url: string): string {
   }
 }
 
-/** `/mcp/presets` yanıtındaki kart: katalog + bu sunucuda kullanılabilir mi (`reason`: yakında / yönetici kaydı gerekiyor). */
+/** `/mcp/presets` yanıtındaki kart: katalog + bu sunucuda kullanılabilir mi (`reason`: yakında / yönetici kaydı gerekiyor / hizmet SixFinger'ı kabul etmiyor). */
 export interface McpPresetView extends McpPreset {
   available: boolean;
-  reason: 'soon' | 'admin' | null;
+  reason: 'soon' | 'admin' | 'blocked' | null;
 }
 export interface McpPresetsResponse {
   enabled: boolean;

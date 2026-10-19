@@ -114,14 +114,19 @@ describe('MCP sunucu yönetimi', () => {
     expect((await api(a, 'DELETE', `/mcp/servers/${s.id}`)).statusCode).toBe(204);
   });
 
-  it('hazır katalog: 27 kart, yönetici istemcisi olmayan static kartlar pasif, Microsoft 365 yakında', async () => {
+  it('hazır katalog: 27 kart; yönetici istemcisi olmayan static kartlar pasif, gerçek denemede reddedenler "blocked", Microsoft 365 yakında', async () => {
     const a = await member(env);
     const r = (await api(a, 'GET', '/mcp/presets')).json();
     expect(r.presets).toHaveLength(27);
     const by = Object.fromEntries(r.presets.map((p: { id: string }) => [p.id, p]));
     expect(by.notion).toMatchObject({ auth: 'dcr', available: true, reason: null });
     expect(by.gmail).toMatchObject({ auth: 'static', available: false, reason: 'admin' });
-    expect(by.hubspot.available).toBe(true); // önce dinamik kayıt denenir
+    // HubSpot ve Box dinamik kaydı desteklemiyor (gerçek denemede doğrulandı): yönetici kaydı gerekir
+    expect(by.hubspot).toMatchObject({ available: false, reason: 'admin' });
+    expect(by.box).toMatchObject({ auth: 'static', available: false, reason: 'admin' });
+    // Yönlendirme adresi/istemci kaydı reddedilen hizmetler kullanılamaz görünür
+    for (const id of ['figma', 'asana', 'intercom', 'adobe', 'indeed', 'vercel', 'gamma', 'spotify']) expect(by[id]).toMatchObject({ available: false, reason: 'blocked' });
+    expect((await api(a, 'POST', '/mcp/servers', { label: 'Figma', url: by.figma.url, preset: 'figma' })).statusCode).toBe(400);
     expect(by['microsoft-365']).toMatchObject({ available: false, reason: 'soon' });
     // pasif kart eklenemez; static olmayan OAuth kartı eklenir ve "Bağlan" bekler
     expect((await api(a, 'POST', '/mcp/servers', { label: 'Gmail', url: by.gmail.url, preset: 'gmail' })).statusCode).toBe(400);

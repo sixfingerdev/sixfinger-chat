@@ -573,6 +573,8 @@ export const en: Record<DictKey, string> = {
   'mcp.reconnect': 'Reconnect',
   'mcp.soon': 'Coming soon',
   'mcp.needsAdmin': 'Admin setup required',
+  'mcp.blocked': 'Not available yet',
+  'mcp.blockedHint': 'Tested: this service only accepts redirect addresses of apps it has approved and rejects SixFinger. If you have an access token you can add it with “Add custom URL”.',
   'mcp.unverified': 'Address not verified',
   'mcp.interactive': 'Interactive',
   'mcp.popular': '#{n} most popular',

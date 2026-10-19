@@ -63,3 +63,18 @@ Gerçek sağlayıcılara bu ortamdan erişilemediği için aşağıdakiler elle 
 - "Etkileşimli" (MCP Apps) arayüzleri desteklenmez: bu sunucuların araçları metin olarak çalışır.
 - Görsel/ses çıktıları modele metin yer tutucu olarak verilir.
 - Her çağrıda yeniden bağlanıldığı için Pi'de ilk çağrı birkaç yüz ms yavaş olabilir (bağlantı havuzu yok).
+
+## Gerçek sunucularla deneme sonuçları
+Katalogdaki her kart, gerçek `createGuardedFetch` yoluyla ve `PUBLIC_WEB_URL=https://chat.sixfinger.live` ile, kartın adresine "ekle → Bağlan" akışı çalıştırılarak denendi (yetkilendirme sayfasına kadar;
+kullanıcı girişi ve token değişimi insan gerektirdiği için denenemedi). Sonuç:
+
+| Sonuç | Kartlar |
+|---|---|
+| **Yetkilendirme adresi alındı** (dinamik kayıt çalışıyor) | Canva, Notion, Linear, monday.com, Miro, Supabase, Wispr Flow, Granola |
+| **Kimlik doğrulamasız bağlandı** | Shopify (mağaza adı gerekir; araç listesi alındı) |
+| **Hizmet SixFinger'ı reddediyor** (`blocked`: yalnızca onayladığı istemcilerin yönlendirme adreslerini kabul ediyor ya da kaydı 403 ile geri çeviriyor) | Figma (403), Asana, Intercom, Adobe, Vercel, Gamma, Indeed (`redirect URI not allowed`), Spotify (pilot, dinamik kayıt yok) |
+| **Dinamik kayıt yok → yönetici kaydı** (`.env`: `MCP_<ADI>_CLIENT_ID/SECRET`) | HubSpot, Box, Slack, Google ×6 (Drive, Gmail, Calendar, Docs, Sheets, Slides) |
+| Pasif | Microsoft 365 (herkese açık adres yok) |
+
+`blocked` kartlar arayüzde "Şimdilik kullanılamıyor" der; erişim anahtarı (token) olan kullanıcı "Özel URL ekle" ile yine ekleyebilir. Hizmetler politikasını değiştirirse `packages/shared/src/mcp-presets.ts`
+içinde `status`'u güncelle. Ham OAuth hataları kullanıcıya anlaşılır Türkçe olarak gösterilir (`friendlyAuthError`).

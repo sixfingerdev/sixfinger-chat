@@ -67,7 +67,22 @@ const truncationNote = (locale: string) =>
     ? '\n\n*Yanıt uzunluk sınırına ulaştığı için burada kesildi. “Devam et” yazarak sürdürebilirsin.*'
     : '\n\n*The reply was cut off at the length limit. Type “continue” to carry on.*';
 
-const MEMORY_TRIGGER = /(hatırla|hatirla|aklında tut|aklinda tut|unutma|remember (that|this|me|my)|keep in mind)/i;
+/**
+ * Mesajda kalıcı bir kişisel bilgi olabileceğine dair ipuçları (ad, yaş, yer, meslek, tercih, "bundan sonra"…).
+ * Yalnızca ön süzgeçtir: kaydedilip kaydedilmeyeceğine model karar verir (`memoryPrompt`), böylece her mesaja ek model çağrısı yapılmaz.
+ */
+export const MEMORY_TRIGGER = new RegExp(
+  [
+    'hatırla|hatirla|aklında tut|aklinda tut|unutma|not al',
+    'adım|adim|ismim|ismimi|benim ad|bana .{1,30} (de|hitap)|hitap',
+    'yaşındayım|yasindayim|yaşıyorum|yasiyorum|oturuyorum|memleketim|doğum günüm|dogum gunum',
+    'çalışıyorum|calisiyorum|mesleğim|meslegim|okuyorum|öğrenciyim|ogrenciyim|işim|isim ',
+    'seviyorum|sevmiyorum|sevmem|severim|tercih|favori|alerjim|vejetaryen|vegan',
+    'bundan sonra|her zaman|asla|hep ',
+    "remember (that|this|me|my)|keep in mind|my name|call me|i am \\d|i'm \\d|i live|i work|i study|i (really )?(like|love|hate|prefer)|my favou?rite|from now on|always|never",
+  ].join('|'),
+  'i',
+);
 
 interface GenerationInput {
   chat: ChatRow;
@@ -102,6 +117,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       memories,
       displayName: user.isGuest ? '' : row!.display_name,
       tools: { web: toolsFor(user).some((t) => t.name === 'web_search'), sandbox: toolsFor(user).some((t) => t.name === 'bash') },
+      memory: features.memory ? (settings.memoryEnabled ? 'on' : 'off') : 'locked',
     });
   }
 
@@ -597,7 +613,8 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const row = await findUserById(db, user.id);
         if (row && settingsOf(row).memoryEnabled) {
           try {
-            const raw = (await ai.complete({ messages: memoryPrompt(g.userText), effort: 'low', temperature: 0 })).trim();
+            const known = (await listMemories(db, user.id)).map((m) => m.content);
+            const raw = (await ai.complete({ messages: memoryPrompt(g.userText, known), effort: 'low', temperature: 0 })).trim();
             if (raw && !/^none\b/i.test(raw)) {
               const memory = await addMemory(db, user.id, raw.replace(/^["'\-\s]+|["'\s]+$/g, ''));
               stream.send({ type: 'memory', memory });

@@ -71,7 +71,7 @@ export function PresetCard({
   const t = useT();
   const locale = useLocale();
   const connected = server ? statusOf(server) === 'ok' : false;
-  const note = !preset.available ? (preset.reason === 'admin' ? t('mcp.needsAdmin') : t('mcp.soon')) : null;
+  const note = !preset.available ? (preset.reason === 'admin' ? t('mcp.needsAdmin') : preset.reason === 'blocked' ? t('mcp.blocked') : t('mcp.soon')) : null;
   return (
     <li className={`mcp-card${preset.available ? '' : ' disabled'}`}>
       <div className="mcp-card-top">
@@ -100,6 +100,7 @@ export function PresetCard({
         )}
       </div>
       <p className="mcp-card-desc">{preset.description[locale]}</p>
+      {preset.reason === 'blocked' && <p className="mcp-card-note">{t('mcp.blockedHint')}</p>}
       {preset.status === 'verify' && preset.available && !server && <p className="mcp-card-note">{t('mcp.unverified')}</p>}
       {preset.note && preset.available && !server && <p className="mcp-card-note">{preset.note[locale]}</p>}
     </li>

@@ -109,13 +109,24 @@ export function createMcp(deps: McpDeps) {
     return secrets;
   };
 
+  /** Hizmetlerin ham OAuth/kayıt hatalarını (gerçek denemelerde görülenler) anlaşılır Türkçeye çevirir; teknik ayrıntı sonda kalır. */
+  function friendlyAuthError(raw: string): string {
+    const tail = ` (${raw.slice(0, 140)})`;
+    if (/redirect[_ ]?uri|redirect uris/i.test(raw)) return `Bu hizmet SixFinger’ın yönlendirme adresini kabul etmiyor; yalnızca onayladığı istemcilere izin veriyor.${tail}`;
+    if (/dynamic client registration/i.test(raw)) return `Bu hizmet otomatik istemci kaydını desteklemiyor; sunucu yöneticisinin kendi uygulamasını kaydetmesi gerekir.${tail}`;
+    if (/\b403\b|forbidden/i.test(raw)) return `Hizmet bu istemciyi reddetti (403).${tail}`;
+    if (/scope/i.test(raw)) return `Hizmet istenen izinleri kabul etmedi.${tail}`;
+    return raw;
+  }
+
   // ---------------------------------------------------------------- yönetici istemcileri (static OAuth)
-  const staticClient = (provider: 'google' | 'slack' | 'hubspot' | undefined): { id: string; secret: string } | undefined => {
+  const staticClient = (provider: 'google' | 'slack' | 'hubspot' | 'box' | undefined): { id: string; secret: string } | undefined => {
     const c = config;
     const pick = {
       google: [c.MCP_GOOGLE_CLIENT_ID, c.MCP_GOOGLE_CLIENT_SECRET],
       slack: [c.MCP_SLACK_CLIENT_ID, c.MCP_SLACK_CLIENT_SECRET],
       hubspot: [c.MCP_HUBSPOT_CLIENT_ID, c.MCP_HUBSPOT_CLIENT_SECRET],
+      box: [c.MCP_BOX_CLIENT_ID, c.MCP_BOX_CLIENT_SECRET],
     } as const;
     if (!provider) return undefined;
     const [id, secret] = pick[provider];
@@ -123,9 +134,10 @@ export function createMcp(deps: McpDeps) {
   };
 
   /** Kart bağlanabilir mi? static OAuth kartları yönetici istemcisi yoksa pasiftir (HubSpot: dinamik kayıt denenir). */
-  function presetAvailable(p: McpPreset): { available: boolean; reason: 'soon' | 'admin' | null } {
+  function presetAvailable(p: McpPreset): { available: boolean; reason: 'soon' | 'admin' | 'blocked' | null } {
     if (p.status === 'soon' || p.auth === 'soon') return { available: false, reason: 'soon' };
-    if (p.auth === 'static' && p.provider !== 'hubspot' && !staticClient(p.provider)) return { available: false, reason: 'admin' };
+    if (p.status === 'blocked') return { available: false, reason: 'blocked' };
+    if (p.auth === 'static' && !staticClient(p.provider)) return { available: false, reason: 'admin' };
     return { available: true, reason: null };
   }
 
@@ -263,7 +275,7 @@ export function createMcp(deps: McpDeps) {
     if (input.preset && !preset) throw badRequest('Bilinmeyen hazır bağlayıcı.');
     if (preset) {
       const a = presetAvailable(preset);
-      if (!a.available) throw badRequest(a.reason === 'admin' ? 'Bu bağlayıcı için sunucu yöneticisinin OAuth kaydı gerekiyor.' : 'Bu bağlayıcı henüz kullanılamıyor.');
+      if (!a.available) throw badRequest(a.reason === 'admin' ? 'Bu bağlayıcı için sunucu yöneticisinin OAuth kaydı gerekiyor.' : a.reason === 'blocked' ? 'Bu hizmet SixFinger’ın yönlendirme adresini kabul etmiyor.' : 'Bu bağlayıcı henüz kullanılamıyor.');
     }
     const url = checkUrl(input.url);
     const headers = input.headers && Object.keys(input.headers).length ? input.headers : undefined;
@@ -363,7 +375,7 @@ export function createMcp(deps: McpDeps) {
     try {
       result = await sdkAuth(provider, { serverUrl: row.url, scope: preset?.scopes?.join(' '), fetchFn: fetchImpl });
     } catch (err) {
-      const msg = errText(err);
+      const msg = friendlyAuthError(errText(err));
       await db.query('update mcp_servers set last_error = $2 where id = $1', [id, msg]);
       throw badRequest(`Yetkilendirme başlatılamadı: ${msg}`);
     }
