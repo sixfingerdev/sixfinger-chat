@@ -13,7 +13,7 @@ import {
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { clsx } from '../lib/format.ts';
-import { ACCEPT_ATTR, readTextFile } from '../lib/files.ts';
+import { readTextFile } from '../lib/files.ts';
 import { ensureNotifyPermission } from '../lib/notify.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 import { useT } from '../lib/i18n/index.ts';
@@ -86,6 +86,7 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
     };
   }, [chatId, mention?.query, generating]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** Metin dosyaları mesaja gömülür; ikili ya da büyük dosyalar çalışma alanına yüklenir (`.sixfinger/uploads/`). */
   const addFiles = async (list: FileList) => {
     const ui = useUi.getState();
     const room = maxAttachments - attached.length;
@@ -93,12 +94,25 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
     const next: PendingAttachment[] = [];
     for (const f of Array.from(list).slice(0, room)) {
       const r = await readTextFile(f);
-      if (!r.ok) {
-        ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: f.name }) });
+      if (r.ok && !r.file.truncated) {
+        next.push(r.file);
         continue;
       }
-      if (r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: f.name, n: r.file.text.length }) });
-      next.push(r.file);
+      if (!chatId) continue;
+      if (f.size > 2_000_000) {
+        ui.toast({ kind: 'error', text: t('code.upload.tooBig', { name: f.name }) });
+        continue;
+      }
+      try {
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        const up = await api.codeUpload(chatId, f.name, btoa(bin));
+        next.push({ name: up.name, mime: f.type || 'application/octet-stream', text: `[File uploaded to ${up.path} (${up.bytes} bytes). It lives outside the repository's tracked files; use it from that path.]`, truncated: false });
+      } catch (err) {
+        ui.toast({ kind: 'error', text: t('code.upload.failed', { name: f.name }) });
+        reportError(err);
+      }
     }
     if (next.length) setAttached((cur) => [...cur, ...next]);
   };
@@ -275,7 +289,6 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
                 type="file"
                 hidden
                 multiple
-                accept={ACCEPT_ATTR}
                 onChange={(e) => {
                   if (e.target.files) void addFiles(e.target.files);
                   e.target.value = '';

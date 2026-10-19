@@ -814,7 +814,7 @@ describe('Önizleme, indirme ve yükleme', () => {
     await resetDb(env.ctx);
     const { a, s } = await prepared();
     fc.fs.set('site/index.html', SITE_HTML);
-    fc.fs.set('site/app.js', "import { x } from './lib.js'; console.log(x);\n");
+    fc.fs.set('site/app.js', "import { x } from './lib.js'; import { y } from '/lib2.js'; console.log(x, y);\n");
     fc.fs.set('site/lib.js', 'export const x = 1;\n');
     fc.fs.set('site/style.css', "body{background:url(/img/bg.png)}\n@import '/base.css';\n");
     fc.bin.set('site/img/logo.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 255]));
@@ -847,6 +847,7 @@ describe('Önizleme, indirme ve yükleme', () => {
     const js = await pub(`${prefix}/app.js`);
     expect(js.headers['content-type']).toContain('text/javascript');
     expect(js.body).toContain("from './lib.js'");
+    expect(js.body).toContain(`from '${prefix}/lib2.js'`); // köke göre modül içe aktarması önizleme köküne çevrilir
     const css = await pub(`${prefix}/style.css`);
     expect(css.body).toContain(`url(${prefix}/img/bg.png)`);
     expect(css.body).toContain(`@import '${prefix}/base.css'`);

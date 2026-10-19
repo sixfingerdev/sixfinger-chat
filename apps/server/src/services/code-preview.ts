@@ -130,7 +130,7 @@ export function createCodePreview(deps: { codeGit: CodeGit; secrets: SecretBox |
       throw err;
     }
     const type = mimeOf(path);
-    return { status: 200, headers: { 'content-type': type }, body: rewriteBody(type, data, r.prefix, false) };
+    return { status: 200, headers: { 'content-type': type }, body: rewriteBody(type, data, r.prefix, true) };
   }
 
   function rewriteBody(type: string, data: Buffer, prefix: string, js: boolean): Buffer {

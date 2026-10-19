@@ -29,6 +29,7 @@ import { clsx, compactNumber } from '../lib/format.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 import { diffLines, toBlocks, type ToolPart } from '../lib/code-blocks.ts';
 import { Delta, Sheet } from './CodeSheets.tsx';
+import { PreviewRow, ShareFileRow } from './CodePreview.tsx';
 import { LogoMark } from './Logo.tsx';
 import { ReasoningBlock } from './ReasoningBlock.tsx';
 import { RichText } from './RichText.tsx';
@@ -581,6 +582,10 @@ export const CodeMessage = memo(function CodeMessage({ msg, streaming, actions, 
               return <PlanCard key={b.part.id} part={b.part} actions={actions} />;
             case 'task':
               return <TaskRow key={b.part.id} part={b.part} />;
+            case 'preview':
+              return <PreviewRow key={b.part.id} part={b.part} chatId={msg.chatId} />;
+            case 'share':
+              return <ShareFileRow key={b.part.id} part={b.part} chatId={msg.chatId} />;
             default:
               return <GenericTool key={b.part.id} part={b.part} />;
           }

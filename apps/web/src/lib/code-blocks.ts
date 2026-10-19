@@ -18,6 +18,8 @@ export type Block =
   | { kind: 'question'; part: ToolPart }
   | { kind: 'plan'; part: ToolPart }
   | { kind: 'task'; part: ToolPart }
+  | { kind: 'preview'; part: ToolPart }
+  | { kind: 'share'; part: ToolPart }
   | { kind: 'tool'; part: ToolPart };
 
 /** Parçaları görünüm bloklarına çevirir: ardışık komut/okuma/arama parçaları tek satırda toplanır, yalnızca son todo listesi gösterilir. */
@@ -41,6 +43,8 @@ export function toBlocks(parts: MessagePartDTO[]): Block[] {
     else if (p.name === 'ask_user') out.push({ kind: 'question', part: p });
     else if (p.name === 'exit_plan_mode') out.push({ kind: 'plan', part: p });
     else if (p.name === 'task') out.push({ kind: 'task', part: p });
+    else if (p.name === 'preview') out.push({ kind: 'preview', part: p });
+    else if (p.name === 'share_file') out.push({ kind: 'share', part: p });
     else out.push({ kind: 'tool', part: p });
   });
   return out;

@@ -5,6 +5,8 @@ import type {
   CodeChangesDTO,
   CodeDiffDTO,
   CodeEnvironmentDTO,
+  CodePreviewDTO,
+  CodeUploadDTO,
   CodePullDTO,
   CodeSessionDTO,
   SlashCommand,
@@ -333,6 +335,15 @@ export const api = {
     const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'workspace.tar.gz';
     return { blob: await res.blob(), filename: name };
   },
+  /** Önizleme bağlantısı (kısa ömürlü token'lı). `url` sunucu köküne göredir; iframe için `getApiBase()` ile birleştirilir. */
+  codePreview: (id: string, body: { path?: string; port?: number; root?: string }) => request<CodePreviewDTO>('POST', `/code/sessions/${id}/preview`, body),
+  /** Tek dosyayı ham bayt olarak indirir. */
+  async codeDownload(id: string, path: string): Promise<{ blob: Blob; filename: string }> {
+    const res = await send('GET', `/code/sessions/${id}/download`, undefined, { query: { path } });
+    if (!res.ok) throw await parseError(res);
+    return { blob: await res.blob(), filename: path.split('/').pop() ?? 'file' };
+  },
+  codeUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/code/sessions/${id}/upload`, { name, dataBase64 }),
   codeRewind: (id: string, messageId: string) => request<{ sha: string; session: CodeSessionDTO }>('POST', `/code/sessions/${id}/rewind`, { messageId }),
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
   /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */

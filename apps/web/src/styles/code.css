@@ -1789,3 +1789,64 @@ a.code-row.pr-link {
   color: var(--text-3);
   font-size: 13px;
 }
+
+/* Önizleme ve dosya paylaşımı */
+.code-row-act {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.modal.preview-modal {
+  width: min(980px, 96vw);
+  max-width: 96vw;
+}
+.preview-modal .sheet-body {
+  display: grid;
+  gap: 10px;
+}
+.preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.preview-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.preview-frame {
+  width: 100%;
+  height: min(72vh, 760px);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: #fff;
+}
+.preview-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 4px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.preview-state.error {
+  color: var(--danger);
+}
+.file-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.file-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.file-row-wrap .file-row {
+  flex: 1;
+  min-width: 0;
+}

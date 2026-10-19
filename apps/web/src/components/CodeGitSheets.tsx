@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronLeft, CircleAlert, Download, File, Folder, Loader } from 'lucide-react';
+import { ChevronLeft, CircleAlert, Download, File, Folder, Loader, Monitor } from 'lucide-react';
 import { listDir, parentDirs, type CodeDiffDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
@@ -7,6 +7,7 @@ import { downloadBlob } from '../lib/format.ts';
 import { useT } from '../lib/i18n/index.ts';
 import { DiffView } from './DiffView.tsx';
 import { Modal } from './Modal.tsx';
+import { PreviewSheet, type PreviewSpec } from './CodePreview.tsx';
 
 /** Tüm farkı ya da tek dosyanın farkını gösteren geniş pencere. */
 export function DiffSheet({ chatId, path, onClose }: { chatId: string; path?: string; onClose: () => void }) {
@@ -85,6 +86,16 @@ export function FilesSheet({ chatId, onClose }: { chatId: string; onClose: () =>
     }
   };
 
+  const [previewing, setPreviewing] = useState<PreviewSpec | null>(null);
+  const downloadFile = async (path: string) => {
+    try {
+      const { blob, filename } = await api.codeDownload(chatId, path);
+      downloadBlob(filename, blob);
+    } catch (err) {
+      reportError(err);
+    }
+  };
+
   const download = async () => {
     setBusy(true);
     try {
@@ -136,9 +147,12 @@ export function FilesSheet({ chatId, onClose }: { chatId: string; onClose: () =>
               </li>
             ))}
             {view.files.map((f) => (
-              <li key={f}>
+              <li key={f} className="file-row-wrap">
                 <button className="file-row" disabled={loading} onClick={() => void show(dir ? `${dir}/${f}` : f)}>
                   <File size={15} /> {f}
+                </button>
+                <button className="icon-btn sm" aria-label={t('code.share.download')} title={t('code.share.download')} onClick={() => void downloadFile(dir ? `${dir}/${f}` : f)}>
+                  <Download size={14} />
                 </button>
               </li>
             ))}
@@ -148,6 +162,16 @@ export function FilesSheet({ chatId, onClose }: { chatId: string; onClose: () =>
         {truncated && !open && <p className="muted">{t('code.files.listTruncated')}</p>}
         {open && (
           <>
+            <div className="file-actions">
+              <button className="btn btn-ghost btn-sm" onClick={() => void downloadFile(open.path)}>
+                <Download size={14} /> {t('code.share.download')}
+              </button>
+              {/\.html?$/i.test(open.path) && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setPreviewing({ path: open.path })}>
+                  <Monitor size={14} /> {t('code.files.preview')}
+                </button>
+              )}
+            </div>
             <pre className="file-view">
               {open.content.split('\n').map((l, i) => (
                 <span key={i} className="file-line">
@@ -160,6 +184,7 @@ export function FilesSheet({ chatId, onClose }: { chatId: string; onClose: () =>
           </>
         )}
       </div>
+      {previewing && <PreviewSheet chatId={chatId} spec={previewing} onClose={() => setPreviewing(null)} />}
     </Modal>
   );
 }
