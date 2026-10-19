@@ -146,7 +146,10 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
       } else if (cmd.template) content = expandTemplate(cmd.template, slash.args);
     }
     if (useChats.getState().generating[chatId]) {
-      useCode.getState().enqueue(chatId, { text: content, plan: usePlan, attachments: atts });
+      void useCode
+        .getState()
+        .enqueue(chatId, { text: content, plan: usePlan, attachments: atts })
+        .then((started) => started && void useChats.getState().openChat(chatId, true));
       return;
     }
     void useChats.getState().send({ content, chatId, planMode: usePlan, attachments: atts });
@@ -164,11 +167,23 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
     void dispatch(content, plan, atts);
   };
 
-  // Tur bitince kuyruktaki ilk mesaj gönderilir.
+  // Kuyruk SUNUCUDA: oturum açılınca yüklenir; tur bitince sıradakini sunucu başlatır. Beklerken sunucuyu yoklarız:
+  // kuyruk kısaldıysa sunucu yeni bir tur başlatmıştır, ona bağlanırız.
   useEffect(() => {
-    if (generating || !chatId) return;
-    const next = useCode.getState().takeQueued(chatId);
-    if (next) void useChats.getState().send({ content: next.text, chatId, planMode: next.plan, attachments: next.attachments });
+    if (chatId) void useCode.getState().loadQueue(chatId);
+  }, [chatId]);
+  useEffect(() => {
+    if (generating || !chatId || queue.length === 0) return;
+    let busy = false;
+    const id = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      const before = useCode.getState().queue[chatId]?.length ?? 0;
+      await useCode.getState().loadQueue(chatId);
+      if ((useCode.getState().queue[chatId]?.length ?? 0) < before) await useChats.getState().openChat(chatId, true);
+      busy = false;
+    }, 1_500);
+    return () => clearInterval(id);
   }, [generating, chatId, queue.length]);
 
   const pickCommand = (c: SlashCommand) => {
@@ -214,14 +229,14 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
         )}
         {queue.length > 0 && (
           <ul className="queue-list" aria-label={t('code.queue.title')}>
-            {queue.map((q, i) => (
-              <li key={i}>
+            {queue.map((q) => (
+              <li key={q.id}>
                 <span className="queue-tag">{t('code.queue.title')}</span>
                 <span className="queue-text">
-                  {!!q.attachments?.length && <Paperclip size={12} style={{ marginRight: 4, verticalAlign: -1 }} />}
+                  {q.attachments.length > 0 && <Paperclip size={12} style={{ marginRight: 4, verticalAlign: -1 }} />}
                   {q.text}
                 </span>
-                <button className="icon-btn sm" aria-label={t('code.queue.remove')} onClick={() => chatId && useCode.getState().removeQueued(chatId, i)}>
+                <button className="icon-btn sm" aria-label={t('code.queue.remove')} onClick={() => chatId && useCode.getState().removeQueued(chatId, q.id)}>
                   <X size={14} />
                 </button>
               </li>

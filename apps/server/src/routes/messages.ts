@@ -7,6 +7,7 @@ import {
   regenerateSchema,
   sendMessageSchema,
   type ChatMode,
+  type CodeQueueItemDTO,
   type MessageDTO,
   type MessagePartDTO,
   type StreamEvent,
@@ -153,6 +154,89 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     });
   }
 
+  interface TurnBody {
+    content: string;
+    attachments?: Array<{ name: string; mime: string; text: string }>;
+    parentId?: string | null;
+  }
+  interface BegunTurn {
+    userRow: MessageRow;
+    assistantId: string;
+    history: HistoryItem[];
+    isFirstExchange: boolean;
+  }
+
+  /** Mesaj uzunluğu ve ek sınırları (istek ve kuyruğa ekleme ortak). */
+  function assertTurnBody(user: AuthUser, body: TurnBody) {
+    if (body.content.length > user.limits.maxMessageChars) {
+      throw badRequest(`Mesaj en fazla ${user.limits.maxMessageChars} karakter olabilir.`);
+    }
+    const attachments = body.attachments ?? [];
+    if (attachments.length) {
+      if (!user.limits.features.attachments) throw tierRestricted('Dosya eklemek için e-postanı doğrulamış bir hesap gerekir.');
+      if (attachments.length > user.limits.maxAttachments) {
+        throw badRequest(`En fazla ${user.limits.maxAttachments} dosya eklenebilir.`);
+      }
+      if (attachments.some((a) => a.text.length > ATTACHMENT_MAX_CHARS)) throw badRequest('Dosya çok büyük.');
+    }
+  }
+
+  /** Kullanıcı mesajını ve boş asistan yanıtını yazar, modele gidecek geçmişi hazırlar (doğrulamalar dahil). Hem istek hem sunucu kuyruğu kullanır. */
+  async function beginTurn(chat: ChatRow, user: AuthUser, body: TurnBody, ip: string | null): Promise<BegunTurn> {
+    const isCode = chat.kind === 'code';
+    assertTurnBody(user, body);
+    const attachments = body.attachments ?? [];
+
+    // Yeni mesajın ebeveyni: açıkça verilmişse o, yoksa sohbetin ucu.
+    const parentId = body.parentId === undefined ? chat.leaf_id : body.parentId;
+    if (parentId) {
+      const p = await db.query<{ role: string }>('select role from messages where id = $1 and chat_id = $2', [
+        parentId,
+        chat.id,
+      ]);
+      if (!p.rows[0]) throw badRequest('Üst mesaj bulunamadı.');
+      if (p.rows[0].role !== 'assistant') throw badRequest('Bir kullanıcı mesajının altına mesaj eklenemez.');
+    }
+
+    await assertCanStart(chat.id, user);
+    // Code kendi kredisini kullanır; sohbet günlük mesaj hakkından düşmez.
+    if (!isCode) await usage.consume(user.id, user.tier, user.isGuest ? ip : null);
+
+    let userRow: MessageRow, assistantId: string;
+    let isFirstExchange = false;
+    try {
+      const count = await db.query<{ n: number }>('select count(*)::int as n from messages where chat_id = $1', [chat.id]);
+      isFirstExchange = (count.rows[0]?.n ?? 0) === 0;
+      const u = await db.query<MessageRow>(
+        `insert into messages (chat_id, parent_id, role, content, attachments)
+         values ($1, $2, 'user', $3, $4) returning ${MESSAGE_COLUMNS}`,
+        [chat.id, parentId, body.content, JSON.stringify(attachments)],
+      );
+      userRow = u.rows[0]!;
+      const a = await db.query<{ id: string }>(
+        `insert into messages (chat_id, parent_id, role, status, model)
+         values ($1, $2, 'assistant', 'streaming', $3) returning id`,
+        [chat.id, userRow.id, MODEL_ID],
+      );
+      assistantId = a.rows[0]!.id;
+      await db.query(`update chats set leaf_id = $2, last_message_at = now(), updated_at = now() where id = $1`, [
+        chat.id,
+        assistantId,
+      ]);
+    } catch (err) {
+      if (!isCode) await usage.refund(user.id, user.isGuest ? ip : null).catch(() => {});
+      throw err;
+    }
+
+    const path = await getPath(db, userRow.id);
+    const history = path.map((m) => ({
+      role: m.role,
+      content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
+      parts: m.role === 'assistant' ? m.parts : undefined,
+    }));
+    return { userRow, assistantId, history, isFirstExchange };
+  }
+
   /** Üretimi başlatır, istek sahibini ona bağlar ve beklemeden döner; üretim arka planda sürer. */
   function generate(req: FastifyRequest, reply: FastifyReply, g: GenerationInput) {
     const run = runs.start(g.chat.id, g.user.id, g.assistantId);
@@ -176,9 +260,9 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
   }
 
   /** Code oturumunda üretimi başlatır (ajan döngüsü); arka planda sürer, istemci kopsa da bitmez. */
-  function generateCode(reply: FastifyReply, g: CodeRunInput) {
+  function generateCode(reply: FastifyReply | null, g: CodeRunInput) {
     const run = runs.start(g.chat.id, g.user.id, g.assistantId);
-    attach(reply, run, false);
+    if (reply) attach(reply, run, false);
     // Code çalıştırmasında süre ya da adım sınırı yoktur: frenler döngü kırıcı, kredi, bağlam doluluğu ve kullanıcının Durdur'udur.
     void (async () => {
       try {
@@ -191,8 +275,76 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       } finally {
         run.finish();
         runs.remove(run);
+        void continueQueue(g.chat.id, g.user, g.assistantId);
       }
     })();
+  }
+
+  // --- Sunucu tarafı mesaj kuyruğu (Code) ---
+  const QUEUE_MAX = 20;
+  const draining = new Set<string>();
+
+  interface QueueRow {
+    id: string;
+    content: string;
+    plan_mode: boolean;
+    attachments: Array<{ name: string; mime: string; text: string }>;
+    created_at: Date;
+  }
+  const queueDto = (r: QueueRow): CodeQueueItemDTO => ({ id: r.id, text: r.content, plan: r.plan_mode, attachments: (r.attachments ?? []).map((a) => a.name) });
+  const listQueue = async (chatId: string) =>
+    (await db.query<QueueRow>('select id, content, plan_mode, attachments, created_at from code_queue where chat_id = $1 order by created_at, id', [chatId])).rows.map(queueDto);
+
+  /** Tur normal bitti ya da kullanıcı durdurdu: sıradaki mesajı sunucu kendisi başlatır (istemci açık olmasa da). Hata ile biten turdan sonra beklemez. */
+  async function continueQueue(chatId: string, user: AuthUser, assistantId: string) {
+    try {
+      const st = await db.query<{ status: string }>('select status from messages where id = $1', [assistantId]);
+      if (st.rows[0]?.status === 'complete' || st.rows[0]?.status === 'stopped') await drainCodeQueue(chatId, user);
+    } catch (err) {
+      log.warn({ err }, 'Code kuyruğu devam ettirilemedi');
+    }
+  }
+
+  /** Kuyruğun başındaki mesajı başlatır. Başlattıysa true. Şu an çalışma varsa ya da başlatılamazsa mesaj sırada kalır. */
+  async function drainCodeQueue(chatId: string, user: AuthUser): Promise<boolean> {
+    if (draining.has(chatId) || runs.forChat(chatId) || !code.isAllowed(user)) return false;
+    draining.add(chatId);
+    try {
+      const chat = await getOwnedChat(db, chatId, user.id);
+      if (!chat || chat.kind !== 'code') return false;
+      const claimed = await db.query<QueueRow>(
+        `delete from code_queue where id = (select id from code_queue where chat_id = $1 order by created_at, id limit 1 for update skip locked)
+         returning id, content, plan_mode, attachments, created_at`,
+        [chatId],
+      );
+      const item = claimed.rows[0];
+      if (!item) return false;
+      try {
+        const turn = await beginTurn(chat, user, { content: item.content, attachments: item.attachments }, null);
+        generateCode(null, {
+          chat,
+          user,
+          userMessage: toMessageDTO(turn.userRow),
+          assistantId: turn.assistantId,
+          history: turn.history,
+          userText: item.content,
+          isFirstExchange: turn.isFirstExchange,
+          planMode: item.plan_mode,
+        });
+        return true;
+      } catch (err) {
+        // Başlatılamadı (ör. eşzamanlı çalışma sınırı): mesajı yerine geri koy, kaybolmasın.
+        log.warn({ err }, 'sıradaki Code mesajı başlatılamadı, kuyruğa geri konuldu');
+        await db
+          .query('insert into code_queue (id, chat_id, user_id, content, plan_mode, attachments, created_at) values ($1, $2, $3, $4, $5, $6, $7)', [
+            item.id, chatId, user.id, item.content, item.plan_mode, JSON.stringify(item.attachments ?? []), item.created_at,
+          ])
+          .catch(() => {});
+        return false;
+      }
+    } finally {
+      draining.delete(chatId);
+    }
   }
 
   async function runGeneration(ip: string, run: Run, g: GenerationInput) {
@@ -475,65 +627,8 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           if (!code.isAllowed(user)) throw forbidden('Code için erişimin yok.');
         }
 
-        if (body.content.length > user.limits.maxMessageChars) {
-          throw badRequest(`Mesaj en fazla ${user.limits.maxMessageChars} karakter olabilir.`);
-        }
-        const attachments = body.attachments ?? [];
-        if (attachments.length) {
-          if (!user.limits.features.attachments) throw tierRestricted('Dosya eklemek için e-postanı doğrulamış bir hesap gerekir.');
-          if (attachments.length > user.limits.maxAttachments) {
-            throw badRequest(`En fazla ${user.limits.maxAttachments} dosya eklenebilir.`);
-          }
-          if (attachments.some((a) => a.text.length > ATTACHMENT_MAX_CHARS)) throw badRequest('Dosya çok büyük.');
-        }
-
-        // Yeni mesajın ebeveyni: açıkça verilmişse o, yoksa sohbetin ucu.
-        const parentId = body.parentId === undefined ? chat.leaf_id : body.parentId;
-        if (parentId) {
-          const p = await db.query<{ role: string }>('select role from messages where id = $1 and chat_id = $2', [
-            parentId,
-            chat.id,
-          ]);
-          if (!p.rows[0]) throw badRequest('Üst mesaj bulunamadı.');
-          if (p.rows[0].role !== 'assistant') throw badRequest('Bir kullanıcı mesajının altına mesaj eklenemez.');
-        }
-
-        await assertCanStart(chat.id, user);
-        // Code kendi kredisini kullanır; sohbet günlük mesaj hakkından düşmez.
-        if (!isCode) await usage.consume(user.id, user.tier, user.isGuest ? req.ip : null);
-
-        let userRow: MessageRow, assistantId: string;
-        let isFirstExchange = false;
-        try {
-          const count = await db.query<{ n: number }>('select count(*)::int as n from messages where chat_id = $1', [chat.id]);
-          isFirstExchange = (count.rows[0]?.n ?? 0) === 0;
-          const u = await db.query<MessageRow>(
-            `insert into messages (chat_id, parent_id, role, content, attachments)
-             values ($1, $2, 'user', $3, $4) returning ${MESSAGE_COLUMNS}`,
-            [chat.id, parentId, body.content, JSON.stringify(attachments)],
-          );
-          userRow = u.rows[0]!;
-          const a = await db.query<{ id: string }>(
-            `insert into messages (chat_id, parent_id, role, status, model)
-             values ($1, $2, 'assistant', 'streaming', $3) returning id`,
-            [chat.id, userRow.id, MODEL_ID],
-          );
-          assistantId = a.rows[0]!.id;
-          await db.query(`update chats set leaf_id = $2, last_message_at = now(), updated_at = now() where id = $1`, [
-            chat.id,
-            assistantId,
-          ]);
-        } catch (err) {
-          if (!isCode) await usage.refund(user.id, user.isGuest ? req.ip : null).catch(() => {});
-          throw err;
-        }
-
-        const path = await getPath(db, userRow.id);
-        const history = path.map((m) => ({
-          role: m.role,
-          content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
-          parts: m.role === 'assistant' ? m.parts : undefined,
-        }));
+        const turn = await beginTurn(chat, user, body, req.ip);
+        const { userRow, assistantId, history, isFirstExchange } = turn;
         if (isCode) {
           return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange, planMode: body.planMode === true });
         }
@@ -549,6 +644,48 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         });
       },
     );
+
+    // --- Code: sunucu tarafı mesaj kuyruğu ---
+    const codeChatOf = async (req: FastifyRequest<{ Params: { id: string } }>) => {
+      const chat = await getOwnedChat(db, req.params.id, req.user!.id);
+      if (!chat || chat.kind !== 'code') throw notFound('Code oturumu bulunamadı.');
+      if (!code.isAllowed(req.user!)) throw forbidden('Code için erişimin yok.');
+      return chat;
+    };
+
+    app.get<{ Params: { id: string } }>('/chats/:id/queue', async (req) => {
+      const chat = await codeChatOf(req);
+      return { queue: await listQueue(chat.id) };
+    });
+
+    app.post<{ Params: { id: string } }>(
+      '/chats/:id/queue',
+      { config: { rateLimit: { max: 40, timeWindow: '1 minute' } } },
+      async (req, reply) => {
+        const user = req.user!;
+        const body = parse(sendMessageSchema, req.body);
+        const chat = await codeChatOf(req);
+        assertTurnBody(user, body);
+        const n = await db.query<{ n: number }>('select count(*)::int as n from code_queue where chat_id = $1', [chat.id]);
+        if ((n.rows[0]?.n ?? 0) >= QUEUE_MAX) throw badRequest(`Sırada en fazla ${QUEUE_MAX} mesaj bekleyebilir.`);
+        await db.query('insert into code_queue (chat_id, user_id, content, plan_mode, attachments) values ($1, $2, $3, $4, $5)', [
+          chat.id,
+          user.id,
+          body.content,
+          body.planMode === true,
+          JSON.stringify(body.attachments ?? []),
+        ]);
+        // O sırada çalışma yoksa (tur az önce bitti) sıradaki hemen başlar.
+        const started = runs.forChat(chat.id) ? false : await drainCodeQueue(chat.id, user);
+        return reply.code(201).send({ queue: await listQueue(chat.id), started });
+      },
+    );
+
+    app.delete<{ Params: { id: string; qid: string } }>('/chats/:id/queue/:qid', async (req, reply) => {
+      const chat = await codeChatOf(req);
+      await db.query('delete from code_queue where id = $1 and chat_id = $2', [req.params.qid, chat.id]).catch(() => {});
+      return reply.code(204).send();
+    });
 
     // --- Yeniden üret (SSE) ---
     app.post<{ Params: { id: string } }>(
