@@ -36,7 +36,7 @@ interface ChatsState {
   /** Sohbet kimliği → o sohbette süren üretim. Her sohbet bağımsızdır: birinde üretim sürerken diğerine mesaj gönderilebilir. */
   generating: Record<string, Generating>;
   /** Code: sohbet kimliği → çalışmanın evresi (sırada / hazırlanıyor / çalışıyor / commit). Üretim bitince silinir. */
-  codeRun: Record<string, { phase: 'queued' | 'preparing' | 'working' | 'committing'; position?: number }>;
+  codeRun: Record<string, { phase: 'queued' | 'preparing' | 'working' | 'committing' | 'publishing'; position?: number }>;
   draftPersona: string | null;
 
   reset: () => void;

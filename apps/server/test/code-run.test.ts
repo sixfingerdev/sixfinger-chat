@@ -21,10 +21,12 @@ async function boot(over: Record<string, unknown> = {}, files: Record<string, st
 }
 
 /** Doğrulanmış, izinli, GitHub'a bağlı bir kullanıcı ve bir Code oturumu. */
-async function prepared(email = 'coder@example.com') {
+async function prepared(email = 'coder@example.com', autoPr = false) {
   const a = await member(env, { email });
   await env.ctx.code.saveConnection(a.user.id, { id: 42, login: 'octo', avatarUrl: '' }, 'gho_testtoken', 'repo');
   const s = await env.ctx.code.createSession(a.user.id, { repo: 'octo/alpha', baseBranch: 'main' });
+  // Çoğu test PR akışından bağımsızdır: ortamda otomatik PR kapalı başlar (PR testleri açar).
+  await env.ctx.db.query('update code_environments set auto_pr = $2 where user_id = $1', [a.user.id, autoPr]);
   return { a, s };
 }
 
@@ -323,8 +325,8 @@ describe('Code ajan döngüsü: hata, durdurma, kuyruk', () => {
     expect(r.events.some((e) => e.type === 'done')).toBe(true);
   });
 
-  it('kullanıcı durdurursa tur "stopped" olur, çalışma alanındaki iş yine commit edilir', async () => {
-    const { a, s } = await prepared();
+  it('kullanıcı durdurursa tur "stopped" olur, çalışma alanındaki iş yine commit edilir (otomatik PR açıksa bile itilmez)', async () => {
+    const { a, s } = await prepared('coder@example.com', true);
     fc.state.delayMs = 120;
     env.ai.delayMs = 60;
     env.ai.steps = [[call('c1', 'write', { path: 'w.txt', content: 'w\n' })], [call('c2', 'bash', { command: 'sleep 5' })], text('asla')];
@@ -336,6 +338,8 @@ describe('Code ajan döngüsü: hata, durdurma, kuyruk', () => {
     expect(r.events.find((e) => e.type === 'done')).toMatchObject({ type: 'done', assistantMessage: { status: 'stopped' } });
     expect(fc.fs.get('w.txt')).toBe('w\n');
     expect(fc.state.commits).toHaveLength(1);
+    expect(fc.state.pushes).toHaveLength(0);
+    expect(of(r.events, 'tool_end').some((e) => e.id.startsWith('pr-'))).toBe(false);
     expect((await env.ctx.code.getSession(a.user.id, s.chatId))!.status).toBe('idle');
   });
 
@@ -429,10 +433,10 @@ describe('Değişiklik listesi', () => {
   });
 });
 
-describe('GitHub: PR taslağı, push, PR açma, fark', () => {
+describe('GitHub: ajanın PR akışı, push, fark', () => {
   const calls: Array<{ method: string; url: string; body: string }> = [];
   let existing = false;
-  async function bootGit() {
+  async function bootGit(firstTurn = true, autoPr = false) {
     calls.length = 0;
     existing = false;
     fc = fakeCode({ 'app.js': 'console.log(1);\n' });
@@ -457,62 +461,94 @@ describe('GitHub: PR taslağı, push, PR açma, fark', () => {
       if (c.includes('git diff --cached --no-color')) return { stdout: 'diff --git a/a.js b/a.js\nnew file mode 100644\n--- /dev/null\n+++ b/a.js\n@@ -0,0 +1,2 @@\n+x\n+y\n' };
       return {};
     };
-    const { a, s } = await prepared();
-    env.ai.steps = [[call('c1', 'write', { path: 'a.js', content: 'x\ny\n' })], text('Tamam.')];
-    await send(a, s.chatId, 'a.js ekle');
+    const { a, s } = await prepared('coder@example.com', autoPr);
+    if (firstTurn) {
+      env.ai.steps = [[call('c1', 'write', { path: 'a.js', content: 'x\ny\n' })], text('Tamam.')];
+      await send(a, s.chatId, 'a.js ekle');
+    }
     return { a, s };
   }
   const get = (a: Awaited<ReturnType<typeof member>>, url: string) => env.app.inject({ method: 'GET', url: `/api${url}`, headers: auth(a) });
   const post = (a: Awaited<ReturnType<typeof member>>, url: string, payload: object = {}) => env.app.inject({ method: 'POST', url: `/api${url}`, headers: auth(a), payload });
 
-  it('taslak: model başlık/gövde yazar, footer eklenir; PR açmak önce push eder; iş bitince needsPush kapanır', async () => {
+  it('manuel yeniden deneme (POST /pr): model başlık/açıklama yazar, push eder, PR açar; ikinci çağrıda yalnızca push (PR kalır)', async () => {
     const { a, s } = await bootGit();
     env.ai.completeText = 'Boş şifreyi reddet\n\n## Summary\n- a.js eklendi';
-    const d = (await get(a, `/code/sessions/${s.chatId}/pr-draft`)).json().draft;
-    expect(d).toMatchObject({ title: 'Boş şifreyi reddet', commits: 1, needsPush: true, base: 'main', head: s.workBranch });
-    expect(d.body).toContain('## Summary');
-    expect(d.body).toContain('Created with SixFinger Code');
-    expect(d.body).not.toContain('/code/s/'); // oturum bağlantısı varsayılan kapalı
-
-    expect(fc.state.pushes).toHaveLength(0); // taslak hiçbir şey itmez
-    const r = await post(a, `/code/sessions/${s.chatId}/pr`, { title: 'Boş şifreyi reddet', body: d.body, draft: true });
+    expect(fc.state.pushes).toHaveLength(0);
+    const r = await post(a, `/code/sessions/${s.chatId}/pr`);
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toMatchObject({ existed: false, pull: { number: 7, draft: true, url: 'https://github.com/octo/alpha/pull/7' } });
+    expect(r.json()).toMatchObject({ created: true, existed: false, pull: { number: 7, url: 'https://github.com/octo/alpha/pull/7' } });
     expect(fc.state.pushes).toEqual([{ token: 'gho_testtoken', sha: expect.stringMatching(/^c+1$/) }]);
     const prCall = calls.find((c) => c.method === 'POST' && c.url.endsWith('/pulls'))!;
-    expect(JSON.parse(prCall.body)).toMatchObject({ head: s.workBranch, base: 'main', draft: true, title: 'Boş şifreyi reddet' });
+    const sent = JSON.parse(prCall.body);
+    expect(sent).toMatchObject({ head: s.workBranch, base: 'main', draft: false, title: 'Boş şifreyi reddet' });
+    expect(sent.body).toContain('## Summary');
+    expect(sent.body).toContain('Created with SixFinger Code');
+    expect(sent.body).not.toContain('/code/s/'); // oturum bağlantısı varsayılan kapalı
 
     const sess = (await get(a, `/code/sessions/${s.chatId}`)).json().session;
+    expect(sess).toMatchObject({ prNumber: 7, prUrl: 'https://github.com/octo/alpha/pull/7' });
     expect(sess.pushedSha).toBe(sess.headSha);
-    expect((await get(a, `/code/sessions/${s.chatId}/pr-draft`)).json().draft.needsPush).toBe(false);
+
+    const again = await post(a, `/code/sessions/${s.chatId}/pr`);
+    expect(again.json()).toMatchObject({ created: false, pull: null });
+    expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/pulls'))).toHaveLength(1);
+    expect(fc.state.pushes).toHaveLength(2);
   });
 
-  it('PR zaten açıksa onu döndürür; model çalışmazsa commit başlığıyla taslak; yalnızca push', async () => {
-    const { a, s } = await bootGit();
-    existing = true;
-    const r = await post(a, `/code/sessions/${s.chatId}/pr`, { title: 'x', body: '' });
-    expect(r.json()).toMatchObject({ existed: true, pull: { number: 3, title: 'Var olan' } });
+  it('tur sonunda ajan kendisi açar: ilk turda push + PR (pull_request parçası), sonraki turda aynı PR güncellenir', async () => {
+    const { a, s } = await bootGit(false, true); // ilk tur: henüz hiç commit yok
+    env.ai.completeText = 'Dosya ekle\n\n## Summary\n- x';
+    env.ai.steps = [[call('p1', 'write', { path: 'b.js', content: 'b\n' })], text('b.js eklendi, tamam.')];
+    const r = await send(a, s.chatId, 'b.js ekle');
+    expect(of(r.events, 'phase').map((p) => p.phase)).toEqual(['queued', 'preparing', 'working', 'committing', 'publishing']);
+    const prEnd = of(r.events, 'tool_end').find((e) => e.id.startsWith('pr-'))!;
+    expect(prEnd).toMatchObject({ status: 'done', summary: '#7', output: 'https://github.com/octo/alpha/pull/7', meta: { number: 7, created: true } });
+    const last = lastAssistant(await detail(a, s.chatId));
+    expect((last.parts as Array<Record<string, any>>).find((p) => p.name === 'pull_request')).toMatchObject({ status: 'done', meta: { number: 7 } });
+    expect(fc.state.pushes).toHaveLength(1);
+    // model, ajanın son raporunu görerek PR'ı yazdı
+    expect(env.ai.calls.some((c) => c.messages.some((m) => typeof m.content === 'string' && m.content.includes("The agent's final report") && m.content.includes('b.js eklendi, tamam.')))).toBe(true);
+    // PR modelin başlığıyla, gövdesi footer'lı
+    const sent = JSON.parse(calls.find((c) => c.method === 'POST' && c.url.endsWith('/pulls'))!.body);
+    expect(sent.title).toBe('Dosya ekle');
 
-    env.ai.complete = async () => {
-      throw new Error('model yok');
-    };
-    const d = (await get(a, `/code/sessions/${s.chatId}/pr-draft`)).json().draft;
-    expect(d.title).toBe('feat: a.js ekle');
-    expect(d.body).toContain('- feat: a.js ekle');
-
-    const before = fc.state.pushes.length;
-    const p = await post(a, `/code/sessions/${s.chatId}/push`);
-    expect(p.statusCode).toBe(200);
-    expect(fc.state.pushes).toHaveLength(before + 1);
-
-    // sandboxd yeniden başlamışsa çalışma alanı otomatik hazırlanıp push yeniden denenir
-    fc.state.needPrepare = true;
-    const prepares = fc.state.prepares.length;
-    expect((await post(a, `/code/sessions/${s.chatId}/push`)).statusCode).toBe(200);
-    expect(fc.state.prepares).toHaveLength(prepares + 1);
+    // ikinci tur: yeni commit itilir, PR yeniden açılmaz
+    env.ai.steps = [[call('p2', 'write', { path: 'c.js', content: 'c\n' })], text('c.js eklendi.')];
+    const r2 = await send(a, s.chatId, 'c.js ekle');
+    const end2 = of(r2.events, 'tool_end').find((e) => e.id.startsWith('pr-'))!;
+    expect(end2).toMatchObject({ status: 'done', summary: 'updated' });
+    expect(fc.state.pushes).toHaveLength(2);
+    expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/pulls'))).toHaveLength(1);
   });
 
-  it('hatalar: push başarısızsa 502 ve neden; GitHub yoksa 409; başkasının oturumu 404; çalışırken 409', async () => {
+  it('otomatik PR: kapalıysa, tur durdurulduysa ya da değişiklik yoksa hiçbir şey itilmez; push hatası turu bozmaz', async () => {
+    const { a, s } = await bootGit(); // autoPr kapalı
+    env.ai.steps = [[call('q1', 'write', { path: 'd.js', content: 'd\n' })], text('bitti')];
+    const off = await send(a, s.chatId, 'd.js ekle');
+    expect(of(off.events, 'tool_end').some((e) => e.id.startsWith('pr-'))).toBe(false);
+    expect(fc.state.pushes).toHaveLength(0);
+
+    await env.ctx.db.query('update code_environments set auto_pr = true where user_id = $1', [a.user.id]);
+    // değişiklik yok: commit yok, push yok
+    env.ai.steps = [text('Sadece bir soruydu.')];
+    const none = await send(a, s.chatId, 'merhaba');
+    expect(of(none.events, 'phase').map((p) => p.phase)).not.toContain('publishing');
+    expect(fc.state.pushes).toHaveLength(0);
+
+    // push hatası: PR satırı hata gösterir, tur yine de tamamlanır ve commit korunur
+    fc.state.failPush = 'Push başarısız: permission denied';
+    env.ai.steps = [[call('q2', 'write', { path: 'e.js', content: 'e\n' })], text('e.js eklendi.')];
+    const bad = await send(a, s.chatId, 'e.js ekle');
+    const end = of(bad.events, 'tool_end').find((e) => e.id.startsWith('pr-'))!;
+    expect(end).toMatchObject({ status: 'error' });
+    expect(end.output).toContain('permission denied');
+    const d = lastAssistant(await detail(a, s.chatId));
+    expect(d.status).toBe('complete');
+    expect(fc.state.commits.length).toBeGreaterThan(0);
+  });
+
+  it('hatalar: push başarısızsa 502 ve neden; başkasının oturumu 404; çalışırken 409; commit yokken 409', async () => {
     const { a, s } = await bootGit();
     fc.state.failPush = 'Push başarısız: non-fast-forward';
     const bad = await post(a, `/code/sessions/${s.chatId}/push`);
@@ -523,10 +559,19 @@ describe('GitHub: PR taslağı, push, PR açma, fark', () => {
     env.ctx.config.codeAllowed.emails.add('baska@example.com');
     const other = await member(env, { email: 'baska@example.com' });
     expect((await post(other, `/code/sessions/${s.chatId}/push`)).statusCode).toBe(404);
+    expect((await post(other, `/code/sessions/${s.chatId}/pr`)).statusCode).toBe(404);
     expect((await get(other, `/code/sessions/${s.chatId}/diff`)).statusCode).toBe(404);
-    expect((await post(a, `/code/sessions/${s.chatId}/pr`, { title: '' })).statusCode).toBe(400);
 
-    // ajan çalışırken itme reddedilir; fark ve taslak "stale" döner
+    const empty = await env.ctx.code.createSession(a.user.id, { repo: 'octo/alpha', baseBranch: 'main' });
+    expect((await post(a, `/code/sessions/${empty.chatId}/pr`)).statusCode).toBe(409);
+
+    // sandboxd yeniden başlamışsa çalışma alanı otomatik hazırlanıp push yeniden denenir
+    fc.state.needPrepare = true;
+    const prepares = fc.state.prepares.length;
+    expect((await post(a, `/code/sessions/${s.chatId}/push`)).statusCode).toBe(200);
+    expect(fc.state.prepares).toHaveLength(prepares + 1);
+
+    // ajan çalışırken itme reddedilir; fark "stale" döner
     fc.state.delayMs = 400;
     env.ai.steps = [[call('d1', 'bash', { command: 'sleep 1' })], [call('d2', 'bash', { command: 'sleep 1' })], text('bitti')];
     const running = send(a, s.chatId, 'uzun iş');

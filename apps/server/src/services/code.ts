@@ -24,6 +24,7 @@ interface EnvRow {
   setup_script: string;
   disk_mb: number;
   commit_session_link: boolean;
+  auto_pr: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -43,6 +44,8 @@ interface SessionRow {
   files_changed: number;
   head_sha: string | null;
   pushed_sha: string | null;
+  pr_number: number | null;
+  pr_url: string | null;
   context_tokens: number;
   preview: string | null;
   created_at: Date;
@@ -56,12 +59,13 @@ export interface EnvInput {
   setupScript?: string;
   diskMb?: number;
   commitSessionLink?: boolean;
+  autoPr?: boolean;
   envVars?: Record<string, string>;
 }
 
 const SESSION_SELECT = `
   select s.chat_id, c.title, s.repo, s.base_branch, s.work_branch, s.environment_id, e.name as environment_name,
-         s.status, s.disk_used_mb, s.additions, s.deletions, s.files_changed, s.head_sha, s.pushed_sha, s.context_tokens, s.created_at, c.last_message_at,
+         s.status, s.disk_used_mb, s.additions, s.deletions, s.files_changed, s.head_sha, s.pushed_sha, s.pr_number, s.pr_url, s.context_tokens, s.created_at, c.last_message_at,
          (select left(regexp_replace(m.content, '\\s+', ' ', 'g'), 160) from messages m
            where m.chat_id = s.chat_id and m.role = 'assistant' and m.content <> '' order by m.seq desc limit 1) as preview
     from code_sessions s
@@ -83,6 +87,8 @@ const toSessionDTO = (r: SessionRow, contextLimit = 0): CodeSessionDTO => ({
   filesChanged: r.files_changed,
   headSha: r.head_sha,
   pushedSha: r.pushed_sha,
+  prNumber: r.pr_number,
+  prUrl: r.pr_url,
   contextTokens: r.context_tokens,
   contextLimit,
   preview: r.preview ?? '',
@@ -156,6 +162,7 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
       diskMb: r.disk_mb,
       envVarCount: Object.keys(vars).length,
       commitSessionLink: r.commit_session_link,
+      autoPr: r.auto_pr,
       ...(withVars ? { envVars: vars } : {}),
       createdAt: r.created_at.toISOString(),
       updatedAt: r.updated_at.toISOString(),
@@ -195,8 +202,8 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
     const enc = input.envVars && Object.keys(input.envVars).length ? needBox().seal(JSON.stringify(input.envVars)) : '';
     try {
       const r = await db.query<EnvRow>(
-        `insert into code_environments (user_id, name, network, allowed_domains, env_vars_enc, setup_script, disk_mb, commit_session_link)
-         values ($1, $2, $3, $4, $5, $6, $7, $8) returning *`,
+        `insert into code_environments (user_id, name, network, allowed_domains, env_vars_enc, setup_script, disk_mb, commit_session_link, auto_pr)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
         [
           userId,
           input.name ?? 'Ortam',
@@ -206,6 +213,7 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
           input.setupScript ?? '',
           input.diskMb ?? CODE_DISK_DEFAULT_MB,
           input.commitSessionLink ?? false,
+          input.autoPr ?? true,
         ],
       );
       return toEnvDTO(r.rows[0]!, true);
@@ -226,9 +234,10 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
             setup_script = coalesce($7, setup_script),
             disk_mb = coalesce($8, disk_mb),
             commit_session_link = coalesce($9, commit_session_link),
+            auto_pr = coalesce($10, auto_pr),
             updated_at = now()
           where id = $1 and user_id = $2 returning *`,
-        [id, userId, input.name ?? null, input.network ?? null, input.allowedDomains ?? null, enc, input.setupScript ?? null, input.diskMb ?? null, input.commitSessionLink ?? null],
+        [id, userId, input.name ?? null, input.network ?? null, input.allowedDomains ?? null, enc, input.setupScript ?? null, input.diskMb ?? null, input.commitSessionLink ?? null, input.autoPr ?? null],
       );
       if (!r.rows[0]) throw notFound('Ortam bulunamadı.');
       return toEnvDTO(r.rows[0], true);
@@ -312,6 +321,10 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
     );
   }
 
+  async function setSessionPr(chatId: string, number: number, url: string): Promise<void> {
+    await db.query('update code_sessions set pr_number = $2, pr_url = $3 where chat_id = $1', [chatId, number, url]);
+  }
+
   async function setPushedSha(chatId: string, sha: string): Promise<void> {
     await db.query('update code_sessions set pushed_sha = $2 where chat_id = $1', [chatId, sha]);
   }
@@ -384,6 +397,7 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
     setContextTokens,
     updateSessionStats,
     setPushedSha,
+    setSessionPr,
     reconcileRunning,
     credits,
     creditsExhausted,

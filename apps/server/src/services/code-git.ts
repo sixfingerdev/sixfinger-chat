@@ -75,9 +75,10 @@ export function createCodeGit(deps: CodeGitDeps) {
     if (running) throw new HttpError(409, 'conflict', 'Ajan çalışırken GitHub\'a gönderemezsin. Önce turun bitmesini bekle ya da durdur.');
   };
 
-  async function push(user: AuthUser, chatId: string): Promise<{ sha: string; branch: string }> {
+  /** `internal`: ajanın kendi turunun sonunda çağrılır (tur hâlâ "çalışıyor" görünür; kullanıcı isteğinde bu engellenir). */
+  async function push(user: AuthUser, chatId: string, opts: { internal?: boolean } = {}): Promise<{ sha: string; branch: string }> {
     const { session, scope, sandbox, running } = await load(user, chatId);
-    guardIdle(running);
+    if (!opts.internal) guardIdle(running);
     const gh = await connection(user.id);
     const out = await withWorkspace(user, chatId, () => sandbox.push(scope, gh.token, AbortSignal.timeout(5 * 60_000))).catch((err) => {
       if (err instanceof ToolError) throw new HttpError(502, 'upstream_unavailable', err.message);
@@ -94,11 +95,12 @@ export function createCodeGit(deps: CodeGitDeps) {
     return r.stdout;
   }
 
-  async function draft(user: AuthUser, chatId: string): Promise<CodePrDraftDTO> {
+  async function draft(user: AuthUser, chatId: string, summary = ''): Promise<CodePrDraftDTO> {
     const { session, running } = await load(user, chatId);
+    const idle = !running || summary !== '';
     let subjects: string[] = [];
     let stat = '';
-    if (!running) {
+    if (idle) {
       const out = await exec(user, chatId, `git add -A -- . >/dev/null 2>&1; git log --reverse --format='%s' ${BASE}..HEAD | head -n 40; echo '---STAT---'; git diff --cached --stat=100 ${BASE} | tail -n 40`).catch(() => '');
       const [log = '', st = ''] = out.split('---STAT---');
       subjects = log.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -114,7 +116,7 @@ export function createCodeGit(deps: CodeGitDeps) {
         const raw = await ai.complete({
           messages: [
             { role: 'system', content: PR_SYSTEM },
-            { role: 'user', content: `Language: ${user.locale === 'tr' ? 'Turkish' : 'English'}\nRepository: ${session.repo}\nBase branch: ${session.baseBranch}\nUser request:\n${request}\n\nCommits:\n${subjects.map((s) => `- ${s}`).join('\n')}\n\nDiff stat:\n${stat}` },
+            { role: 'user', content: `Language: ${user.locale === 'tr' ? 'Turkish' : 'English'}\nRepository: ${session.repo}\nBase branch: ${session.baseBranch}\nUser request:\n${request}\n\nThe agent's final report:\n${summary.slice(0, 2_000)}\n\nCommits:\n${subjects.map((s) => `- ${s}`).join('\n')}\n\nDiff stat:\n${stat}` },
           ],
           route: 'code', mode: 'deep', effort: 'low', temperature: 0.3, maxTokens: 900,
         });
@@ -143,14 +145,33 @@ export function createCodeGit(deps: CodeGitDeps) {
     };
   }
 
-  async function createPr(user: AuthUser, chatId: string, input: { title: string; body: string; draft: boolean }): Promise<{ pull: CodePullDTO; existed: boolean; sha: string }> {
+  /**
+   * Ajanın PR işi: commit'i GitHub'a iter; oturumun PR'ı yoksa (model yazımı başlık/açıklamayla) açar, varsa o PR kendiliğinden güncellenir.
+   * `internal`: tur sonunda ajanın kendisi çağırır. Kullanıcı yeniden denerken (başlık/açıklama vermeden ya da vererek) aynı yol kullanılır.
+   */
+  async function publish(
+    user: AuthUser,
+    chatId: string,
+    opts: { internal?: boolean; summary?: string; title?: string; body?: string; draft?: boolean } = {},
+  ): Promise<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }> {
     const { session, running } = await load(user, chatId);
-    guardIdle(running);
+    if (!opts.internal) guardIdle(running);
     if (!session.headSha) throw new HttpError(409, 'conflict', 'Henüz commit yok; PR açılacak bir değişiklik bulunmuyor.');
     const gh = await connection(user.id);
-    const pushed = await push(user, chatId);
-    const r = await github.createPull(gh.token, session.repo, { title: input.title, body: input.body, head: session.workBranch, base: session.baseBranch, draft: input.draft });
-    return { ...r, sha: pushed.sha };
+    const pushed = await push(user, chatId, { internal: opts.internal });
+    if (session.prUrl && session.prNumber) {
+      return { pull: null, created: false, existed: true, sha: pushed.sha };
+    }
+    const d = opts.title ? null : await draft(user, chatId, opts.summary ?? '');
+    const r = await github.createPull(gh.token, session.repo, {
+      title: opts.title ?? d!.title,
+      body: opts.body ?? d!.body,
+      head: session.workBranch,
+      base: session.baseBranch,
+      draft: opts.draft ?? false,
+    });
+    await code.setSessionPr(chatId, r.pull.number, r.pull.url);
+    return { pull: r.pull, created: !r.existed, existed: r.existed, sha: pushed.sha };
   }
 
   async function diff(user: AuthUser, chatId: string, path?: string): Promise<CodeDiffDTO> {
@@ -165,6 +186,6 @@ export function createCodeGit(deps: CodeGitDeps) {
     }
   }
 
-  return { push, draft, createPr, diff };
+  return { push, draft, publish, diff };
 }
 export type CodeGit = ReturnType<typeof createCodeGit>;

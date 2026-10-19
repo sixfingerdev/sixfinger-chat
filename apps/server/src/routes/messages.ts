@@ -180,7 +180,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     // Code çalıştırmasında süre ya da adım sınırı yoktur: frenler döngü kırıcı, kredi, bağlam doluluğu ve kullanıcının Durdur'udur.
     void (async () => {
       try {
-        await runCodeGeneration({ db, ai, tools, sandbox: ctx.codeSandbox, code, queue: ctx.codeQueue, config, log }, run, g);
+        await runCodeGeneration({ db, ai, tools, sandbox: ctx.codeSandbox, code, queue: ctx.codeQueue, config, log, git: ctx.codeGit }, run, g);
       } catch (err) {
         log.error({ err }, 'Code üretimi beklenmedik şekilde sonlandı');
         run.emit({ type: 'error', code: 'internal', message: 'Beklenmeyen bir hata oluştu.' });

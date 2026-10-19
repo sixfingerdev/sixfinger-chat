@@ -15,7 +15,7 @@ import { useUi } from '../../store/ui.ts';
 import { Sheet } from '../../components/Sheet.tsx';
 import { Button, Press } from '../../components/Ui.tsx';
 import { CodeHeader } from '../../components/code/CodeUi.tsx';
-import { CreatePrSheet, DiffSheet } from '../../components/code/CodeGitSheets.tsx';
+import { DiffSheet } from '../../components/code/CodeGitSheets.tsx';
 import { CodeComposer } from '../../components/code/CodeComposer.tsx';
 import { CodeSheetHost, type SheetTarget } from '../../components/code/CodeParts.tsx';
 import { ChangesSheet, ContextRing, PullsSheet, UsageSheet } from '../../components/code/CodeSheets.tsx';
@@ -31,7 +31,7 @@ export default function CodeSession() {
   const generating = useChats((s) => Boolean(id && s.generating[id]));
   const loadError = useChats((s) => s.loadError);
   const [menu, setMenu] = useState(false);
-  const [sheet, setSheet] = useState<'usage' | 'pulls' | 'changes' | 'pr' | null>(null);
+  const [sheet, setSheet] = useState<'usage' | 'pulls' | 'changes' | null>(null);
   const [diff, setDiff] = useState<{ path?: string } | null>(null);
   const [target, setTarget] = useState<SheetTarget | null>(null);
   const [missing, setMissing] = useState(false);
@@ -161,9 +161,8 @@ export default function CodeSession() {
 
       <CodeSheetHost chatId={id} target={target} onClose={() => setTarget(null)} />
       <UsageSheet visible={sheet === 'usage'} onClose={() => setSheet(null)} tokens={session.contextTokens} limit={session.contextLimit} />
-      <PullsSheet visible={sheet === 'pulls'} onClose={() => setSheet(null)} chatId={id} onCreatePr={() => setSheet('pr')} />
-      <ChangesSheet visible={sheet === 'changes'} onClose={() => setSheet(null)} chatId={id} additions={session.additions} deletions={session.deletions} files={session.filesChanged} onDiff={(path) => setDiff({ path })} onCreatePr={() => setSheet('pr')} />
-      <CreatePrSheet visible={sheet === 'pr'} onClose={() => setSheet(null)} chatId={id} onDone={() => void loadSession()} />
+      <PullsSheet visible={sheet === 'pulls'} onClose={() => setSheet(null)} chatId={id} onChanged={() => { void loadSession(); void useChats.getState().openChat(id, true); }} />
+      <ChangesSheet visible={sheet === 'changes'} onClose={() => setSheet(null)} chatId={id} additions={session.additions} deletions={session.deletions} files={session.filesChanged} onDiff={(path) => setDiff({ path })} />
       <DiffSheet visible={Boolean(diff)} onClose={() => setDiff(null)} chatId={id} path={diff?.path} />
 
       <Sheet visible={menu} onClose={() => setMenu(false)}>

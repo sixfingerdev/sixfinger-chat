@@ -10,13 +10,13 @@ import { activePath, indexMessages } from '../lib/tree.ts';
 import { selectPath, useChats } from '../store/chats.ts';
 import { useCode } from '../store/code.ts';
 import { ChangesSheet, ContextRing, Delta, PullsSheet, UsageSheet } from '../components/CodeSheets.tsx';
-import { CreatePrSheet, DiffSheet } from '../components/CodeGitSheets.tsx';
+import { DiffSheet } from '../components/CodeGitSheets.tsx';
 import { CodeMascot } from '../components/CodeMascot.tsx';
 import { CodeMessage } from '../components/CodeMessage.tsx';
 import { CodeTopBar } from '../components/CodeTopBar.tsx';
 import { Popover } from '../components/Popover.tsx';
 
-type Sheet = 'usage' | 'pulls' | 'changes' | 'pr' | null;
+type Sheet = 'usage' | 'pulls' | 'changes' | null;
 
 export function CodeSessionPage() {
   const t = useT();
@@ -244,11 +244,10 @@ export function CodeSessionPage() {
         </div>
       </div>
       {sheet === 'usage' && ctx && <UsageSheet tokens={ctx.tokens} limit={ctx.limit} onClose={() => setSheet(null)} />}
-      {sheet === 'pulls' && chatId && <PullsSheet chatId={chatId} onClose={() => setSheet(null)} onCreatePr={() => setSheet('pr')} />}
+      {sheet === 'pulls' && chatId && <PullsSheet chatId={chatId} onClose={() => setSheet(null)} onChanged={() => { loadSession(); void useChats.getState().openChat(chatId, true); }} />}
       {sheet === 'changes' && chatId && (
-        <ChangesSheet chatId={chatId} running={Boolean(generating)} onClose={() => setSheet(null)} onDiff={(path) => setDiffPath({ path })} onCreatePr={() => setSheet('pr')} />
+        <ChangesSheet chatId={chatId} running={Boolean(generating)} onClose={() => setSheet(null)} onDiff={(path) => setDiffPath({ path })} />
       )}
-      {sheet === 'pr' && chatId && <CreatePrSheet chatId={chatId} onClose={() => setSheet(null)} onDone={loadSession} />}
       {diffPath && chatId && <DiffSheet chatId={chatId} path={diffPath.path} onClose={() => setDiffPath(null)} />}
     </div>
   );

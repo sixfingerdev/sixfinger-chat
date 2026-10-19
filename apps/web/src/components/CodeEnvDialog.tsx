@@ -38,6 +38,7 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
   const [disk, setDisk] = useState<number>(env?.diskMb ?? 512);
   const [vars, setVars] = useState('');
   const [sessionLink, setSessionLink] = useState(env?.commitSessionLink ?? false);
+  const [autoPr, setAutoPr] = useState(env?.autoPr ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,6 +75,7 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
       setupScript: setup,
       diskMb: disk,
       commitSessionLink: sessionLink,
+      autoPr,
       envVars: parsed,
     });
     setBusy(false);
@@ -183,6 +185,16 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
               <span className="hint">{t('code.env.sessionLinkHint')}</span>
             </span>
             <button className="switch" role="switch" aria-checked={sessionLink} aria-label={t('code.env.sessionLink')} onClick={() => setSessionLink(!sessionLink)} />
+          </div>
+        </div>
+
+        <div className="field">
+          <div className="switch-row">
+            <span className="switch-text">
+              <strong>{t('code.env.autoPr')}</strong>
+              <span className="hint">{t('code.env.autoPrHint')}</span>
+            </span>
+            <button className="switch" role="switch" aria-checked={autoPr} aria-label={t('code.env.autoPr')} onClick={() => setAutoPr(!autoPr)} />
           </div>
         </div>
 

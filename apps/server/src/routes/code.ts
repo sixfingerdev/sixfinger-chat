@@ -213,16 +213,16 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
         }
       });
 
-      /** PR taslağı (model yazar; kullanıcı düzenleyip onaylar). */
-      authed.get<{ Params: { id: string } }>('/code/sessions/:id/pr-draft', async (req) => ({ draft: await ctx.codeGit.draft(req.user!, req.params.id) }));
-
-      /** Yalnızca branch'i GitHub'a gönderir. Kullanıcının açık isteğidir (hiçbir şey kendiliğinden itilmez). */
+      /** Branch'i GitHub'a gönderir (ajan çalışırken `409`). */
       authed.post<{ Params: { id: string } }>('/code/sessions/:id/push', async (req) => ctx.codeGit.push(req.user!, req.params.id));
 
-      /** Branch'i gönderir ve PR açar (zaten açıksa onu döndürür). */
+      /**
+       * PR'ı ajan açar (tur sonunda kendiliğinden). Bu uç, otomatik adım başarısız olduğunda ya da ortamda "Otomatik PR" kapalıyken
+       * tek dokunuşla yeniden denemek içindir: başlık/açıklamayı model yazar.
+       */
       authed.post<{ Params: { id: string } }>('/code/sessions/:id/pr', async (req) => {
-        const body = parse(createPrSchema, req.body);
-        return ctx.codeGit.createPr(req.user!, req.params.id, body);
+        const body = parse(createPrSchema, req.body ?? {});
+        return ctx.codeGit.publish(req.user!, req.params.id, body);
       });
 
       /** Başlangıca göre birleşik fark (tüm dosyalar ya da tek `path`). */

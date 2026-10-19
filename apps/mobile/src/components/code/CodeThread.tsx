@@ -176,7 +176,7 @@ export function CodeThread({ chatId, onOpen }: { chatId: string; onOpen: (t: She
         case 'end':
           return <View style={{ height: 1 }} />;
         case 'seg':
-          return <CodeSegment parts={item.parts} lastTodoId={item.lastTodoId} onOpen={onOpen} />;
+          return <CodeSegment chatId={chatId} parts={item.parts} lastTodoId={item.lastTodoId} onOpen={onOpen} />;
         case 'foot':
           return <CodeFooter chatId={chatId} msg={item.msg} live={item.live} />;
       }

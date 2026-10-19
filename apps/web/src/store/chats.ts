@@ -22,7 +22,7 @@ export interface Generating {
 
 /** Code: süren turun canlı durumu (evre, bağlam doluluğu, toplam değişiklik). Tur bitince `phase` temizlenir, diğerleri kalır. */
 export interface CodeLive {
-  phase?: 'queued' | 'preparing' | 'working' | 'committing';
+  phase?: 'queued' | 'preparing' | 'working' | 'committing' | 'publishing';
   position?: number;
   context?: { tokens: number; limit: number };
   changes?: { additions: number; deletions: number; files: number; sha: string | null };

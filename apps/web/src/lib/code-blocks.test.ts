@@ -28,6 +28,10 @@ describe('toBlocks', () => {
     expect(toBlocks([tool('1', 'bash'), tool('c', 'compaction'), tool('2', 'bash')]).map((b) => b.kind)).toEqual(['group', 'compaction', 'group']);
   });
 
+  it('ajanın PR satırı kendi bloğudur', () => {
+    expect(toBlocks([tool('c', 'commit'), tool('p', 'pull_request')]).map((b) => b.kind)).toEqual(['commit', 'pull_request']);
+  });
+
   it('metinle bölünen komutlar ayrı gruplardır; düşünce son parçaysa işaretlenir', () => {
     const blocks = toBlocks([tool('1', 'bash'), { type: 'text', text: 'x' }, tool('2', 'bash'), { type: 'reasoning', text: 'düşünüyor', ms: null }]);
     expect(blocks.map((b) => b.kind)).toEqual(['group', 'text', 'group', 'reasoning']);

@@ -17,6 +17,7 @@ import type { AuthUser } from '../lib/types.ts';
 import type { AiMessage, AiProvider, AiToolCall } from './ai.ts';
 import { MESSAGE_COLUMNS, toMessageDTO, type ChatRow, type MessageRow } from './chats.ts';
 import type { Code } from './code.ts';
+import type { CodeGit } from './code-git.ts';
 import { applyCompaction, buildCodeHistory, messagesTokens, pruneToolResults, renderTranscript, splitForCompaction, SUMMARIZER_PROMPT } from './code-context.ts';
 import { buildCodeSystemPrompt, commitMessagePrompt, WORKSPACE_BRIEF_COMMAND } from './code-prompt.ts';
 import type { CodeQueue } from './code-queue.ts';
@@ -36,6 +37,8 @@ export interface CodeRunDeps {
   queue: CodeQueue;
   config: Config;
   log: Logger;
+  /** Tur sonu push + PR. */
+  git: CodeGit;
 }
 
 export interface CodeRunInput {
@@ -159,8 +162,9 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
   let sandboxMs = 0;
   let diskUsedMb = 0;
   let contextTokens = 0;
-  let env: Pick<CodeEnvironmentDTO, 'network' | 'allowedDomains' | 'diskMb' | 'setupScript' | 'commitSessionLink'> & { envVars: Record<string, string> } = {
-    network: 'trusted', allowedDomains: [], diskMb: 512, setupScript: '', commitSessionLink: false, envVars: {},
+  let branches = { work: '', base: '' };
+  let env: Pick<CodeEnvironmentDTO, 'network' | 'allowedDomains' | 'diskMb' | 'setupScript' | 'commitSessionLink' | 'autoPr'> & { envVars: Record<string, string> } = {
+    network: 'trusted', allowedDomains: [], diskMb: 512, setupScript: '', commitSessionLink: false, autoPr: true, envVars: {},
   };
 
   try {
@@ -176,11 +180,12 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     }
     const session = await code.getSession(user.id, chat.id);
     if (!session) throw new HttpError(404, 'not_found', 'Code oturumu bulunamadı.');
+    branches = { work: session.workBranch, base: session.baseBranch };
     const gh = await code.getConnection(user.id);
     if (!gh) throw new HttpError(409, 'github_required', 'GitHub bağlantın yok ya da geçersiz. Hesabını yeniden bağla.');
     if (session.environmentId) {
       const e = await code.getEnvironment(user.id, session.environmentId).catch(() => null);
-      if (e) env = { network: e.network, allowedDomains: e.allowedDomains, diskMb: e.diskMb, setupScript: e.setupScript, commitSessionLink: e.commitSessionLink, envVars: e.envVars ?? {} };
+      if (e) env = { network: e.network, allowedDomains: e.allowedDomains, diskMb: e.diskMb, setupScript: e.setupScript, commitSessionLink: e.commitSessionLink, autoPr: e.autoPr, envVars: e.envVars ?? {} };
     }
 
     // --- sıra ---
@@ -449,6 +454,27 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
           send({ type: 'tool_start', id: part.id, name: part.name, args: part.args });
           send({ type: 'tool_end', id: part.id, status: 'done', output: message, summary: part.summary, meta: part.meta, ms: 0 });
         }
+      }
+      // Ajan PR'ını kendisi açar: commit GitHub'a itilir; ilk turda PR açılır, sonraki turlarda aynı PR güncellenir.
+      // Kullanıcı durdurduysa ya da tur hata verdiyse hiçbir şey itilmez (iş commit'te güvende, kullanıcı karar verir).
+      if (sha && env.autoPr && status === 'complete') {
+        // PR adımı oturumun head_sha'sını DB'den okur: önce kaydet.
+        await code.updateSessionStats(chat.id, { additions: ch.additions, deletions: ch.deletions, filesChanged: ch.files.length, headSha: sha, contextTokens });
+        send({ type: 'phase', phase: 'publishing' });
+        const pr: Extract<MessagePartDTO, { type: 'tool' }> = { type: 'tool', id: `pr-${sha.slice(0, 7)}`, name: 'pull_request', args: { branch: branches.work, base: branches.base }, status: 'running' };
+        buf.parts.push(pr);
+        send({ type: 'tool_start', id: pr.id, name: pr.name, args: pr.args });
+        const started = Date.now();
+        try {
+          const r = await deps.git.publish(user, chat.id, { internal: true, summary: buf.content });
+          const meta = { number: r.pull?.number ?? null, url: r.pull?.url ?? null, title: r.pull?.title ?? null, created: r.created, sha: r.sha };
+          Object.assign(pr, { status: 'done', summary: r.created ? `#${r.pull?.number}` : r.existed && !r.pull ? 'updated' : `#${r.pull?.number}`, output: r.pull?.url ?? '', meta, ms: Date.now() - started });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'PR açılamadı.';
+          log.warn({ err: String(err) }, 'Code otomatik PR başarısız');
+          Object.assign(pr, { status: 'error', summary: msg.slice(0, 160), output: msg, ms: Date.now() - started });
+        }
+        send({ type: 'tool_end', id: pr.id, status: pr.status as 'done' | 'error', output: pr.output ?? '', summary: pr.summary, meta: pr.meta, ms: pr.ms ?? 0 });
       }
       const usage = await deps.sandbox.usage(scope, fresh).catch(() => null);
       if (usage) diskUsedMb = usage.diskUsedMb;

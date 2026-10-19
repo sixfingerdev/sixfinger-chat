@@ -1,12 +1,14 @@
 import { memo, useState } from 'react';
 import {
   Check,
+  ArrowUpRight,
   ChevronRight,
   CircleAlert,
   CircleDot,
   CircleDashed,
   FileText,
   GitCommitHorizontal,
+  GitPullRequest,
   Globe,
   Layers,
   Loader,
@@ -15,6 +17,9 @@ import {
   Wrench,
 } from 'lucide-react';
 import { describeTool, messageParts, type MessageDTO } from '@sixfinger/shared';
+import { api } from '../lib/api.ts';
+import { reportError } from '../lib/errors.ts';
+import { useChats } from '../store/chats.ts';
 import { clsx, compactNumber } from '../lib/format.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 import { diffLines, toBlocks, type ToolPart } from '../lib/code-blocks.ts';
@@ -265,6 +270,60 @@ function CompactionRow({ part }: { part: ToolPart }) {
   );
 }
 
+/** Ajanın tur sonunda açtığı (ya da güncellediği) PR; hata olursa tek dokunuşla yeniden denenir. */
+function PullRequestRow({ part, chatId }: { part: ToolPart; chatId: string }) {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const running = part.status === 'running';
+  const failed = part.status === 'error';
+  const url = str(part.meta?.url) || (part.output?.startsWith('http') ? part.output : '');
+  const number = part.meta?.number;
+  const created = part.meta?.created === true;
+
+  const retry = async () => {
+    setBusy(true);
+    try {
+      await api.codeOpenPr(chatId);
+      await useChats.getState().openChat(chatId, true);
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const label = running ? t('code.pr.opening') : failed ? t('code.pr.failed') : created ? `${t('code.pr.opened')} · #${String(number)}` : t('code.pr.updated');
+  const body = (
+    <>
+      <span className="code-row-icon">{running || busy ? <Loader size={14} className="spin" /> : failed ? <CircleAlert size={14} /> : <GitPullRequest size={15} />}</span>
+      <span className="code-row-label">
+        {label}
+        {!running && !failed && created && str(part.meta?.title) && <small> · {str(part.meta?.title)}</small>}
+        {failed && part.summary && <small> · {part.summary}</small>}
+      </span>
+    </>
+  );
+  if (failed) {
+    return (
+      <div className="code-row failed">
+        {body}
+        <button className="link-btn" disabled={busy} onClick={() => void retry()}>
+          {t('code.pr.retry')}
+        </button>
+      </div>
+    );
+  }
+  if (url) {
+    return (
+      <a className="code-row pr-link" href={url} target="_blank" rel="noreferrer">
+        {body}
+        <ArrowUpRight size={14} className="code-row-go" />
+      </a>
+    );
+  }
+  return <div className="code-row quiet">{body}</div>;
+}
+
 function GenericTool({ part }: { part: ToolPart }) {
   const [open, setOpen] = useState(false);
   return (
@@ -338,6 +397,8 @@ export const CodeMessage = memo(function CodeMessage({ msg, streaming, live }: P
               return <CommitRow key={b.part.id} part={b.part} />;
             case 'compaction':
               return <CompactionRow key={b.part.id} part={b.part} />;
+            case 'pull_request':
+              return <PullRequestRow key={b.part.id} part={b.part} chatId={msg.chatId} />;
             default:
               return <GenericTool key={b.part.id} part={b.part} />;
           }

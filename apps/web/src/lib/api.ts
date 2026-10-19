@@ -4,7 +4,6 @@ import type {
   ChatDetailDTO,
   CodeChangesDTO,
   CodeDiffDTO,
-  CodePrDraftDTO,
   CodeEnvironmentDTO,
   CodePullDTO,
   CodeSessionDTO,
@@ -323,10 +322,9 @@ export const api = {
   codePulls: (id: string) => request<{ pulls: CodePullDTO[] }>('GET', `/code/sessions/${id}/pulls`),
   codeChanges: (id: string) => request<CodeChangesDTO>('GET', `/code/sessions/${id}/changes`),
   codeDiff: (id: string, path?: string) => request<CodeDiffDTO>('GET', `/code/sessions/${id}/diff`, undefined, { query: { path } }),
-  codePrDraft: (id: string) => request<{ draft: CodePrDraftDTO }>('GET', `/code/sessions/${id}/pr-draft`),
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
-  codeCreatePr: (id: string, p: { title: string; body: string; draft: boolean }) =>
-    request<{ pull: CodePullDTO; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, p),
+  /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */
+  codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),
   deleteCodeSession: (id: string) => request<void>('DELETE', `/code/sessions/${id}`),
   shared: (slug: string) => request<SharedChatDTO>('GET', `/public/shares/${slug}`, undefined, { auth: false }),
 };

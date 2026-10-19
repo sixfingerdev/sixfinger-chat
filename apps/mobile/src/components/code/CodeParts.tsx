@@ -1,10 +1,12 @@
-import { memo, useMemo } from 'react';
-import { ActivityIndicator, ScrollView, Text as RNText, View, useWindowDimensions } from 'react-native';
-import { Check, ChevronRight, CircleAlert, CircleDashed, FileMinus, FilePen, FilePlus, FileText, Globe, GitCommitHorizontal, HardDrive, Layers, Search, Terminal, Wrench } from 'lucide-react-native';
+import { memo, useMemo, useState } from 'react';
+import { ActivityIndicator, Linking, ScrollView, Text as RNText, View, useWindowDimensions } from 'react-native';
+import { Check, ChevronRight, CircleAlert, CircleDashed, FileMinus, FilePen, FilePlus, FileText, Globe, GitCommitHorizontal, GitPullRequest, HardDrive, Layers, Search, Terminal, Wrench } from 'lucide-react-native';
 import { describeTool, type MessageDTO, type MessagePartDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
 import { useLocale, useT } from '../../lib/i18n/index.ts';
+import { api } from '../../lib/api.ts';
+import { reportError } from '../../lib/errors.ts';
 import { useChats } from '../../store/chats.ts';
 import { RichText } from '../RichText.tsx';
 import { Sheet } from '../Sheet.tsx';
@@ -200,6 +202,57 @@ function CompactionRow({ part, onOpen }: { part: ToolPart; onOpen: (t: SheetTarg
   );
 }
 
+/** Ajanın tur sonunda açtığı (ya da güncellediği) PR; satıra dokununca GitHub'da açılır. Hata olursa tek dokunuşla yeniden denenir. */
+function PullRequestRow({ part, chatId }: { part: ToolPart; chatId: string }) {
+  const { c } = useTheme();
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const running = part.status === 'running';
+  const failed = part.status === 'error';
+  const m = meta(part);
+  const url = str(m.url) || (part.output?.startsWith('http') ? part.output : '');
+  const created = m.created === true;
+  const label = running ? `${t('code.pr.opening')}…` : failed ? t('code.pr.failed') : created ? `${t('code.pr.opened')} · #${String(m.number)}` : t('code.pr.updated');
+  const retry = async () => {
+    setBusy(true);
+    try {
+      await api.codeOpenPr(chatId);
+      await useChats.getState().openChat(chatId, true);
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Press
+      haptics={failed || !url ? false : 'select'}
+      scale={0.985}
+      disabled={failed ? busy : !url}
+      onPress={() => (failed ? void retry() : void Linking.openURL(url))}
+      style={{ marginVertical: 5, minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface }}
+    >
+      {running || busy ? <ActivityIndicator size="small" color={c.text2} /> : failed ? <CircleAlert size={16} color={c.text2} /> : <GitPullRequest size={17} color={c.text} />}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <RNText numberOfLines={1} style={{ fontFamily: fonts.sansMedium, fontSize: 14, color: c.text }}>
+          {label}
+        </RNText>
+        {!running && !failed && created && !!str(m.title) && (
+          <RNText numberOfLines={1} style={{ fontFamily: fonts.sans, fontSize: 12, color: c.text3 }}>
+            {str(m.title)}
+          </RNText>
+        )}
+        {failed && !!part.summary && (
+          <RNText numberOfLines={2} style={{ fontFamily: fonts.sans, fontSize: 12, color: c.text3 }}>
+            {part.summary}
+          </RNText>
+        )}
+      </View>
+      {failed ? <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text2 }}>{t('code.pr.retry')}</RNText> : !!url && <ChevronRight size={14} color={c.text3} />}
+    </Press>
+  );
+}
+
 function CommitRow({ part, onOpen }: { part: ToolPart; onOpen: (t: SheetTarget) => void }) {
   const { c } = useTheme();
   const t = useT();
@@ -228,7 +281,7 @@ function CommitRow({ part, onOpen }: { part: ToolPart; onOpen: (t: SheetTarget) 
 }
 
 /** Asistan mesajının (düşünce parçaları arasındaki) bir dilimi: metin, gruplanmış komutlar, dosya çipleri, görev listesi. */
-export const CodeSegment = memo(function CodeSegment({ parts, lastTodoId, onOpen }: { parts: MessagePartDTO[]; lastTodoId: string | null; onOpen: (t: SheetTarget) => void }) {
+export const CodeSegment = memo(function CodeSegment({ chatId, parts, lastTodoId, onOpen }: { chatId: string; parts: MessagePartDTO[]; lastTodoId: string | null; onOpen: (t: SheetTarget) => void }) {
   const blocks = useMemo(() => toBlocks(parts), [parts]);
   return (
     <View style={{ paddingHorizontal: 16, paddingVertical: 2 }}>
@@ -248,6 +301,8 @@ export const CodeSegment = memo(function CodeSegment({ parts, lastTodoId, onOpen
             return <CommitRow key={b.key} part={p} onOpen={onOpen} />;
           case 'compaction':
             return <CompactionRow key={b.key} part={p} onOpen={onOpen} />;
+          case 'pull_request':
+            return <PullRequestRow key={b.key} part={p} chatId={chatId} />;
           default:
             return <ToolCard key={b.key} part={p} />;
         }

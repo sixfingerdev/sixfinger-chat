@@ -444,6 +444,15 @@ export const tr = {
   'code.diff.binary': 'İkili dosya',
   'code.diff.truncated': 'Fark çok uzun; bir kısmı gösteriliyor.',
   'code.diff.stale': 'Ajan çalışırken fark gösterilemez.',
+  'code.phase.publishing': 'GitHub\'a gönderiliyor',
+  'code.pr.opening': 'PR hazırlanıp gönderiliyor',
+  'code.pr.opened': 'PR açıldı',
+  'code.pr.updated': 'PR güncellendi (yeni commit gönderildi)',
+  'code.pr.failed': 'PR açılamadı',
+  'code.pr.retry': 'Tekrar dene',
+  'code.pr.autoOpen': 'PR\'ı ajan açsın',
+  'code.env.autoPr': 'Otomatik PR',
+  'code.env.autoPrHint': 'Ajan her turun sonunda commit\'i GitHub\'a gönderir; ilk turda PR\'ı kendisi açar, sonrakilerde aynı PR güncellenir. Kapalıyken hiçbir şey GitHub\'a gönderilmez.',
   'code.session.menu': 'Oturum menüsü',
 } as const;
 

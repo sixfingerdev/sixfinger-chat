@@ -115,12 +115,27 @@ function PullRow({ pr }: { pr: CodePullDTO }) {
 }
 
 /** Oturumun çalışma branch'indeki pull request'ler; satıra dokununca GitHub'da açılır. */
-export function PullsSheet({ visible, onClose, chatId, onCreatePr }: { visible: boolean; onClose: () => void; chatId: string; onCreatePr: () => void }) {
+export function PullsSheet({ visible, onClose, chatId, onChanged }: { visible: boolean; onClose: () => void; chatId: string; onChanged: () => void }) {
   const { c } = useTheme();
   const t = useT();
   const { height } = useWindowDimensions();
   const [pulls, setPulls] = useState<CodePullDTO[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [tick, setTick] = useState(0);
+  /** PR'ı ajan açar (başlık/açıklamayı model yazar): yalnızca otomatik adım çalışmadıysa gerekir. */
+  const agentOpens = async () => {
+    setBusy(true);
+    try {
+      await api.codeOpenPr(chatId);
+      onChanged();
+      setTick((n) => n + 1);
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
   useEffect(() => {
     if (!visible) return;
     setPulls(null);
@@ -133,7 +148,7 @@ export function PullsSheet({ visible, onClose, chatId, onCreatePr }: { visible: 
     return () => {
       off = true;
     };
-  }, [visible, chatId]);
+  }, [visible, chatId, tick]);
   return (
     <Sheet visible={visible} onClose={onClose}>
       <SheetTitle>{t('code.pr.title')}</SheetTitle>
@@ -149,9 +164,9 @@ export function PullsSheet({ visible, onClose, chatId, onCreatePr }: { visible: 
         )}
         {pulls?.map((pr) => <PullRow key={pr.number} pr={pr} />)}
       </ScrollView>
-      {(pulls || failed) && (
+      {pulls && !pulls.some((p) => p.state === 'open') && (
         <View style={{ paddingHorizontal: 18, paddingTop: 8, paddingBottom: 8 }}>
-          <Button label={t('code.pr.create')} icon={<GitPullRequest size={16} color={c.onAccent} />} onPress={onCreatePr} />
+          <Button label={t('code.pr.autoOpen')} loading={busy} icon={<GitPullRequest size={16} color={c.onAccent} />} onPress={() => void agentOpens()} />
         </View>
       )}
     </Sheet>
@@ -159,7 +174,7 @@ export function PullsSheet({ visible, onClose, chatId, onCreatePr }: { visible: 
 }
 
 /** Değişen dosyalar (+N −M). Ajan çalışırken liste yenilenmez; toplam son bilinen değerdir. */
-export function ChangesSheet({ visible, onClose, chatId, additions, deletions, files, onDiff, onCreatePr }: { visible: boolean; onClose: () => void; chatId: string; additions: number; deletions: number; files: number; onDiff: (path?: string) => void; onCreatePr: () => void }) {
+export function ChangesSheet({ visible, onClose, chatId, additions, deletions, files, onDiff }: { visible: boolean; onClose: () => void; chatId: string; additions: number; deletions: number; files: number; onDiff: (path?: string) => void }) {
   const { c } = useTheme();
   const t = useT();
   const { height } = useWindowDimensions();
@@ -217,8 +232,7 @@ export function ChangesSheet({ visible, onClose, chatId, additions, deletions, f
       </ScrollView>
       {data && !data.stale && add + del > 0 && (
         <View style={{ paddingHorizontal: 18, paddingTop: 8, paddingBottom: 8, gap: 6 }}>
-          <Button label={t('code.openPr')} icon={<GitPullRequest size={16} color={c.onAccent} />} onPress={onCreatePr} />
-          <Button variant="ghost" label={t('code.diff.all')} onPress={() => onDiff()} />
+          <Button label={t('code.diff.all')} onPress={() => onDiff()} />
         </View>
       )}
     </Sheet>

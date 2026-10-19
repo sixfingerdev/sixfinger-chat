@@ -178,7 +178,7 @@ export type StreamEvent =
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
   | { type: 'tool_end'; id: string; status: ToolStatus; output: string; summary?: string; meta?: Record<string, unknown>; ms: number }
   /** Code: çalışmanın evresi (sırada, çalışma alanı hazırlanıyor, çalışıyor, commit ediliyor). */
-  | { type: 'phase'; phase: 'queued' | 'preparing' | 'working' | 'committing'; position?: number }
+  | { type: 'phase'; phase: 'queued' | 'preparing' | 'working' | 'committing' | 'publishing'; position?: number }
   /** Code: tur sonunda çalışma alanındaki toplam değişiklik (+N −M). */
   | { type: 'changes'; additions: number; deletions: number; files: number; sha: string | null }
   /** Code: modele giden bağlamın tahmini doluluğu (başlıktaki halka). */
@@ -242,6 +242,8 @@ export interface CodeEnvironmentDTO {
   envVarCount: number;
   /** Commit'lere oturum bağlantısı eklensin mi? (varsayılan kapalı) */
   commitSessionLink: boolean;
+  /** Ajan tur sonunda commit'i GitHub'a itip PR açsın mı? (varsayılan açık) */
+  autoPr: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -265,6 +267,9 @@ export interface CodeSessionDTO {
   headSha: string | null;
   /** GitHub'a en son itilen commit (headSha farklıysa itilmemiş iş var). */
   pushedSha: string | null;
+  /** Ajanın açtığı PR (yoksa null). */
+  prNumber: number | null;
+  prUrl: string | null;
   /** Modele giden son bağlamın tahmini token sayısı ve üst sınırı (başlıktaki halka). */
   contextTokens: number;
   contextLimit: number;

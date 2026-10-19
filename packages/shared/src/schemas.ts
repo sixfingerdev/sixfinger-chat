@@ -132,6 +132,8 @@ export const codeEnvFields = z.object({
   setupScript: z.string().max(4_000),
   diskMb: z.number().int().min(CODE_DISK_MIN_MB).max(CODE_DISK_MAX_MB),
   commitSessionLink: z.boolean(),
+  /** Ajan tur sonunda commit'i GitHub'a itip PR açsın mı. */
+  autoPr: z.boolean(),
   envVars: z
     .record(z.string().max(4_000))
     .refine((o) => Object.keys(o).length <= CODE_MAX_ENV_VARS, `en fazla ${CODE_MAX_ENV_VARS} değişken`)
@@ -144,6 +146,7 @@ export const createCodeEnvSchema = codeEnvFields.partial({
   setupScript: true,
   diskMb: true,
   commitSessionLink: true,
+  autoPr: true,
   envVars: true,
 });
 export const updateCodeEnvSchema = codeEnvFields.partial();
@@ -157,9 +160,10 @@ export const createCodeSessionSchema = z.object({
   baseBranch: z.string().trim().min(1).max(200),
   environmentId: z.string().uuid().optional(),
 });
+/** Boş gövde = başlık/açıklamayı model yazar. */
 export const createPrSchema = z.object({
-  title: z.string().trim().min(1).max(256),
-  body: z.string().max(20_000).default(''),
+  title: z.string().trim().min(1).max(256).optional(),
+  body: z.string().max(20_000).optional(),
   draft: z.boolean().default(false),
 });
 export const diffQuery = z.object({ path: z.string().trim().min(1).max(500).optional() });

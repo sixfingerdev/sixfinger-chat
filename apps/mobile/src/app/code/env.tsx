@@ -57,6 +57,7 @@ export default function EnvEditor() {
   const [disk, setDisk] = useState<number>(CODE_DISK_DEFAULT_MB);
   const [vars, setVars] = useState('');
   const [sessionLink, setSessionLink] = useState(false);
+  const [autoPr, setAutoPr] = useState(true);
   const [busy, setBusy] = useState(false);
   const [varsBad, setVarsBad] = useState(false);
 
@@ -71,6 +72,7 @@ export default function EnvEditor() {
         setSetup(e.setupScript);
         setDisk(e.diskMb);
         setSessionLink(e.commitSessionLink ?? false);
+        setAutoPr(e.autoPr ?? true);
         setVars(Object.entries(e.envVars ?? {}).map(([k, v]) => `${k}=${v}`).join('\n'));
         setLoading(false);
       })
@@ -98,6 +100,7 @@ export default function EnvEditor() {
       setupScript: setup,
       diskMb: disk,
       commitSessionLink: sessionLink,
+      autoPr,
       envVars,
     };
     try {
@@ -212,6 +215,22 @@ export default function EnvEditor() {
               accessibilityLabel={t('code.env.disk')}
             />
             <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, color: c.text3 }}>{t('code.env.diskHint')}</RNText>
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 14.5, color: c.text }}>{t('code.env.autoPr')}</RNText>
+              <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, lineHeight: 17, color: c.text3 }}>{t('code.env.autoPrHint')}</RNText>
+            </View>
+            <Switch
+              value={autoPr}
+              onValueChange={(v) => {
+                haptic.select();
+                setAutoPr(v);
+              }}
+              trackColor={{ false: c.line, true: c.accent }}
+              thumbColor={autoPr ? c.onAccent : c.text3}
+            />
           </View>
 
           <View style={{ gap: 10 }}>

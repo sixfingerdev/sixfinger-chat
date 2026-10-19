@@ -1361,3 +1361,9 @@
 a.btn {
   text-decoration: none;
 }
+a.code-row.pr-link {
+  text-decoration: none;
+}
+.code-row .link-btn {
+  flex: none;
+}

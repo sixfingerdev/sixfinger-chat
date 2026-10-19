@@ -6,6 +6,8 @@ import type { ExecOutcome } from '../src/services/tools/sandbox.ts';
 export function fakeCode(initial: Record<string, string> = {}) {
   const fs = new Map(Object.entries(initial));
   const base = new Map(Object.entries(initial));
+  /** Son commit'in içeriği (commit yalnızca ona göre değişiklik varsa atılır; `changes` ise başlangıca göre hesaplanır). */
+  const head = new Map(Object.entries(initial));
   const state = {
     prepares: [] as Array<Record<string, unknown>>,
     execs: [] as string[],
@@ -20,14 +22,14 @@ export function fakeCode(initial: Record<string, string> = {}) {
   };
   const sleep = () => (state.delayMs ? new Promise((r) => setTimeout(r, state.delayMs)) : Promise.resolve());
   const lines = (t: string) => (t === '' ? 0 : t.split('\n').length - (t.endsWith('\n') ? 1 : 0));
-  const diff = () => {
+  const diff = (from = base) => {
     const files: Array<{ path: string; status: 'added' | 'modified' | 'deleted' | 'renamed'; additions: number; deletions: number }> = [];
     for (const [p, c] of fs) {
-      const b = base.get(p);
+      const b = from.get(p);
       if (b === undefined) files.push({ path: p, status: 'added', additions: lines(c), deletions: 0 });
       else if (b !== c) files.push({ path: p, status: 'modified', additions: Math.max(1, lines(c) - lines(b) + 1), deletions: 1 });
     }
-    for (const p of base.keys()) if (!fs.has(p)) files.push({ path: p, status: 'deleted', additions: 0, deletions: lines(base.get(p)!) });
+    for (const p of from.keys()) if (!fs.has(p)) files.push({ path: p, status: 'deleted', additions: 0, deletions: lines(from.get(p)!) });
     return files;
   };
   const client: CodeSandboxClient = {
@@ -67,8 +69,10 @@ export function fakeCode(initial: Record<string, string> = {}) {
       return { files, additions: files.reduce((n, f) => n + f.additions, 0), deletions: files.reduce((n, f) => n + f.deletions, 0), baseSha: 'b'.repeat(40) };
     },
     async commit(_s, message) {
-      if (!diff().length) return { sha: null };
+      if (!diff(head).length) return { sha: null };
       state.commits.push(message);
+      head.clear();
+      for (const [p, c] of fs) head.set(p, c);
       return { sha: `${state.commits.length}`.padStart(40, 'c') };
     },
     async push(_s, token) {

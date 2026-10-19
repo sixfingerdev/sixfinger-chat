@@ -77,7 +77,7 @@ adresleri, DNS rebinding dahil reddedilir); yalnızca 80 ve 443 portlarına izin
 npm, PyPI, GitHub, crates.io, Go, Maven, RubyGems, jsDelivr/unpkg/cdnjs, Google Fonts, Playwright (`packages/…/egress.ts`).
 
 **Token güvenliği:** GitHub token'ı yalnızca ilk klonlamada, tek seferlik bir yardımcı konteynere **ortam değişkeni olarak** verilir
-(komut satırına yazılmaz); çalışma alanındaki `.git/config`'te token olmaz ve ajanın konteynerine hiç girmez. **Push da böyle yapılır** (`POST /code/sessions/:id/push|pr`, yalnızca kullanıcı onaylayınca): ajanın yazabildiği `.git` dizinine
+(komut satırına yazılmaz); çalışma alanındaki `.git/config`'te token olmaz ve ajanın konteynerine hiç girmez. **Push da böyle yapılır** (ajan her turun sonunda kendisi iter; elle yeniden deneme: `POST /code/sessions/:id/push|pr`): ajanın yazabildiği `.git` dizinine
 (config, hook, credential helper…) token'lı süreçte **hiç güvenilmez**. `sandboxd`, çalışma alanı **salt okunur** bağlı tek seferlik bir
 yardımcı konteynerde bizim kontrolümüzde boş bir bare git dizini açar; ajanın nesnelerini yalnızca *alternates* ile veri olarak okur ve
 son commit'i `sixfinger/…` branch'ine iter (zorla itme yok). Token yalnızca o konteynerin ortamındadır, çıktılardan temizlenir.
@@ -104,6 +104,15 @@ Sınama: `docker compose logs sandboxd` içinde `Code çıkış proxy'si dinliyo
    (işlev + test yaz, hatayı bul ve düzelt, çok dosyada yeniden adlandır) ajan araçlarıyla dener; geçti/kaldı, adım sayısı, araç hatası ve bozuk
    JSON sayısını yazar. `--runs 3` kararlılığı, `--task N` tek görevi ölçer. Çalışma alanı geçici yerel klasördür (yalıtımsız): yalnızca kendi
    makinende çalıştır. Bozuk JSON/araç hatası oranı yüksekse `services/tools/repair.ts` takma adlarına ve `code-prompt.ts`'e bak.
+
+## PR'ı ajan açar
+
+Ortamda **Otomatik PR** açıkken (varsayılan) ajan her turun sonunda, turda değişiklik olduysa ve kullanıcı turu durdurmadıysa:
+commit'i GitHub'a iter (`sixfinger/…` branch'i, zorla itme yok); oturumun PR'ı yoksa modelin yazdığı başlık ve açıklamayla **PR'ı kendisi açar**
+(ajanın son raporu ve commit listesi modele verilir; açıklamanın sonuna "Created with SixFinger Code" satırı eklenir), varsa aynı PR yeni
+commit'le kendiliğinden güncellenir. Mesajda `pull_request` satırı görünür (açıldı/güncellendi, GitHub'a bağlantı); hata olursa satırdaki
+**Tekrar dene** ile yeniden denenir. Kapalıyken hiçbir şey GitHub'a gönderilmez; PR listesindeki **PR'ı ajan açsın** düğmesi aynı işi tek dokunuşla yapar.
+Kullanıcı elle başlık/açıklama yazmaz.
 
 ## Ortamlar
 
@@ -150,9 +159,8 @@ Hepsi `/api` altında, Bearer token ister. İzin yoksa `403`, GitHub bağlı de�
 | `GET /code/sessions/:id/pulls` | Çalışma branch'indeki PR'lar |
 | `GET /code/sessions/:id/changes` | Değişen dosyalar (+N −M); ajan çalışırken `stale` |
 | `GET /code/sessions/:id/diff?path=` | Başlangıca göre birleşik fark (tüm dosyalar ya da tek dosya) |
-| `GET /code/sessions/:id/pr-draft` | Model yazımı PR başlığı/gövdesi (hiçbir şey itmez) |
 | `POST /code/sessions/:id/push` | Branch'i GitHub'a gönderir (ajan çalışırken `409`) |
-| `POST /code/sessions/:id/pr` `{title, body, draft}` | Önce push, sonra PR açar; zaten açıksa onu döndürür (`existed`) |
+| `POST /code/sessions/:id/pr` | PR'ı ajan açar (başlık/açıklamayı model yazar): push + PR; PR zaten varsa yalnızca push. Otomatik adım başarısız olduğunda ya da ortamda **Otomatik PR** kapalıyken yeniden deneme içindir |
 
 ## Geliştirme
 
