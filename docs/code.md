@@ -248,3 +248,14 @@ Python `os.cpu_count()`, `psutil` ve `/proc/meminfo` hâlâ ana makineyi göster
 Bir Code oturumu silinince (`DELETE /api/code/sessions/:id`, genel `DELETE /api/chats/:id` ya da hesap silme) süren üretim durdurulur ve çalışma alanı
 sandboxd'de **konteyneri ve diskteki klasörüyle birlikte silinir** (`services/code-cleanup.ts`). Sandboxd'ye ulaşılamazsa oturum yine silinir, hata yalnızca
 günlüğe yazılır (kalan klasör `CODE_DATA_DIR/workspaces/` altında elle temizlenebilir).
+
+## Commit'lerde "SixFinger Code" ortak yazarı ve GitHub Contributors
+Ajanın her commit'i `Co-Authored-By: <ad> <e-posta>` ile biter. GitHub, ortak yazarı yalnızca **e-posta bir GitHub hesabına bağlıysa** hesap olarak tanır ve depo sayfasındaki
+**Contributors** listesine ekler (Claude'un `noreply@anthropic.com` ile orada görünmesi bu yüzden). Varsayılan `noreply@sixfinger.live` hiçbir hesaba bağlı olmadığı için liste boş kalır.
+
+Görünmesi için:
+1. SixFinger Code için ayrı bir GitHub hesabı aç (ör. `sixfinger-code`; makine hesabı olarak serbesttir), adı "SixFinger Code", fotoğrafı marka işareti.
+2. Hesabın sayısal kimliğini öğren: `curl https://api.github.com/users/sixfinger-code` → `"id": 12345678`.
+3. Pi'de `.env`: `CODE_COAUTHOR=SixFinger Code <12345678+sixfinger-code@users.noreply.github.com>` ve `docker compose --profile sandbox up -d`.
+(Alternatif: hesaba doğrulanmış bir e-posta ekleyip onu yazmak.) Yalnızca bu değişiklikten **sonraki** commit'ler sayılır; eski commit'lerin satırı değiştirilemez (geçmişi yeniden yazmak gerekir).
+Ajan e-postayı istemden aynen kopyalar; `git config` ile yazar kimliğini kendisi değiştiremez (commit yazarı kullanıcıdır).

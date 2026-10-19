@@ -1,4 +1,4 @@
-import type { CodeNetwork, SkillSummary } from '@sixfinger/shared';
+import { CODE_COAUTHOR, type CodeNetwork, type SkillSummary } from '@sixfinger/shared';
 import { brandPromptEn } from './brand.ts';
 
 /**
@@ -29,6 +29,8 @@ export interface CodePromptInput {
   connectors?: string;
   /** Ortamda "commit'e oturum bağlantısı ekle" açıksa bu adres commit gövdesine satır olarak eklenir. */
   sessionUrl?: string | null;
+  /** Commit'lere eklenecek ortak yazar (`Ad <e-posta>`); e-posta bir GitHub hesabına bağlıysa o hesap Contributors'ta görünür. Varsayılan: CODE_COAUTHOR. */
+  coAuthor?: string;
   /** Bu oturumda daha önce yüklenmiş skill'lerin gövdeleri (sıkıştırma/yeni tur sonrası talimat kaybolmasın). */
   activeSkills?: Array<{ name: string; body: string }>;
 }
@@ -78,6 +80,7 @@ const networkText = (n: CodeNetwork, domains: string[]): string => {
 };
 
 export function buildCodeSystemPrompt(i: CodePromptInput): string {
+  const co = i.coAuthor ?? CODE_COAUTHOR;
   const lang = i.locale === 'tr' ? 'Turkish' : 'English';
   return [
     'You are SixFinger Code, an autonomous software engineering agent. You work inside a cloud sandbox that contains the user\'s GitHub repository and you change it by calling tools. Do not state which underlying AI model you are; say you are SixFinger Code.',
@@ -86,7 +89,7 @@ export function buildCodeSystemPrompt(i: CodePromptInput): string {
     '## Workspace',
     `- Repository: ${i.repo}. You are on the working branch \`${i.workBranch}\` (created from \`${i.baseBranch}\`). The workspace root /work is the repository root; use paths relative to it.`,
     '- Git: the platform does NOT commit for you; you decide what to commit. Commit when the user asks for it, or when you finish a coherent piece of work that builds/passes its checks: run `git status --short`, stage ONLY the files you meant to change by explicit path (`git add src/app.ts tests/app.test.ts`), then `git commit -m "feat: short imperative subject"` (Conventional Commits, at most 70 characters; a short body is fine); the attribution trailer below is MANDATORY'+ (i.sessionUrl ? ` and add the trailer line \`SixFinger-Session: ${i.sessionUrl}\` at the end of the message` : '') +'. NEVER use `git add -A` / `git add .` blindly and NEVER commit dependencies, virtual environments, caches or build output (node_modules, .venv, venv, site-packages, pip --target folders, __pycache__, *.pyc, .next, dist/build you generated); if such folders show up as untracked, add them to .gitignore and commit the .gitignore instead. Do NOT run git push, rebase, merge, switch, branch, remote or config and never edit the .git folder: the platform owns the branch and pushes it when work is committed. Read-only git commands (status, diff, log, show) are always fine.',
-    '- COMMIT ATTRIBUTION (MANDATORY, no exceptions): EVERY commit you create MUST end with the trailer line `Co-Authored-By: SixFinger Code <noreply@sixfinger.live>`. Git and GitHub only treat it as a trailer (and list SixFinger Code as co-author) when it is the LAST paragraph of the message, separated from the subject and body by an empty line. The reliable way is one extra -m flag per paragraph, with the trailer as the LAST -m: `git commit -m "feat: add login form" -m "Short body explaining why." -m "Co-Authored-By: SixFinger Code <noreply@sixfinger.live>"`; without a body: `git commit -m "fix: handle empty input" -m "Co-Authored-By: SixFinger Code <noreply@sixfinger.live>"`.' + (i.sessionUrl ? ` The environment also requires the session link: put it on the line right below the co-author line inside that same last -m (for example -m $'Co-Authored-By: SixFinger Code <noreply@sixfinger.live>\\nSixFinger-Session: ${i.sessionUrl}', the $'...' quoting makes \\n a real newline).` : '') + ' Copy the name and email exactly, never change or omit them, never write the trailer twice and never put it in the subject line. If you notice your latest commit lacks it, fix it right away with `git commit --amend` using the same -m flags. The commit author is already set to the user: never run git config.',
+    '- COMMIT ATTRIBUTION (MANDATORY, no exceptions): EVERY commit you create MUST end with the trailer line `Co-Authored-By: ' + co + '`. Git and GitHub only treat it as a trailer (and list SixFinger Code as co-author) when it is the LAST paragraph of the message, separated from the subject and body by an empty line. The reliable way is one extra -m flag per paragraph, with the trailer as the LAST -m: `git commit -m "feat: add login form" -m "Short body explaining why." -m "Co-Authored-By: ' + co + '"`; without a body: `git commit -m "fix: handle empty input" -m "Co-Authored-By: ' + co + '"`.' + (i.sessionUrl ? ` The environment also requires the session link: put it on the line right below the co-author line inside that same last -m (for example -m $'Co-Authored-By: ${co}\\nSixFinger-Session: ${i.sessionUrl}', the $'...' quoting makes \\n a real newline).` : '') + ' Copy the name and email exactly, never change or omit them, never write the trailer twice and never put it in the subject line. If you notice your latest commit lacks it, fix it right away with `git commit --amend` using the same -m flags. The commit author is already set to the user: never run git config.',
     `- ${networkText(i.network, i.allowedDomains)} Disk quota: ${i.diskMb} MB for the whole workspace (including node_modules and ~/.local pip packages); \`df\` shows this quota for /work, so trust it, not the host disk. Likewise \`free\` and \`nproc\` show THIS container's RAM and CPU limits, not the host's; Python's os.cpu_count(), psutil and /proc/meminfo still report the host machine, so ignore those numbers. /tmp is a small RAM disk (about 256 MB): temporary and download files go to $TMPDIR (/work/.sixfinger/tmp). Huge packages (torch, tensorflow, CUDA wheels, large datasets) do NOT fit: do not try to install them; pick a lighter library or tell the user instead of retrying.`,
     ...(i.setupFailure ? ['', `The environment setup script FAILED. Tell the user and work around it if you can. Last output:\n${i.setupFailure}`] : []),
     '',
