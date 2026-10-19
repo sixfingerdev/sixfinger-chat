@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Text as RNText, View, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
-import { ArrowDown } from 'lucide-react-native';
+import { ArrowDown, FileText } from 'lucide-react-native';
 import { messageParts, type MessageDTO, type MessagePartDTO } from '@sixfinger/shared';
 import { radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
@@ -29,6 +29,18 @@ function UserBubble({ msg }: { msg: MessageDTO }) {
   const { c } = useTheme();
   return (
     <Animated.View entering={FadeInDown.duration(220)} style={{ alignItems: 'flex-end', paddingHorizontal: 16, paddingVertical: 8 }}>
+      {msg.attachments.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', marginBottom: 6 }}>
+          {msg.attachments.map((a, i) => (
+            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 30, paddingHorizontal: 10, borderRadius: radius.sm, backgroundColor: c.surface2, borderWidth: 1, borderColor: c.line, maxWidth: 220 }}>
+              <FileText size={14} color={c.text2} />
+              <RNText numberOfLines={1} style={[type.small, { color: c.text2, flexShrink: 1 }]}>
+                {a.name}
+              </RNText>
+            </View>
+          ))}
+        </View>
+      )}
       <View style={{ maxWidth: '88%', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderBottomRightRadius: 6, backgroundColor: c.surface2, borderWidth: 1, borderColor: c.line }}>
         <RNText selectable style={[type.body, { color: c.text }]}>
           {msg.content}

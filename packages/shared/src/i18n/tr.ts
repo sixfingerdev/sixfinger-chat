@@ -516,6 +516,9 @@ export const tr = {
   'code.session.archivedEmpty': 'Arşivde oturum yok.',
   'code.session.noMatch': 'Eşleşen oturum yok.',
   'code.session.pinned': 'Sabitli',
+  'code.notify.done': 'Görev tamamlandı.',
+  'code.notify.waiting': 'Yanıtını bekliyor.',
+  'code.notify.failed': 'Tur hatayla bitti.',
   'code.session.menu': 'Oturum menüsü',
 } as const;
 

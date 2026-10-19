@@ -504,5 +504,8 @@ export const en: Record<DictKey, string> = {
   'code.session.archivedEmpty': 'No archived sessions.',
   'code.session.noMatch': 'No matching sessions.',
   'code.session.pinned': 'Pinned',
+  'code.notify.done': 'Task finished.',
+  'code.notify.waiting': 'Waiting for your answer.',
+  'code.notify.failed': 'The turn ended with an error.',
   'code.session.menu': 'Session menu',
 };

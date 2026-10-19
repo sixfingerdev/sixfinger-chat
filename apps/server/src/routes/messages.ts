@@ -448,7 +448,6 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const isCode = chat.kind === 'code';
         if (isCode) {
           if (!code.isAllowed(user)) throw forbidden('Code için erişimin yok.');
-          if (body.attachments?.length) throw badRequest('Code oturumlarına dosya eklenemez; dosyalar repoda yer alır.');
         }
 
         if (body.content.length > user.limits.maxMessageChars) {

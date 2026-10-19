@@ -533,6 +533,16 @@ export const CodeMessage = memo(function CodeMessage({ msg, streaming, actions, 
   if (msg.role === 'user') {
     return (
       <div className="msg msg-user">
+        {msg.attachments.length > 0 && (
+          <div className="msg-attachments">
+            {msg.attachments.map((a, i) => (
+              <span key={i} className="file-chip" title={a.name}>
+                <FileText size={14} />
+                <span>{a.name}</span>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="bubble">{msg.content}</div>
       </div>
     );

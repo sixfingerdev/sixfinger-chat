@@ -372,10 +372,16 @@ describe('Code ajan döngüsü: hata, durdurma, kuyruk', () => {
     await first;
   });
 
-  it('Code mesajında dosya eki reddedilir', async () => {
+  it('Code mesajına metin eki eklenebilir: modele <ek> bloğu olarak gider, mesajda saklanır', async () => {
     const { a, s } = await prepared();
-    const r = await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/messages`, headers: auth(a), payload: { content: 'x', attachments: [{ name: 'a.txt', text: 'x' }] } });
-    expect(r.statusCode).toBe(400);
+    env.ai.steps = [text('okudum')];
+    const r = await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/messages`, headers: auth(a), payload: { content: 'Bu hatayı düzelt', attachments: [{ name: 'hata.log', text: 'TypeError: x is undefined' }] } });
+    expect(r.statusCode).toBe(200);
+    const sent = agentCalls()[0]!.messages.find((m) => m.role === 'user')!.content as string;
+    expect(sent).toContain('<ek ad="hata.log">');
+    expect(sent).toContain('TypeError: x is undefined');
+    const d = await detail(a, s.chatId);
+    expect(d.messages.find((m: { role: string }) => m.role === 'user').attachments).toHaveLength(1);
   });
 
   it('çalışan oturumun durumu "running" görünür; üretim yokken takılı kalan "running" düzeltilir', async () => {

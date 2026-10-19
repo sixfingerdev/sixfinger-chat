@@ -4,11 +4,13 @@ import type { CodeEnvironmentDTO, CodeSessionDTO, CodeStatusDTO } from '@sixfing
 import { api, ApiError } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { translate } from '../lib/i18n/index.ts';
+import type { PendingAttachment } from '../lib/types.ts';
 import { useUi } from './ui.ts';
 
 export interface QueuedMessage {
   text: string;
   plan: boolean;
+  attachments?: PendingAttachment[];
 }
 
 interface CodeState {

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { CodeEnvironmentDTO, CodeSessionDTO, CodeStatusDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
+import type { PendingAttachment } from '../lib/types.ts';
 
 const DRAFT_KEY = 'sf.code.draft';
 
@@ -23,6 +24,7 @@ function readDraft(): CodeDraft {
 export interface QueuedMessage {
   text: string;
   plan: boolean;
+  attachments?: PendingAttachment[];
 }
 
 interface CodeState {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, ListChecks, Square, X } from 'lucide-react';
+import { ArrowUp, FileText, ListChecks, Paperclip, Square, X } from 'lucide-react';
 import {
   BUILTIN_COMMANDS,
   activeMention,
@@ -13,9 +13,13 @@ import {
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { clsx } from '../lib/format.ts';
+import { ACCEPT_ATTR, readTextFile } from '../lib/files.ts';
+import { ensureNotifyPermission } from '../lib/notify.ts';
+import type { PendingAttachment } from '../lib/types.ts';
 import { useT } from '../lib/i18n/index.ts';
 import { useChats } from '../store/chats.ts';
 import { useCode } from '../store/code.ts';
+import { useUi } from '../store/ui.ts';
 
 /** Code oturumunun yazma alanı: slash komutları, @dosya, plan anahtarı ve ajan çalışırken mesaj kuyruğu. */
 export function CodeComposer({ session, generating, focusSignal }: { session: CodeSessionDTO | null; generating: boolean; focusSignal: number }) {
@@ -29,6 +33,10 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
   const [files, setFiles] = useState<string[] | null>(null);
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState('');
+  const [attached, setAttached] = useState<PendingAttachment[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const limits = useUi((s) => s.config?.limits);
+  const maxAttachments = limits?.maxAttachments ?? 0;
 
   useEffect(() => {
     if (focusSignal) area.current?.focus();
@@ -78,10 +86,27 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
     };
   }, [chatId, mention?.query, generating]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const addFiles = async (list: FileList) => {
+    const ui = useUi.getState();
+    const room = maxAttachments - attached.length;
+    if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.attachMax', { n: maxAttachments }) });
+    const next: PendingAttachment[] = [];
+    for (const f of Array.from(list).slice(0, room)) {
+      const r = await readTextFile(f);
+      if (!r.ok) {
+        ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: f.name }) });
+        continue;
+      }
+      if (r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: f.name, n: r.file.text.length }) });
+      next.push(r.file);
+    }
+    if (next.length) setAttached((cur) => [...cur, ...next]);
+  };
+
   const describe = (c: SlashCommand) => (c.source === 'builtin' ? t(`code.slash.${c.name}` as DictKey) : c.description || t('code.slash.repo'));
 
   /** Tek bir mesajı (komut ya da düz metin) çalıştırır; ajan çalışıyorsa kuyruğa alır. */
-  const dispatch = async (raw: string, planOn: boolean) => {
+  const dispatch = async (raw: string, planOn: boolean, atts: PendingAttachment[]) => {
     if (!chatId) return;
     const slash = parseSlash(raw);
     const cmd = slash ? all.find((c) => c.name === slash.name) : undefined;
@@ -107,26 +132,29 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
       } else if (cmd.template) content = expandTemplate(cmd.template, slash.args);
     }
     if (useChats.getState().generating[chatId]) {
-      useCode.getState().enqueue(chatId, { text: content, plan: usePlan });
+      useCode.getState().enqueue(chatId, { text: content, plan: usePlan, attachments: atts });
       return;
     }
-    void useChats.getState().send({ content, chatId, planMode: usePlan });
+    void useChats.getState().send({ content, chatId, planMode: usePlan, attachments: atts });
   };
 
   const submit = () => {
     const content = text.trim();
     if (!content || !chatId) return;
+    ensureNotifyPermission();
+    const atts = attached;
     setText('');
+    setAttached([]);
     setDismissed('');
     requestAnimationFrame(grow);
-    void dispatch(content, plan);
+    void dispatch(content, plan, atts);
   };
 
   // Tur bitince kuyruktaki ilk mesaj gönderilir.
   useEffect(() => {
     if (generating || !chatId) return;
     const next = useCode.getState().takeQueued(chatId);
-    if (next) void useChats.getState().send({ content: next.text, chatId, planMode: next.plan });
+    if (next) void useChats.getState().send({ content: next.text, chatId, planMode: next.plan, attachments: next.attachments });
   }, [generating, chatId, queue.length]);
 
   const pickCommand = (c: SlashCommand) => {
@@ -175,13 +203,29 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
             {queue.map((q, i) => (
               <li key={i}>
                 <span className="queue-tag">{t('code.queue.title')}</span>
-                <span className="queue-text">{q.text}</span>
+                <span className="queue-text">
+                  {!!q.attachments?.length && <Paperclip size={12} style={{ marginRight: 4, verticalAlign: -1 }} />}
+                  {q.text}
+                </span>
                 <button className="icon-btn sm" aria-label={t('code.queue.remove')} onClick={() => chatId && useCode.getState().removeQueued(chatId, i)}>
                   <X size={14} />
                 </button>
               </li>
             ))}
           </ul>
+        )}
+        {attached.length > 0 && (
+          <div className="composer-files">
+            {attached.map((f, i) => (
+              <span key={`${f.name}-${i}`} className="file-chip removable" title={f.name}>
+                <FileText size={14} />
+                <span>{f.name}</span>
+                <button aria-label={t('common.delete')} onClick={() => setAttached((cur) => cur.filter((_, j) => j !== i))}>
+                  <X size={13} />
+                </button>
+              </span>
+            ))}
+          </div>
         )}
         <textarea
           ref={area}
@@ -224,6 +268,24 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
           }}
         />
         <div className="composer-bar">
+          {limits?.features.attachments && (
+            <>
+              <input
+                ref={fileInput}
+                type="file"
+                hidden
+                multiple
+                accept={ACCEPT_ATTR}
+                onChange={(e) => {
+                  if (e.target.files) void addFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <button className="icon-btn" title={t('composer.attach')} aria-label={t('composer.attach')} onClick={() => fileInput.current?.click()}>
+                <Paperclip size={18} />
+              </button>
+            </>
+          )}
           <button
             className={clsx('plan-toggle', plan && 'on')}
             aria-pressed={plan}

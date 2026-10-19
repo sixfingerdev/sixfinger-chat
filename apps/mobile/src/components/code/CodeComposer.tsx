@@ -2,15 +2,18 @@ import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { ScrollView, Text as RNText, TextInput, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowUp, GitBranch, ListChecks, Square, X } from 'lucide-react-native';
+import { ArrowUp, FileText, GitBranch, ListChecks, Paperclip, Square, X } from 'lucide-react-native';
 import { BUILTIN_COMMANDS, activeMention, expandTemplate, matchCommands, parseSlash, type CodeSessionDTO, type DictKey, type SlashCommand } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { api } from '../../lib/api.ts';
 import { reportError } from '../../lib/errors.ts';
+import { pickTextFiles } from '../../lib/files.ts';
 import { haptic } from '../../lib/haptics.ts';
+import type { PendingAttachment } from '../../lib/types.ts';
 import { useT } from '../../lib/i18n/index.ts';
 import { useChats } from '../../store/chats.ts';
 import { useCode } from '../../store/code.ts';
+import { useUi } from '../../store/ui.ts';
 import { Press } from '../Ui.tsx';
 import { GithubMark } from './CodeUi.tsx';
 
@@ -30,6 +33,8 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
   const input = useRef<ComponentRef<typeof TextInput>>(null);
   const [repoCmds, setRepoCmds] = useState<SlashCommand[]>([]);
   const [files, setFiles] = useState<string[] | null>(null);
+  const [attached, setAttached] = useState<PendingAttachment[]>([]);
+  const limits = useUi((s) => s.config?.limits);
 
   useEffect(() => {
     if (focusSignal) input.current?.focus();
@@ -76,8 +81,24 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
 
   const describe = (x: SlashCommand) => (x.source === 'builtin' ? t(`code.slash.${x.name}` as DictKey) : x.description || t('code.slash.repo'));
 
+  const attach = async () => {
+    const ui = useUi.getState();
+    const room = (limits?.maxAttachments ?? 0) - attached.length;
+    if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.attachMax', { n: limits?.maxAttachments ?? 0 }) });
+    const next: PendingAttachment[] = [];
+    for (const r of await pickTextFiles(room)) {
+      if (!r.ok) {
+        ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: r.name }) });
+        continue;
+      }
+      if (r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: r.file.name, n: r.file.text.length }) });
+      next.push(r.file);
+    }
+    if (next.length) setAttached((cur) => [...cur, ...next]);
+  };
+
   /** Tek bir mesajı (komut ya da düz metin) çalıştırır; ajan çalışıyorsa kuyruğa alır. */
-  const dispatch = async (raw: string, planOn: boolean) => {
+  const dispatch = async (raw: string, planOn: boolean, atts: PendingAttachment[]) => {
     const slash = parseSlash(raw);
     const cmd = slash ? all.find((x) => x.name === slash.name) : undefined;
     let content = raw;
@@ -102,10 +123,10 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
       } else if (cmd.template) content = expandTemplate(cmd.template, slash.args);
     }
     if (useChats.getState().generating[chatId]) {
-      useCode.getState().enqueue(chatId, { text: content, plan: usePlan });
+      useCode.getState().enqueue(chatId, { text: content, plan: usePlan, attachments: atts });
       return;
     }
-    void useChats.getState().send({ content, chatId, planMode: usePlan });
+    void useChats.getState().send({ content, chatId, planMode: usePlan, attachments: atts });
   };
 
   const canSend = ready && Boolean(value.trim());
@@ -113,16 +134,18 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
     if (!canSend) return;
     haptic.tap();
     const content = value.trim();
+    const atts = attached;
     update('');
+    setAttached([]);
     drafts.delete(chatId);
-    void dispatch(content, plan);
+    void dispatch(content, plan, atts);
   };
 
   // Tur bitince kuyruktaki ilk mesaj gönderilir.
   useEffect(() => {
     if (busy) return;
     const next = useCode.getState().takeQueued(chatId);
-    if (next) void useChats.getState().send({ content: next.text, chatId, planMode: next.plan });
+    if (next) void useChats.getState().send({ content: next.text, chatId, planMode: next.plan, attachments: next.attachments });
   }, [busy, chatId, queue.length]);
 
   const scale = useSharedValue(1);
@@ -182,6 +205,7 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
           <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: c.surface3 }}>
             <RNText style={{ fontFamily: fonts.sans, fontSize: 11.5, color: c.text3 }}>{t('code.queue.title')}</RNText>
           </View>
+          {!!q.attachments?.length && <Paperclip size={13} color={c.text3} />}
           <RNText numberOfLines={1} style={{ flex: 1, fontFamily: fonts.sans, fontSize: 13, color: c.text2 }}>
             {q.text}
           </RNText>
@@ -191,7 +215,28 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
         </View>
       ))}
 
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: plan || focused ? c.accent : c.lineStrong, paddingLeft: 16, paddingRight: 8, paddingVertical: 8 }}>
+      {attached.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 4 }}>
+          {attached.map((f, i) => (
+            <View key={`${f.name}-${i}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 32, paddingLeft: 10, paddingRight: 4, borderRadius: radius.sm, backgroundColor: c.surface2, borderWidth: 1, borderColor: c.line, maxWidth: 230 }}>
+              <FileText size={14} color={c.text2} />
+              <RNText numberOfLines={1} style={{ flexShrink: 1, fontFamily: fonts.sans, fontSize: 13, color: c.text }}>
+                {f.name}
+              </RNText>
+              <Press scale={0.85} haptics="tap" hitSlop={8} onPress={() => setAttached((cur) => cur.filter((_, j) => j !== i))} style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}>
+                <X size={13} color={c.text2} />
+              </Press>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: plan || focused ? c.accent : c.lineStrong, paddingLeft: limits?.features.attachments ? 6 : 16, paddingRight: 8, paddingVertical: 8 }}>
+        {limits?.features.attachments && (
+          <Press accessibilityLabel={t('composer.attach')} haptics="tap" scale={0.88} onPress={() => void attach()} style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}>
+            <Paperclip size={20} color={c.text2} />
+          </Press>
+        )}
         <TextInput
           ref={input}
           value={value}
