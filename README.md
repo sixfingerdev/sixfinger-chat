@@ -67,23 +67,24 @@ Yapay zekâ sağlayıcıları (`apps/server/src/services/ai.ts`). Her mod, yapı
 | Kilo | `minimax/minimax-m3.1-flash:free` — ücretsiz, anahtarsız | `KILO_BASE_URL`, `KILO_MODEL`, `KILO_API_KEY` |
 | OVH AI Endpoints | `Qwen3.8-27B` (Derin; Code'un ana modeli) ve `gpt-oss-120b` (Dengeli) | `AI_DEEP_*`, `AI_BALANCED_*` |
 | Amazon Bedrock | Claude (isteğe bağlı yedek, bkz. [docs/bedrock.md](docs/bedrock.md)) | `BEDROCK_*` |
+| llmtr.com | `qwen/qwen3.8-27b-free` (OVH Qwen'in aynı modelle yedeği) ve `nvidia/nemotron-3.5-super-vl-free` — ücretsiz, anahtar gerekir | `LLMTR_API_KEY`, `LLMTR_QWEN_MODEL`, `LLMTR_NEMOTRON_MODEL` |
 | Pollinations | `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
 
-Güç sırası: DeepSeek > GLM > Qwen > MiniMax = Claude > gpt-oss-120b > gpt-oss-20b. Hız sırası: DeepSeek > MiniMax > diğerleri (eşit). Modların başındaki model sabit (Hızlı: MiniMax, Dengeli: gpt-oss-120b, Derin: DeepSeek); gerisi güç/hız sırasına göre dizilir:
+Güç sırası: DeepSeek > GLM > Qwen > MiniMax = Claude > Nemotron 3.5 > gpt-oss-120b > gpt-oss-20b (Nemotron'un yeri Artificial Analysis'e göre: Zeka Endeksi 26, gpt-oss-120b'nin 12'sinden yüksek, DeepSeek V4.1 Flash'ın 39'undan düşük; hız 435 token/sn ile en hızlısı). Hız sırası: DeepSeek > MiniMax > diğerleri (eşit). Modların başındaki model sabit (Hızlı: MiniMax, Dengeli: gpt-oss-120b, Derin: DeepSeek); gerisi güç/hız sırasına göre dizilir:
 
 | Mod | Sıra |
 |---|---|
-| Hızlı | **MiniMax** → DeepSeek → GLM → Qwen → gpt-oss-120b → gpt-oss-20b → Claude |
-| Dengeli | **gpt-oss-120b** → MiniMax → GLM → DeepSeek → Qwen → Claude → gpt-oss-20b |
-| Derin | DeepSeek → GLM → Qwen → MiniMax → Claude → gpt-oss-120b → gpt-oss-20b |
+| Hızlı | **MiniMax** → DeepSeek → GLM → Qwen → Qwen (llmtr) → Nemotron 3.5 → gpt-oss-120b → gpt-oss-20b → Claude |
+| Dengeli | **gpt-oss-120b** → MiniMax → GLM → DeepSeek → Qwen → Qwen (llmtr) → Claude → Nemotron 3.5 → gpt-oss-20b |
+| Derin | DeepSeek → GLM → Qwen → Qwen (llmtr) → MiniMax → Claude → Nemotron 3.5 → gpt-oss-120b → gpt-oss-20b |
 
 Yapılandırılmamış sağlayıcılar (`*_BASE_URL` boş, Bedrock yok) atlanır; `AI_FREE_ENABLED=false` DeepSeek/GLM/MiniMax'i zincirden çıkarır. Başlık üretimi ve hafıza gibi arka plan işleri de aynı zinciri kullanır.
 Hepsi OpenAI uyumlu uçlardır. `reasoning_effort` destekleyen modellere her zaman en yüksek düzey gider (gpt-oss: `high`, DeepSeek/GLM/MiniMax: `max`; Qwen göndermez — bununla boş yanıt verir); menüdeki düşünme düzeyi bunlarda etkisizdir, `AI_MAX_EFFORT=false` kullanıcının seçtiği düzeye döner.
 
 **Ücretsiz sağlayıcıların koruması:** `LLM7_API_KEY` isteğe bağlıdır; anahtar reddedilir (401/402/403) ya da kotası dolarsa (429) 10 dakika anahtarsız denenir; ≥ 1 dk beklemesi istenen uç o süre atlanır.
 
-**Code model seçimi:** Code yazma alanında **Hızlı** / **Derin** seçilir (cihazda hatırlanır; sıraya eklenen mesaj kendi seçimini taşır). Hızlı = hız öncelikli: MiniMax → DeepSeek → GLM → Qwen → Claude.
-Derin = güç öncelikli: DeepSeek → GLM → Qwen → Claude. Arayüz model adını göstermez. `AI_FREE_FOR_CODE=false` (depo içeriği üçüncü taraf ücretsiz servislere gitmesin) ikisini de Qwen → Claude yapar. Başlangıç: Derin.
+**Code model seçimi:** Code yazma alanında **Hızlı** / **Derin** seçilir (cihazda hatırlanır; sıraya eklenen mesaj kendi seçimini taşır). Hızlı = hız öncelikli: MiniMax → DeepSeek → GLM → Qwen → Qwen (llmtr) → Claude.
+Derin = güç öncelikli: DeepSeek → GLM → Qwen → Qwen (llmtr) → Claude. Nemotron 3.5 Code'a girmez (ajan işi için zayıf). Arayüz model adını göstermez. `AI_FREE_FOR_CODE=false` (depo içeriği üçüncü taraf ücretsiz servislere gitmesin) ikisini de Qwen → Claude yapar. Başlangıç: Derin.
 
 **Web arama:** `web_search` önce kendi sunucundaki **SearXNG**'ye sorar (`docker-compose.yml`'deki `searxng` servisi, `searxng/settings.yml`: Google, Bing, DuckDuckGo, Brave, Startpage, Qwant, Mojeek, Vikipedi, GitHub,
 Stack Overflow birleşik sonuç; anahtar gerekmez, dışarıya açılmaz). Yanıt vermezse (bir dakika boyunca tekrar denenmez) DuckDuckGo ve Bing **birlikte** sorulur ve sıralamaları birleştirilir. `SEARXNG_URL=` boşsa yalnızca bu yedek kullanılır.

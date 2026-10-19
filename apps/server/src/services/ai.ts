@@ -384,6 +384,13 @@ export function createAi(
     if (g) free.push({ name: 'glm', ai: g });
     if (k) free.push({ name: 'minimax', ai: k });
   }
+  // llmtr.com'daki ücretsiz modeller (anahtar gerekir). Qwen: OVH Qwen'in aynı modelle yedeği (effort göndermez); Nemotron 3.5: düşük güçlü ama hızlı son yedek.
+  const llmtr = (model: string) =>
+    config.AI_FREE_ENABLED && config.LLMTR_API_KEY && config.LLMTR_BASE_URL && model
+      ? createEndpoint({ baseUrl: config.LLMTR_BASE_URL, model, apiKey: config.LLMTR_API_KEY, sendEffort: false }, config, log, fetchImpl)
+      : undefined;
+  const qwenLlmtr = llmtr(config.LLMTR_QWEN_MODEL);
+  const nemotron = llmtr(config.LLMTR_NEMOTRON_MODEL);
   const backup = bedrockImpl ?? (bedrockConfigured(config) ? createBedrock(config) : undefined);
 
   /** Code'da Claude yedeğinin tüm kullanıcılar için günlük token tavanı (Bedrock harcamasını korur). */
@@ -401,31 +408,34 @@ export function createAi(
     if (route === 'code') {
       // Kullanıcının seçtiği model: Hızlı = hız öncelikli (MiniMax önde), Derin = güç öncelikli (DeepSeek > GLM > Qwen > Claude).
       // Ücretsiz üçüncü taraf modeller yalnızca `AI_FREE_FOR_CODE` açıksa girer; kapalıyken ikisi de Qwen → Claude'dur.
-      const codeOrder = mode === 'fast' ? ['minimax', 'deepseek', 'glm', 'qwen', 'claude'] : ['deepseek', 'glm', 'qwen', 'claude'];
+      const codeOrder = mode === 'fast' ? ['minimax', 'deepseek', 'glm', 'qwen', 'qwenllmtr', 'claude'] : ['deepseek', 'glm', 'qwen', 'qwenllmtr', 'claude'];
       const codePool: Record<string, { name: string; ai: AiProvider } | undefined> = {
         minimax: config.AI_FREE_FOR_CODE ? free.find((f) => f.name === 'minimax') : undefined,
         deepseek: config.AI_FREE_FOR_CODE ? free.find((f) => f.name === 'deepseek') : undefined,
         glm: config.AI_FREE_FOR_CODE ? free.find((f) => f.name === 'glm') : undefined,
         qwen: deep && { name: 'qwen', ai: deep },
+        qwenllmtr: config.AI_FREE_FOR_CODE && qwenLlmtr ? { name: 'qwen-llmtr', ai: qwenLlmtr } : undefined,
         claude: backup && { name: 'claude', ai: backup },
       };
       return codeOrder.map((k) => codePool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
     }
-    // Güç: DeepSeek > GLM > Qwen > MiniMax = Claude > gpt-oss-120b > gpt-oss-20b (Pollinations). Hız: DeepSeek > MiniMax > diğerleri eşit.
+    // Güç: DeepSeek > GLM > Qwen > MiniMax = Claude > Nemotron 3.5 > gpt-oss-120b > gpt-oss-20b (Pollinations). Qwen'in yedeği llmtr'deki aynı modeldir. Hız: DeepSeek > MiniMax > diğerleri eşit.
     // Hızlı: başta MiniMax (hızlı ve ücretsiz), ardından hız sırası. Dengeli: gpt-oss-120b → MiniMax → GLM, sonra kalanlar. Derin: güç sırası. Ücretsizler ücretli Claude'dan önce gelir.
     const pool: Record<string, { name: string; ai: AiProvider } | undefined> = {
       deepseek: free.find((f) => f.name === 'deepseek'),
       glm: free.find((f) => f.name === 'glm'),
       minimax: free.find((f) => f.name === 'minimax'),
       qwen: deep && { name: 'deep', ai: deep },
+      qwenllmtr: qwenLlmtr && { name: 'qwen-llmtr', ai: qwenLlmtr },
+      nemotron: nemotron && { name: 'nemotron', ai: nemotron },
       claude: backup && { name: 'bedrock', ai: backup },
       gptoss120: balanced && { name: 'balanced', ai: balanced },
       gptoss20: { name: 'fast', ai: fast },
     };
     const ORDER: Record<ChatMode, string[]> = {
-      fast: ['minimax', 'deepseek', 'glm', 'qwen', 'gptoss120', 'gptoss20', 'claude'],
-      balanced: ['gptoss120', 'minimax', 'glm', 'deepseek', 'qwen', 'claude', 'gptoss20'],
-      deep: ['deepseek', 'glm', 'qwen', 'minimax', 'claude', 'gptoss120', 'gptoss20'],
+      fast: ['minimax', 'deepseek', 'glm', 'qwen', 'qwenllmtr', 'nemotron', 'gptoss120', 'gptoss20', 'claude'],
+      balanced: ['gptoss120', 'minimax', 'glm', 'deepseek', 'qwen', 'qwenllmtr', 'claude', 'nemotron', 'gptoss20'],
+      deep: ['deepseek', 'glm', 'qwen', 'qwenllmtr', 'minimax', 'claude', 'nemotron', 'gptoss120', 'gptoss20'],
     };
     return ORDER[mode ?? 'fast'].map((k) => pool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
   };

@@ -54,6 +54,14 @@ const schema = z.object({
   LLM7_API_KEY: z.string().optional().default(''),
   LLM7_MODEL: z.string().default('DeepSeek-V4-Flash-0731'),
   LLM7_MODEL_2: z.string().default('GLM-5.3-Flash'),
+  /**
+   * llmtr.com (OpenAI uyumlu toplayıcı) üzerindeki ÜCRETSİZ modeller; anahtar gerekir, boşsa kapalıdır. Qwen 3.8 (OVH Qwen'in yedeği, aynı model) ve
+   * Nemotron 3.5 Super VL (güç sırasında Claude'dan sonra, gpt-oss'tan önce). Yeni hesaplarda günlük ücretsiz kota düşüktür (429 gelirse uç bir süre atlanır).
+   */
+  LLMTR_API_KEY: z.string().optional().default(''),
+  LLMTR_BASE_URL: z.string().default('https://llmtr.com/v1/chat/completions'),
+  LLMTR_QWEN_MODEL: z.string().default('qwen/qwen3.8-27b-free'),
+  LLMTR_NEMOTRON_MODEL: z.string().default('nvidia/nemotron-3.5-super-vl-free'),
   KILO_BASE_URL: z.string().default('https://api.kilo.ai/api/gateway/chat/completions'),
   KILO_API_KEY: z.string().optional().default(''),
   KILO_MODEL: z.string().default('minimax/minimax-m3.1-flash:free'),
