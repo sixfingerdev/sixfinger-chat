@@ -172,3 +172,45 @@ export function matchSkills(catalog: SkillSummary[], text: string, max = 2): Ski
     .slice(0, max)
     .map((x) => x.s);
 }
+
+// ------------------------------------------------------------------------------------------------ DTO ve GitHub adresi
+
+/** Skill listesi satırı (yerleşik + kullanıcı). */
+export interface SkillListItemDTO {
+  name: string;
+  description: string;
+  source: 'builtin' | 'user';
+  triggers: string[];
+  fileCount: number;
+  /** Kullanıcı skill'i bir yerleşiğin üstüne yazıyor mu? */
+  overrides?: boolean;
+  /** Bağlantıyla paylaşılıyorsa token. */
+  shareToken?: string | null;
+  importedFrom?: string | null;
+  updatedAt?: string;
+}
+
+export interface SkillDetailDTO extends SkillListItemDTO {
+  /** Düzenleyici için tam SKILL.md metni. */
+  markdown: string;
+  body: string;
+  files: Record<string, string>;
+}
+
+/** `https://github.com/o/r/tree/ref/dir`, `…/blob/ref/dir/SKILL.md`, `https://github.com/o/r` ya da `o/r/dir` → depo, ref, klasör yolu. */
+export function parseGithubSkillUrl(input: string): { repo: string; ref?: string; path: string } | null {
+  const s = input.trim().replace(/\.git$/, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+  const url = /^https?:\/\/(?:www\.)?github\.com\/(.+)$/i.exec(s);
+  const parts = (url ? url[1]! : s).split('/').filter(Boolean);
+  if (parts.length < 2 || !/^[A-Za-z0-9_.-]+$/.test(parts[0]!) || !/^[A-Za-z0-9_.-]+$/.test(parts[1]!)) return null;
+  const repo = `${parts[0]}/${parts[1]}`;
+  const rest = parts.slice(2);
+  if (rest[0] === 'tree' || rest[0] === 'blob') {
+    const ref = rest[1];
+    let path = rest.slice(2);
+    if (rest[0] === 'blob' && path.at(-1)?.toLowerCase() === 'skill.md') path = path.slice(0, -1);
+    return ref ? { repo, ref, path: path.join('/') } : null;
+  }
+  const path = rest.join('/');
+  return path.split('/').some((p) => p === '..') ? null : { repo, path };
+}

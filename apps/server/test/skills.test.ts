@@ -317,3 +317,137 @@ describe('skill paketi içeriği', () => {
     for (const b of m.values()) expect(parseSkillMd(`---\nname: ${b.summary.name}\ndescription: ${b.summary.description}\n---\n\n${b.body}`).ok).toBe(true);
   });
 });
+
+describe('Skill API', () => {
+  let env: TestEnv;
+  let tree: Record<string, string | Array<{ type: string; path: string; size: number; name: string }>>;
+  const fetchMock = async (u: string, init?: RequestInit) => {
+    const url = new URL(String(u));
+    const m = /^\/repos\/([^/]+\/[^/]+)\/contents\/(.*)$/.exec(url.pathname);
+    if (!m) return new Response('{}', { status: 404 });
+    const key = `${m[1]}:${decodeURIComponent(m[2]!)}`;
+    const v = tree[key];
+    if (v === undefined) return new Response('{"message":"Not Found"}', { status: 404, headers: { 'content-type': 'application/json' } });
+    const raw = String((init?.headers as Record<string, string> | undefined)?.accept ?? '').includes('raw');
+    if (typeof v === 'string') return raw ? new Response(v) : new Response(JSON.stringify({ type: 'file' }), { headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify(v), { headers: { 'content-type': 'application/json' } });
+  };
+  const ent = (type: string, path: string, size = 50) => ({ type, path, size, name: path.split('/').pop()! });
+  const MD = (name: string, extra = '') => `---\nname: ${name}\ndescription: Skill ${name}. Use when needed.\n${extra}---\n\n# ${name}\nAdım.\n`;
+
+  beforeAll(async () => {
+    const config = loadConfig();
+    const fc = fakeCode();
+    env = await setup([], { code: fc.client }, { config, codeSandbox: fc.client, github: createGithub(config, fetchMock as unknown as typeof fetch) });
+    env.ctx.config.codeAllowed.emails.add('b@example.com');
+  });
+  afterAll(async () => {
+    await env.app.close();
+  });
+  beforeEach(async () => {
+    await resetDb(env.ctx);
+    env.ctx.skills.builtin.clear();
+    env.ctx.skills.builtin.set('hazir', mk('hazir', 'Yerleşik hazır skill', 'hazır gövde', 'builtin', ['x'], { 'references/a.md': 'a' }));
+    tree = {};
+  });
+  const api = (a: Awaited<ReturnType<typeof member>>, method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, payload?: object) => env.app.inject({ method, url: `/api${url}`, headers: auth(a), payload });
+  const user = (email = 'coder@example.com') => member(env, { email });
+
+  it('liste yerleşik + kullanıcıyı verir; kullanıcı skill\'i yerleşiği ezerse overrides işaretlenir; ayrıntı tam SKILL.md ve dosyalarla', async () => {
+    const a = await user();
+    const created = await api(a, 'POST', '/code/skills', { markdown: MD('benim', 'triggers: [oyun, game]\n'), files: { 'references/x.md': 'ek' } });
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ name: 'benim', source: 'user', triggers: ['oyun', 'game'], fileCount: 1 });
+    await api(a, 'POST', '/code/skills', { markdown: MD('hazir') });
+    const list = (await api(a, 'GET', '/code/skills')).json().skills as Array<{ name: string; source: string; overrides?: boolean }>;
+    expect(list.map((s) => `${s.name}:${s.source}${s.overrides ? ':ezer' : ''}`)).toEqual(['benim:user', 'hazir:builtin', 'hazir:user:ezer']);
+    const d = (await api(a, 'GET', '/code/skills/benim')).json();
+    expect(d.markdown).toContain('name: benim');
+    expect(d.files).toEqual({ 'references/x.md': 'ek' });
+    expect((await api(a, 'GET', '/code/skills/hazir?source=builtin')).json()).toMatchObject({ source: 'builtin', body: 'hazır gövde' });
+    expect((await api(a, 'GET', '/code/skills/hazir')).json().source).toBe('user'); // kullanıcınınki öncelikli
+    expect((await api(a, 'GET', '/code/skills/yok')).statusCode).toBe(404);
+  });
+
+  it('doğrulama: bozuk SKILL.md 400, yinelenen ad 409, ad değiştirilemez, kötü dosya yolu 400, başkasının skill\'i görünmez', async () => {
+    const a = await user();
+    const b = await user('b@example.com');
+    expect((await api(a, 'POST', '/code/skills', { markdown: 'başlıksız ve kısa metin' })).statusCode).toBe(400);
+    expect((await api(a, 'POST', '/code/skills', { markdown: MD('x'), files: { '../kacis': 'x' } })).statusCode).toBe(400);
+    expect((await api(a, 'POST', '/code/skills', { markdown: MD('tek') })).statusCode).toBe(201);
+    expect((await api(a, 'POST', '/code/skills', { markdown: MD('tek') })).statusCode).toBe(409);
+    expect((await api(a, 'PUT', '/code/skills/tek', { markdown: MD('baska') })).statusCode).toBe(400);
+    const up = await api(a, 'PUT', '/code/skills/tek', { markdown: MD('tek').replace('Adım.', 'Yeni adım.') });
+    expect(up.statusCode).toBe(200);
+    expect(up.json().body).toContain('Yeni adım.');
+    expect((await api(b, 'GET', '/code/skills/tek')).statusCode).toBe(404);
+    expect((await api(b, 'DELETE', '/code/skills/tek')).statusCode).toBe(404);
+    expect((await api(a, 'DELETE', '/code/skills/tek')).statusCode).toBe(204);
+  });
+
+  it('kullanıcı başına 50 skill sınırı', async () => {
+    const a = await user();
+    for (let i = 0; i < 50; i++) await env.ctx.skills.store.save(a.user.id, { name: `s${i}`, description: 'd', triggers: [], body: 'b', extra: {} }, {});
+    expect((await api(a, 'POST', '/code/skills', { markdown: MD('fazla') })).statusCode).toBe(403);
+    expect((await api(a, 'PUT', '/code/skills/s1', { markdown: MD('s1') })).statusCode).toBe(200); // var olan güncellenebilir
+  });
+
+  it('paylaşım: bağlantı açılır, başka kullanıcı önizler ve içe aktarır (çakışmada 409 → overwrite); kapatılınca geçersiz', async () => {
+    const a = await user();
+    const b = await user('b@example.com');
+    await api(a, 'POST', '/code/skills', { markdown: MD('paylas'), files: { 'scripts/run.sh': 'echo hi' } });
+    const tok = (await api(a, 'POST', '/code/skills/paylas/share', { enabled: true })).json().shareToken as string;
+    expect(tok.length).toBeGreaterThan(16);
+    expect((await api(a, 'POST', '/code/skills/paylas/share', { enabled: true })).json().shareToken).toBe(tok); // kararlı
+    const prev = await api(b, 'GET', `/code/skills/shared/${tok}`);
+    expect(prev.json()).toMatchObject({ name: 'paylas', files: { 'scripts/run.sh': 'echo hi' } });
+    const imp = await api(b, 'POST', `/code/skills/shared/${tok}/import`, {});
+    expect(imp.statusCode).toBe(200);
+    expect(imp.json()).toMatchObject({ name: 'paylas', source: 'user' });
+    expect(imp.json().shareToken).toBeNull(); // kopya kendi başına paylaşılmaz
+    expect((await api(b, 'POST', `/code/skills/shared/${tok}/import`, {})).statusCode).toBe(409);
+    expect((await api(b, 'POST', `/code/skills/shared/${tok}/import`, { overwrite: true })).statusCode).toBe(200);
+    await api(a, 'POST', '/code/skills/paylas/share', { enabled: false });
+    expect((await api(b, 'GET', `/code/skills/shared/${tok}`)).statusCode).toBe(404);
+    expect((await api(a, 'POST', '/code/skills/yok/share', { enabled: true })).statusCode).toBe(404);
+  });
+
+  it('GitHub\'dan içe aktarma: tree adresi, blob/SKILL.md adresi, depo kökünde tek skill; ek dosyalar ve atlananlar', async () => {
+    const a = await user();
+    tree['o/r:skills/foo'] = [ent('file', 'skills/foo/SKILL.md'), ent('dir', 'skills/foo/references'), ent('file', 'skills/foo/big.md', 90_000), ent('file', 'skills/foo/scripts-note.txt')];
+    tree['o/r:skills/foo/SKILL.md'] = MD('foo');
+    tree['o/r:skills/foo/references'] = [ent('file', 'skills/foo/references/api.md')];
+    tree['o/r:skills/foo/references/api.md'] = 'API notları';
+    tree['o/r:skills/foo/scripts-note.txt'] = 'not';
+    const r = await api(a, 'POST', '/code/skills/import', { url: 'https://github.com/o/r/tree/main/skills/foo' });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().imported[0]).toMatchObject({ name: 'foo', source: 'user', importedFrom: 'github:o/r/skills/foo', fileCount: 2 });
+    expect(r.json().skipped).toBe(1); // 90 KB'lık dosya atlandı
+    const d = (await api(a, 'GET', '/code/skills/foo')).json();
+    expect(Object.keys(d.files).sort()).toEqual(['references/api.md', 'scripts-note.txt']);
+    // aynı adres: çakışma 409; blob adresi + overwrite
+    expect((await api(a, 'POST', '/code/skills/import', { url: 'https://github.com/o/r/tree/main/skills/foo' })).statusCode).toBe(409);
+    expect((await api(a, 'POST', '/code/skills/import', { url: 'o/r/skills/foo', overwrite: true })).statusCode).toBe(200);
+    // depo kökünde skills/ altında tek skill
+    tree['o/r:'] = [ent('dir', 'skills')];
+    tree['o/r:skills'] = [ent('dir', 'skills/foo')];
+    const root = await api(a, 'POST', '/code/skills/import', { url: 'https://github.com/o/r', overwrite: true });
+    expect(root.json().imported.map((s: { name: string }) => s.name)).toEqual(['foo']);
+    expect((await api(a, 'POST', '/code/skills/import', { url: 'https://github.com/o/yok' })).statusCode).toBe(404);
+    expect((await api(a, 'POST', '/code/skills/import', { url: 'bu bir adres degil' })).statusCode).toBe(400);
+  });
+
+  it('ortam skillsOff alanı kaydedilir ve doğrulanır', async () => {
+    const a = await user();
+    const e = (await api(a, 'GET', '/code/environments')).json().environments[0];
+    const up = await api(a, 'PATCH', `/code/environments/${e.id}`, { skillsOff: ['hazir', 'Hazir', 'baska'] });
+    expect(up.statusCode).toBe(200);
+    expect(up.json().environment.skillsOff).toEqual(['hazir', 'baska']);
+    expect((await api(a, 'PATCH', `/code/environments/${e.id}`, { skillsOff: ['Geçersiz Ad'] })).statusCode).toBe(400);
+  });
+
+  it('izinsiz kullanıcı 403', async () => {
+    const x = await user('nope@example.com');
+    expect((await api(x, 'GET', '/code/skills')).statusCode).toBe(403);
+  });
+});

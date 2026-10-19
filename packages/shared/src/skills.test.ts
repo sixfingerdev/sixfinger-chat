@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchSkills, parseFrontmatter, parseSkillMd, safeSkillPath, serializeSkillMd, type SkillSummary } from './skills.ts';
+import { matchSkills, parseFrontmatter, parseGithubSkillUrl, parseSkillMd, safeSkillPath, serializeSkillMd, type SkillSummary } from './skills.ts';
 
 const md = (head: string, body = 'Adım 1: yap.') => `---\n${head}\n---\n\n${body}\n`;
 
@@ -67,5 +67,18 @@ describe('skill eşleştirme', () => {
     expect(matchSkills(cat, 'merhaba nasılsın')).toEqual([]);
     expect(matchSkills([], 'oyun yap')).toEqual([]);
     expect(matchSkills(cat, 'oyun hata test csv', 2)).toHaveLength(2);
+  });
+});
+
+describe('GitHub skill adresi', () => {
+  it('tree, blob/SKILL.md, depo kökü ve kısa biçimleri çözer; geçersizleri reddeder', () => {
+    expect(parseGithubSkillUrl('https://github.com/o/r/tree/main/skills/foo')).toEqual({ repo: 'o/r', ref: 'main', path: 'skills/foo' });
+    expect(parseGithubSkillUrl('https://github.com/o/r/blob/v1/skills/foo/SKILL.md?plain=1')).toEqual({ repo: 'o/r', ref: 'v1', path: 'skills/foo' });
+    expect(parseGithubSkillUrl('https://github.com/o/r.git')).toEqual({ repo: 'o/r', path: '' });
+    expect(parseGithubSkillUrl('o/r/.claude/skills/x/')).toEqual({ repo: 'o/r', path: '.claude/skills/x' });
+    expect(parseGithubSkillUrl('o')).toBeNull();
+    expect(parseGithubSkillUrl('o/r/../x')).toBeNull();
+    expect(parseGithubSkillUrl('https://github.com/o/r/tree')).toBeNull();
+    expect(parseGithubSkillUrl('bu bir adres degil')).toBeNull();
   });
 });

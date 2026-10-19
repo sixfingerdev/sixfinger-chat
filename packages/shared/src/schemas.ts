@@ -190,3 +190,12 @@ export const uploadSchema = z.object({ name: z.string().trim().min(1).max(200), 
 export const diffQuery = z.object({ path: z.string().trim().min(1).max(500).optional() });
 export const listReposQuery = z.object({ q: z.string().trim().max(100).optional() });
 export const branchesQuery = z.object({ repo: createCodeSessionSchema.shape.repo });
+
+/** Skill kaydet: tam SKILL.md metni + ek metin dosyaları. */
+export const saveSkillSchema = z.object({
+  markdown: z.string().min(10).max(60_000),
+  files: z.record(z.string().max(60_000)).optional(),
+});
+export const importSkillSchema = z.object({ url: z.string().trim().min(3).max(500), overwrite: z.boolean().optional() });
+export const shareSkillSchema = z.object({ enabled: z.boolean() });
+export const importSharedSkillSchema = z.object({ overwrite: z.boolean().optional() });

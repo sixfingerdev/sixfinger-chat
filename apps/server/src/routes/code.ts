@@ -21,6 +21,7 @@ import type { AppContext } from '../context.ts';
 import type { Guard } from '../guard.ts';
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
+import { registerSkillRoutes } from './code-skills.ts';
 import { mimeOf } from '../lib/mime.ts';
 
 const REPO_CACHE_MS = 60_000;
@@ -301,6 +302,8 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
           .type('application/gzip')
           .send(a.data);
       });
+
+      registerSkillRoutes(authed, ctx);
 
       /** Önizleme bağlantısı: çalışma alanındaki bir dosya (statik artifact) ya da çalışan bir dev-server portu. */
       authed.post<{ Params: { id: string } }>('/code/sessions/:id/preview', async (req) => {
