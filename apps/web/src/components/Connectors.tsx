@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { create } from 'zustand';
 import { Check, ChevronRight, Plug, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import { MCP_LIMITS, fillPresetUrl, mcpHost, mcpLogo, mcpLogoSrc, type McpPresetView, type McpScope, type McpServerDTO } from '@sixfinger/shared';
+import { MCP_LIMITS, fillPresetUrl, mcpHost, mcpLogo, mcpLogoSrc, parseOAuthCallback, type McpPresetView, type McpScope, type McpServerDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
@@ -48,10 +49,82 @@ const AUTH_REQUIRED = 'authorization_required';
 export async function startConnect(server: McpServerDTO): Promise<McpServerDTO | null> {
   const r = await api.mcpConnect(server.id, 'web');
   if (r.authorizeUrl) {
+    // Masaüstü (kopyala-yapıştır) akışı: sayfa değişmez, adres ve yönergeler bir pencerede gösterilir.
+    if (r.manual) {
+      useManualAuth.getState().set({ server: r.server, url: r.authorizeUrl });
+      return null;
+    }
     window.location.assign(r.authorizeUrl);
     return null;
   }
   return r.server;
+}
+
+/** Yalnızca kendi onayladığı yönlendirme adreslerini kabul eden hizmetler için bekleyen yetkilendirme (pencere durumu). */
+export const useManualAuth = create<{ pending: { server: McpServerDTO; url: string } | null; set: (p: { server: McpServerDTO; url: string } | null) => void }>((set) => ({
+  pending: null,
+  set: (pending) => set({ pending }),
+}));
+
+/** Masaüstü akışı: kullanıcı yetkilendirme sayfasını açar, izinden sonra adres çubuğundaki adresi buraya yapıştırır. */
+export function ManualAuthDialog({ onDone }: { onDone: (s: McpServerDTO) => void }) {
+  const t = useT();
+  const pending = useManualAuth((s) => s.pending);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!pending) return null;
+  const close = () => {
+    useManualAuth.getState().set(null);
+    setText('');
+    setError('');
+  };
+  const submit = async () => {
+    const parsed = parseOAuthCallback(text);
+    if (!parsed) return setError(t('mcp.manual.invalid'));
+    if ('error' in parsed) return setError(parsed.error);
+    setBusy(true);
+    setError('');
+    try {
+      const { server } = await api.mcpComplete(parsed.code, parsed.state);
+      close();
+      onDone(server);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('mcp.connectFailed'));
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      title={t('mcp.manual.title')}
+      onClose={close}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={close}>
+            {t('common.cancel')}
+          </button>
+          <button className="btn btn-primary" disabled={busy || !text.trim()} onClick={() => void submit()}>
+            {t('mcp.manual.finish')}
+          </button>
+        </>
+      }
+    >
+      <div className="modal-body">
+        <p>{t('mcp.manual.step1', { name: pending.server.label })}</p>
+        <a className="btn btn-primary btn-sm" href={pending.url} target="_blank" rel="noopener noreferrer">
+          {t('mcp.manual.open')}
+        </a>
+        <p className="muted">{t('mcp.manual.step2')}</p>
+        <div className="field">
+          <label htmlFor="mcp-manual">{t('mcp.manual.step3')}</label>
+          <textarea id="mcp-manual" className="input mono" rows={3} value={text} placeholder={t('mcp.manual.placeholder')} autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(e) => { setText(e.target.value); setError(''); }} />
+          {error && <span className="field-error">{error}</span>}
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 // ------------------------------------------------------------------------------------------------ katalog kartı

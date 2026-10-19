@@ -17,6 +17,7 @@ import { Button, Press } from '../components/Ui.tsx';
 import { Sheet } from '../components/Sheet.tsx';
 import { CodeHeader, SectionLabel } from '../components/code/CodeUi.tsx';
 import { ConnectSheet } from '../components/connectors/ConnectSheet.tsx';
+import { ManualAuthSheet, type PendingManualAuth } from '../components/connectors/ManualAuthSheet.tsx';
 import { Avatar, Pill, StatusChip } from '../components/connectors/ConnectorUi.tsx';
 import { CustomForm } from '../components/connectors/CustomForm.tsx';
 import { ServerSheet } from '../components/connectors/ServerSheet.tsx';
@@ -55,6 +56,7 @@ export default function Connectors() {
   const [q, setQ] = useState('');
   const [detailId, setDetailId] = useState<string | null>(null);
   const [ask, setAsk] = useState<McpPresetView | null>(null);
+  const [manual, setManual] = useState<PendingManualAuth | null>(null);
   const [custom, setCustom] = useState(false);
   /** Bağlanmakta olan kart (katalog kimliği) ya da sunucu (kimlik): düğmede dönen gösterge için. */
   const [busy, setBusy] = useState<string | null>(null);
@@ -121,7 +123,11 @@ export default function Connectors() {
       try {
         const r = await api.mcpConnect(server.id, 'app');
         patchServer(r.server);
-        if (r.authorizeUrl) {
+        if (r.authorizeUrl && r.manual) {
+          // Masaüstü akışı: derin bağlantı dönmez; kullanıcı sayfayı açıp dönen adresi yapıştırır.
+          awaiting.current = false;
+          setManual({ server: r.server, url: r.authorizeUrl });
+        } else if (r.authorizeUrl) {
           awaiting.current = true;
           useUi.getState().toast({ kind: 'info', text: t('mcp.connecting') });
           await Linking.openURL(r.authorizeUrl);
@@ -293,6 +299,17 @@ export default function Connectors() {
       {body}
       <ServerSheet server={detail} onClose={() => setDetailId(null)} onChanged={patchServer} onRemoved={(id) => setData((d) => (d ? { ...d, servers: d.servers.filter((s) => s.id !== id) } : d))} onConnect={startOauth} />
       <ConnectSheet preset={ask} onClose={() => setAsk(null)} onSubmit={(p, input) => void connectPreset(p, input)} />
+      <ManualAuthSheet
+        pending={manual}
+        onClose={() => setManual(null)}
+        onDone={(s) => {
+          setManual(null);
+          patchServer(s);
+          haptic.success();
+          useUi.getState().toast({ kind: 'success', text: t('mcp.connected.toast', { name: s.label }) });
+          void load();
+        }}
+      />
       <Sheet visible={custom} onClose={() => setCustom(false)}>
         <ScrollView style={{ maxHeight: height * 0.74 }} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <CustomForm

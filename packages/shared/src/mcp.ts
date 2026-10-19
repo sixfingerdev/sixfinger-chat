@@ -125,3 +125,26 @@ export function approvalOf(meta: Record<string, unknown> | undefined): McpApprov
 
 /** Onay kartı düğmelerinin ardından modele giden kısa kullanıcı mesajı anahtarları (i18n). */
 export const MCP_APPROVAL_REPLY = { once: 'mcp.approval.approvedMsg', always: 'mcp.approval.approvedMsg', deny: 'mcp.approval.deniedMsg' } as const;
+
+/**
+ * Yalnızca kendi onayladığı yönlendirme adreslerini kabul eden hizmetler (Canva, Asana, Intercom, Vercel, Indeed) için masaüstü (loopback) akışı:
+ * istemci bu adresle kaydolur, izinden sonra tarayıcı buraya (dinleyen kimse yok) yönlenir ve kullanıcı adres çubuğundaki adresi uygulamaya yapıştırır.
+ */
+export const MCP_LOOPBACK_REDIRECT = 'http://127.0.0.1:8976/callback';
+
+/** Yapıştırılan adresten (ya da `code=…&state=…` sorgu dizesinden) yetkilendirme kodunu ve state'i çıkarır. Hizmet hata döndürdüyse `{ error }`. */
+export function parseOAuthCallback(input: string): { code: string; state: string } | { error: string } | null {
+  const text = input.trim();
+  if (!text) return null;
+  let params: URLSearchParams;
+  try {
+    params = new URL(text).searchParams;
+  } catch {
+    params = new URLSearchParams(text.replace(/^[?#]/, ''));
+  }
+  const error = params.get('error');
+  if (error) return { error: params.get('error_description') || error };
+  const code = params.get('code');
+  const state = params.get('state');
+  return code && state ? { code, state } : null;
+}

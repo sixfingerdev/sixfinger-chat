@@ -125,7 +125,9 @@ describe('MCP sunucu yönetimi', () => {
     expect(by.hubspot).toMatchObject({ available: false, reason: 'admin' });
     expect(by.box).toMatchObject({ auth: 'static', available: false, reason: 'admin' });
     // Yönlendirme adresi/istemci kaydı reddedilen hizmetler kullanılamaz görünür
-    for (const id of ['figma', 'asana', 'intercom', 'adobe', 'indeed', 'vercel', 'gamma', 'spotify']) expect(by[id]).toMatchObject({ available: false, reason: 'blocked' });
+    for (const id of ['figma', 'adobe', 'gamma', 'spotify']) expect(by[id]).toMatchObject({ available: false, reason: 'blocked' });
+    // https yönlendirmemizi reddeden ama masaüstü (loopback) adresini kabul eden kartlar: kullanılabilir, kopyala-yapıştır akışıyla bağlanır
+    for (const id of ['canva', 'asana', 'intercom', 'vercel', 'indeed']) expect(by[id]).toMatchObject({ available: true, redirect: 'loopback' });
     expect((await api(a, 'POST', '/mcp/servers', { label: 'Figma', url: by.figma.url, preset: 'figma' })).statusCode).toBe(400);
     expect(by['microsoft-365']).toMatchObject({ available: false, reason: 'soon' });
     // pasif kart eklenemez; static olmayan OAuth kartı eklenir ve "Bağlan" bekler
