@@ -420,7 +420,7 @@ export function createAi(
       return codeOrder.map((k) => codePool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
     }
     // Güç: DeepSeek > GLM > Qwen > MiniMax = Claude > Nemotron 3.5 > gpt-oss-120b > gpt-oss-20b (Pollinations). Qwen'in yedeği llmtr'deki aynı modeldir. Hız: DeepSeek > MiniMax > diğerleri eşit.
-    // Hızlı: başta MiniMax (hızlı ve ücretsiz), ardından hız sırası. Dengeli: gpt-oss-120b → MiniMax → GLM, sonra kalanlar. Derin: güç sırası. Ücretsizler ücretli Claude'dan önce gelir.
+    // Hızlı: MiniMax → DeepSeek → Nemotron (en hızlısı), sonra güç sırası. Dengeli: gpt-oss-120b → MiniMax → GLM, sonra kalanlar. Derin: güç sırası. Ücretli Claude HER ZAMAN en sonda: tek paralı sağlayıcı, yalnızca hepsi başarısız olunca devreye girer.
     const pool: Record<string, { name: string; ai: AiProvider } | undefined> = {
       deepseek: free.find((f) => f.name === 'deepseek'),
       glm: free.find((f) => f.name === 'glm'),
@@ -433,9 +433,9 @@ export function createAi(
       gptoss20: { name: 'fast', ai: fast },
     };
     const ORDER: Record<ChatMode, string[]> = {
-      fast: ['minimax', 'deepseek', 'glm', 'qwen', 'qwenllmtr', 'nemotron', 'gptoss120', 'gptoss20', 'claude'],
-      balanced: ['gptoss120', 'minimax', 'glm', 'deepseek', 'qwen', 'qwenllmtr', 'claude', 'nemotron', 'gptoss20'],
-      deep: ['deepseek', 'glm', 'qwen', 'qwenllmtr', 'minimax', 'claude', 'nemotron', 'gptoss120', 'gptoss20'],
+      fast: ['minimax', 'deepseek', 'nemotron', 'glm', 'qwen', 'qwenllmtr', 'gptoss120', 'gptoss20', 'claude'],
+      balanced: ['gptoss120', 'minimax', 'glm', 'deepseek', 'qwen', 'qwenllmtr', 'nemotron', 'gptoss20', 'claude'],
+      deep: ['deepseek', 'glm', 'qwen', 'qwenllmtr', 'minimax', 'nemotron', 'gptoss120', 'gptoss20', 'claude'],
     };
     return ORDER[mode ?? 'fast'].map((k) => pool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
   };

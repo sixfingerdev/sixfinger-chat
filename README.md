@@ -70,13 +70,13 @@ Yapay zekâ sağlayıcıları (`apps/server/src/services/ai.ts`). Her mod, yapı
 | llmtr.com | `qwen/qwen3.8-27b-free` (OVH Qwen'in aynı modelle yedeği) ve `nvidia/nemotron-3.5-super-vl-free` — ücretsiz, anahtar gerekir | `LLMTR_API_KEY`, `LLMTR_QWEN_MODEL`, `LLMTR_NEMOTRON_MODEL` |
 | Pollinations | `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
 
-Güç sırası: DeepSeek > GLM > Qwen > MiniMax = Claude > Nemotron 3.5 > gpt-oss-120b > gpt-oss-20b (Nemotron'un yeri Artificial Analysis'e göre: Zeka Endeksi 26, gpt-oss-120b'nin 12'sinden yüksek, DeepSeek V4.1 Flash'ın 39'undan düşük; hız 435 token/sn ile en hızlısı). Hız sırası: DeepSeek > MiniMax > diğerleri (eşit). Modların başındaki model sabit (Hızlı: MiniMax, Dengeli: gpt-oss-120b, Derin: DeepSeek); gerisi güç/hız sırasına göre dizilir:
+Güç sırası: DeepSeek > GLM > Qwen > MiniMax = Claude > Nemotron 3.5 > gpt-oss-120b > gpt-oss-20b (ama **Claude tek ücretli sağlayıcı olduğu için her zincirin en sonundadır**; yalnızca ücretsizlerin hepsi başarısız olunca devreye girer) (Nemotron'un yeri Artificial Analysis'e göre: Zeka Endeksi 26, gpt-oss-120b'nin 12'sinden yüksek, DeepSeek V4.1 Flash'ın 39'undan düşük; hız 435 token/sn ile en hızlısı). Hız sırası: DeepSeek > MiniMax > diğerleri (eşit). Modların başındaki model sabit (Hızlı: MiniMax, Dengeli: gpt-oss-120b, Derin: DeepSeek); gerisi güç/hız sırasına göre dizilir:
 
 | Mod | Sıra |
 |---|---|
-| Hızlı | **MiniMax** → DeepSeek → GLM → Qwen → Qwen (llmtr) → Nemotron 3.5 → gpt-oss-120b → gpt-oss-20b → Claude |
-| Dengeli | **gpt-oss-120b** → MiniMax → GLM → DeepSeek → Qwen → Qwen (llmtr) → Claude → Nemotron 3.5 → gpt-oss-20b |
-| Derin | DeepSeek → GLM → Qwen → Qwen (llmtr) → MiniMax → Claude → Nemotron 3.5 → gpt-oss-120b → gpt-oss-20b |
+| Hızlı | **MiniMax** → DeepSeek → Nemotron 3.5 → GLM → Qwen → Qwen (llmtr) → gpt-oss-120b → gpt-oss-20b → Claude |
+| Dengeli | **gpt-oss-120b** → MiniMax → GLM → DeepSeek → Qwen → Qwen (llmtr) → Nemotron 3.5 → gpt-oss-20b → Claude |
+| Derin | DeepSeek → GLM → Qwen → Qwen (llmtr) → MiniMax → Nemotron 3.5 → gpt-oss-120b → gpt-oss-20b → Claude |
 
 Yapılandırılmamış sağlayıcılar (`*_BASE_URL` boş, Bedrock yok) atlanır; `AI_FREE_ENABLED=false` DeepSeek/GLM/MiniMax'i zincirden çıkarır. Başlık üretimi ve hafıza gibi arka plan işleri de aynı zinciri kullanır.
 Hepsi OpenAI uyumlu uçlardır. `reasoning_effort` destekleyen modellere her zaman en yüksek düzey gider (gpt-oss: `high`, DeepSeek/GLM/MiniMax: `max`; Qwen göndermez — bununla boş yanıt verir); menüdeki düşünme düzeyi bunlarda etkisizdir, `AI_MAX_EFFORT=false` kullanıcının seçtiği düzeye döner.
