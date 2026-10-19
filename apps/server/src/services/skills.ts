@@ -205,16 +205,20 @@ export async function discoverRepoSkills(client: CodeSandboxClient, scope: CodeS
 // ------------------------------------------------------------------------------------------------ katalog
 
 export interface Catalog {
-  /** Etkin skill'ler (öncelik: repo > kullanıcı > yerleşik), ada göre sıralı. */
+  /** Etkin skill'ler (yerleşik adlar rezerve; repo > kullanıcı), ada göre sıralı. */
   list: SkillSummary[];
   get(name: string): SkillEntry | undefined;
 }
 
+/**
+ * Katalog. Yerleşik skill adları **rezervedir**: kullanıcı ya da repo skill'i aynı adla yerleşiği ezemez (yerleşikler değiştirilemez).
+ * Diğerlerinde öncelik repo > kullanıcı.
+ */
 export function buildCatalog(parts: { builtin: Map<string, SkillBundle>; user: UserSkill[]; repo: SkillEntry[]; off: string[] }): Catalog {
   const entries = new Map<string, SkillEntry>();
+  for (const u of parts.user) if (!parts.builtin.has(u.summary.name)) entries.set(u.summary.name, { summary: u.summary, bundle: u });
+  for (const r of parts.repo) if (!parts.builtin.has(r.summary.name)) entries.set(r.summary.name, r);
   for (const b of parts.builtin.values()) entries.set(b.summary.name, { summary: b.summary, bundle: b });
-  for (const u of parts.user) entries.set(u.summary.name, { summary: u.summary, bundle: u });
-  for (const r of parts.repo) entries.set(r.summary.name, r);
   for (const n of parts.off) entries.delete(n);
   const list = [...entries.values()].map((e) => e.summary).sort((a, b) => a.name.localeCompare(b.name));
   return { list, get: (n) => entries.get(n) };

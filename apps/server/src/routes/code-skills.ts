@@ -28,7 +28,7 @@ const detailOf = (b: SkillBundle, extra: Partial<SkillListItemDTO> = {}): SkillD
   ...extra,
 });
 const userExtra = (u: UserSkill): Partial<SkillListItemDTO> => ({ shareToken: u.shareToken, importedFrom: u.importedFrom, updatedAt: u.updatedAt });
-const listItem = (d: SkillDetailDTO): SkillListItemDTO => ({ name: d.name, description: d.description, source: d.source, triggers: d.triggers, fileCount: d.fileCount, overrides: d.overrides, shareToken: d.shareToken, importedFrom: d.importedFrom, updatedAt: d.updatedAt });
+const listItem = (d: SkillDetailDTO): SkillListItemDTO => ({ name: d.name, description: d.description, source: d.source, triggers: d.triggers, fileCount: d.fileCount, shareToken: d.shareToken, importedFrom: d.importedFrom, updatedAt: d.updatedAt });
 
 /** Skill uçları: listele, oku, kaydet, sil, GitHub'dan içe aktar, bağlantıyla paylaş. Kimlik ve Code izni üst kapsamdan gelir. */
 export function registerSkillRoutes(authed: FastifyInstance, ctx: AppContext) {
@@ -37,6 +37,7 @@ export function registerSkillRoutes(authed: FastifyInstance, ctx: AppContext) {
   async function saveParsed(userId: string, markdown: string, files: Record<string, string>, fallbackName: string | undefined, importedFrom: string | null, overwrite = true) {
     const p = parseSkillMd(markdown, fallbackName);
     if (!p.ok) throw badRequest(p.error);
+    if (skills.builtin.has(p.skill.name)) throw conflict(`"${p.skill.name}" yerleşik bir skill'in adı; yerleşik skill'ler değiştirilemez. Başka bir ad seç.`);
     if (!overwrite && (await skills.store.get(userId, p.skill.name))) throw conflict(`"${p.skill.name}" adında bir skill'in zaten var.`);
     return skills.store.save(userId, p.skill, files, importedFrom);
   }
@@ -45,8 +46,8 @@ export function registerSkillRoutes(authed: FastifyInstance, ctx: AppContext) {
     const mine = await skills.store.list(req.user!.id);
     const own = new Set(mine.map((u) => u.summary.name));
     const items = [
-      ...skills.listBuiltin().map((b) => listItem(detailOf(b, { overrides: false }))),
-      ...mine.map((u) => listItem(detailOf(u, { ...userExtra(u), overrides: skills.builtin.has(u.summary.name) }))),
+      ...skills.listBuiltin().map((b) => listItem(detailOf(b))),
+      ...mine.map((u) => listItem(detailOf(u, userExtra(u)))),
     ];
     return { skills: items.sort((a, b) => a.name.localeCompare(b.name) || a.source.localeCompare(b.source)), limits: { perUser: SKILL_LIMITS.perUser, own: own.size } };
   });
@@ -62,8 +63,9 @@ export function registerSkillRoutes(authed: FastifyInstance, ctx: AppContext) {
   authed.get<{ Params: { name: string }; Querystring: { source?: string } }>('/code/skills/:name', async (req) => {
     const name = req.params.name.toLowerCase();
     const mine = req.query.source === 'builtin' ? null : await skills.store.get(req.user!.id, name);
-    if (mine) return detailOf(mine, { ...userExtra(mine), overrides: skills.builtin.has(name) });
-    const b = skills.getBuiltin(name);
+    const b0 = skills.getBuiltin(name);
+    if (mine && !b0) return detailOf(mine, userExtra(mine));
+    const b = b0;
     if (!b) throw notFound('Skill bulunamadı.');
     return detailOf(b);
   });
@@ -74,13 +76,13 @@ export function registerSkillRoutes(authed: FastifyInstance, ctx: AppContext) {
     const p = parseSkillMd(body.markdown, name);
     if (p.ok && p.skill.name !== name) throw badRequest('Skill adı değiştirilemez; yeni ad için yeni skill oluştur.');
     const u = await saveParsed(req.user!.id, body.markdown, body.files ?? {}, name, null);
-    return detailOf(u, { ...userExtra(u), overrides: skills.builtin.has(u.summary.name) });
+    return detailOf(u, userExtra(u));
   });
 
   authed.post('/code/skills', async (req, reply) => {
     const body = parse(saveSkillSchema, req.body);
     const u = await saveParsed(req.user!.id, body.markdown, body.files ?? {}, undefined, null, false);
-    return reply.code(201).send(detailOf(u, { ...userExtra(u), overrides: skills.builtin.has(u.summary.name) }));
+    return reply.code(201).send(detailOf(u, userExtra(u)));
   });
 
   authed.delete<{ Params: { name: string } }>('/code/skills/:name', async (req, reply) => {
@@ -130,7 +132,7 @@ export function registerSkillRoutes(authed: FastifyInstance, ctx: AppContext) {
   authed.get<{ Params: { token: string } }>('/code/skills/shared/:token', async (req) => {
     const u = await skills.store.bySharedToken(req.params.token);
     if (!u) throw notFound('Paylaşım bağlantısı geçersiz ya da kapatılmış.');
-    return detailOf(u, { overrides: false });
+    return detailOf(u);
   });
 
   authed.post<{ Params: { token: string } }>('/code/skills/shared/:token/import', async (req) => {

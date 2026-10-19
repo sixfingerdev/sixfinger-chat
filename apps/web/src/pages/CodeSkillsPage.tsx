@@ -48,7 +48,6 @@ export function CodeSkillsPage() {
         <span className="skill-main">
           <strong>
             {s.name}
-            {s.overrides && <em className="skill-tag">{t('code.skills.overrides')}</em>}
             {s.importedFrom && <em className="skill-tag">{t('code.skills.imported')}</em>}
             {s.shareToken && <em className="skill-tag">{t('code.skills.share')}</em>}
           </strong>

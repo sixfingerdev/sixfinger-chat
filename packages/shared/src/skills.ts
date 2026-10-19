@@ -182,8 +182,6 @@ export interface SkillListItemDTO {
   source: 'builtin' | 'user';
   triggers: string[];
   fileCount: number;
-  /** Kullanıcı skill'i bir yerleşiğin üstüne yazıyor mu? */
-  overrides?: boolean;
   /** Bağlantıyla paylaşılıyorsa token. */
   shareToken?: string | null;
   importedFrom?: string | null;

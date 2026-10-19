@@ -137,6 +137,11 @@ Kullanıcı elle başlık/açıklama yazmaz.
 Bilerek yapılmayanlar: MCP sunucuları, görsel girdi, sunucudan push bildirimi (FCM gerekir; mobilde yerel bildirim de yok — uygulama arka plandayken
 akış kesildiği için güvenilmez), GitHub webhook ile CI hatasını otomatik düzeltme, dev-server HMR (WebSocket), notebook, zamanlanmış görevler.
 
+## Skill'ler
+
+Ajanın uzman kılavuzları (SKILL.md): yerleşik kütüphane + kendi skill'lerin + repodaki `.sixfinger/skills`, `.claude/skills`, `.agents/skills`. Katalog istemde, gövde `skill` aracıyla
+istenince gelir; sunucu mesajı eşleştirip ipucu verir; slash menüsünde `/skill-adı`. Ayrıntı: [skills.md](skills.md).
+
 ## Önizleme, dosya paylaşma ve yükleme
 
 - **Önizleme (artifact)**: ajan çalışma alanına `index.html` + `app.js` + `style.css` gibi dosyalar yazıp `preview` aracını çağırır; mesajın altında **Önizleme** kartı çıkar.

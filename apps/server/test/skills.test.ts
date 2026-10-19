@@ -62,13 +62,17 @@ describe('yerleşik skill yükleme', () => {
 });
 
 describe('katalog', () => {
-  it('öncelik repo > kullanıcı > yerleşik; ortamda kapatılanlar çıkar; ada göre sıralı', () => {
+  it('yerleşik adlar rezerve (kullanıcı/repo ezemez); kullanıcı < repo; ortamda kapatılanlar çıkar; ada göre sıralı', () => {
     const builtin = new Map([mk('b', 'yerleşik b', 'B-yerleşik'), mk('a', 'yerleşik a', 'A'), mk('c', 'yerleşik c', 'C')].map((x) => [x.summary.name, x]));
-    const user = [{ ...mk('b', 'kullanıcı b', 'B-kullanıcı', 'user'), shareToken: null, importedFrom: null, updatedAt: '' }];
-    const repo = [{ summary: { name: 'b', description: 'repo b', source: 'repo' as const, triggers: [] }, repoDir: '.claude/skills/b' }];
+    const u = (name: string, body: string) => ({ ...mk(name, `kullanıcı ${name}`, body, 'user'), shareToken: null, importedFrom: null, updatedAt: '' });
+    const user = [u('b', 'B-kullanıcı'), u('d', 'D-kullanıcı'), u('e', 'E-kullanıcı')];
+    const repo = [
+      { summary: { name: 'b', description: 'repo b', source: 'repo' as const, triggers: [] }, repoDir: '.claude/skills/b' },
+      { summary: { name: 'd', description: 'repo d', source: 'repo' as const, triggers: [] }, repoDir: '.claude/skills/d' },
+    ];
     const c = buildCatalog({ builtin, user, repo, off: ['c'] });
-    expect(c.list.map((s) => `${s.name}:${s.source}`)).toEqual(['a:builtin', 'b:repo']);
-    expect(buildCatalog({ builtin, user, repo: [], off: [] }).get('b')?.bundle?.body).toBe('B-kullanıcı');
+    expect(c.list.map((s) => `${s.name}:${s.source}`)).toEqual(['a:builtin', 'b:builtin', 'd:repo', 'e:user']);
+    expect(c.get('b')?.bundle?.body).toBe('B-yerleşik'); // kullanıcı ve repo "b" yok sayıldı
     expect(c.get('c')).toBeUndefined();
   });
 });
@@ -289,19 +293,26 @@ describe('ajan döngüsünde skill\'ler', () => {
     expect(toolNames(0)).not.toContain('skill');
   });
 
-  it('kullanıcı skill\'i yerleşiğin üstüne yazar; repo skill\'i hepsinin üstüne yazar', async () => {
+  it('yerleşik adlar rezerve: kullanıcı ve repo aynı adla yerleşiği ezemez; kullanıcı < repo (başka adlarda)', async () => {
     const { a, s } = await prepared();
     await env.ctx.skills.store.save(a.user.id, { name: 'write-tests', description: 'Kullanıcının test kuralları', triggers: [], body: 'kendi gövdem', extra: {} }, {});
-    fc.state.execImpl = (c) => (c.includes('.claude/skills') ? { stdout: '@@SKILL .claude/skills/write-tests/SKILL.md\n---\nname: write-tests\ndescription: Repo test rules\n---\n\nrepo gövdesi\n' } : {});
+    await env.ctx.skills.store.save(a.user.id, { name: 'ortak', description: 'Kullanıcı sürümü', triggers: [], body: 'u', extra: {} }, {});
+    fc.state.execImpl = (c) =>
+      c.includes('.claude/skills')
+        ? { stdout: '@@SKILL .claude/skills/write-tests/SKILL.md\n---\nname: write-tests\ndescription: Repo test rules\n---\n\nrepo gövdesi\n@@SKILL .claude/skills/ortak/SKILL.md\n---\nname: ortak\ndescription: Repo sürümü\n---\n\nr\n' }
+        : {};
     env.ai.steps = [text('x')];
     await send(a, s.chatId, 'merhaba');
-    expect(sysOf(0)).toContain('- write-tests [repo]: Repo test rules');
+    expect(sysOf(0)).toContain('- write-tests: Add unit tests.');
+    expect(sysOf(0)).not.toContain('Repo test rules');
     expect(sysOf(0)).not.toContain('Kullanıcının test kuralları');
+    expect(sysOf(0)).toContain('- ortak [repo]: Repo sürümü');
+    expect(sysOf(0)).not.toContain('Kullanıcı sürümü');
   });
 
   it('komut listesi skill\'leri slash komutu olarak içerir (yerleşik adlar hariç)', async () => {
     const { a, s } = await prepared();
-    await env.ctx.skills.store.save(a.user.id, { name: 'review', description: 'builtin adıyla çakışır', triggers: [], body: 'x', extra: {} }, {});
+    await env.ctx.skills.store.save(a.user.id, { name: 'review', description: 'yerleşik komut adıyla çakışır', triggers: [], body: 'x', extra: {} }, {});
     const r = await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/commands`, headers: auth(a) });
     const cmds = r.json().commands as Array<{ name: string; source: string; template?: string }>;
     const web = cmds.find((c) => c.name === 'static-web-app');
@@ -350,22 +361,26 @@ describe('Skill API', () => {
     env.ctx.skills.builtin.set('hazir', mk('hazir', 'Yerleşik hazır skill', 'hazır gövde', 'builtin', ['x'], { 'references/a.md': 'a' }));
     tree = {};
   });
-  const api = (a: Awaited<ReturnType<typeof member>>, method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, payload?: object) => env.app.inject({ method, url: `/api${url}`, headers: auth(a), payload });
+  const api = (a: Awaited<ReturnType<typeof member>>, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, payload?: object) => env.app.inject({ method, url: `/api${url}`, headers: auth(a), payload });
   const user = (email = 'coder@example.com') => member(env, { email });
 
-  it('liste yerleşik + kullanıcıyı verir; kullanıcı skill\'i yerleşiği ezerse overrides işaretlenir; ayrıntı tam SKILL.md ve dosyalarla', async () => {
+  it('liste yerleşik + kullanıcıyı verir; yerleşik ad rezerve (409); ayrıntı tam SKILL.md ve dosyalarla', async () => {
     const a = await user();
     const created = await api(a, 'POST', '/code/skills', { markdown: MD('benim', 'triggers: [oyun, game]\n'), files: { 'references/x.md': 'ek' } });
     expect(created.statusCode).toBe(201);
     expect(created.json()).toMatchObject({ name: 'benim', source: 'user', triggers: ['oyun', 'game'], fileCount: 1 });
-    await api(a, 'POST', '/code/skills', { markdown: MD('hazir') });
-    const list = (await api(a, 'GET', '/code/skills')).json().skills as Array<{ name: string; source: string; overrides?: boolean }>;
-    expect(list.map((s) => `${s.name}:${s.source}${s.overrides ? ':ezer' : ''}`)).toEqual(['benim:user', 'hazir:builtin', 'hazir:user:ezer']);
+    const clash = await api(a, 'POST', '/code/skills', { markdown: MD('hazir') });
+    expect(clash.statusCode).toBe(409);
+    expect(clash.json().error.message).toContain('yerleşik');
+    expect((await api(a, 'PUT', '/code/skills/hazir', { markdown: MD('hazir') })).statusCode).toBe(409);
+    const list = (await api(a, 'GET', '/code/skills')).json().skills as Array<{ name: string; source: string }>;
+    expect(list.map((s) => `${s.name}:${s.source}`)).toEqual(['benim:user', 'hazir:builtin']);
     const d = (await api(a, 'GET', '/code/skills/benim')).json();
     expect(d.markdown).toContain('name: benim');
     expect(d.files).toEqual({ 'references/x.md': 'ek' });
     expect((await api(a, 'GET', '/code/skills/hazir?source=builtin')).json()).toMatchObject({ source: 'builtin', body: 'hazır gövde' });
-    expect((await api(a, 'GET', '/code/skills/hazir')).json().source).toBe('user'); // kullanıcınınki öncelikli
+    expect((await api(a, 'GET', '/code/skills/hazir')).json().source).toBe('builtin');
+    expect((await api(a, 'DELETE', '/code/skills/hazir')).statusCode).toBe(404); // yerleşik silinemez
     expect((await api(a, 'GET', '/code/skills/yok')).statusCode).toBe(404);
   });
 

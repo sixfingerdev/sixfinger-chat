@@ -7,6 +7,8 @@ import type {
   SlashCommand,
   CodeEnvironmentDTO,
   CodePreviewDTO,
+  SkillDetailDTO,
+  SkillListItemDTO,
   CodeUploadDTO,
   CodePullDTO,
   CodeSessionDTO,
@@ -310,6 +312,16 @@ export const api = {
   codeUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/code/sessions/${id}/upload`, { name, dataBase64 }),
   /** Tek dosya indirme adresi ve yetki başlığı. */
   codeDownloadRequest: (id: string, path: string) => ({ url: `${getApiBase()}/api/code/sessions/${id}/download?path=${encodeURIComponent(path)}`, headers: { authorization: `Bearer ${sessionStore.read()?.accessToken ?? ''}` } }),
+  // ---- skill'ler ----
+  codeSkills: () => request<{ skills: SkillListItemDTO[]; limits: { perUser: number; own: number } }>('GET', '/code/skills'),
+  codeSkill: (name: string, source?: 'builtin') => request<SkillDetailDTO>('GET', `/code/skills/${encodeURIComponent(name)}${source ? `?source=${source}` : ''}`),
+  codeSaveSkill: (name: string | null, body: { markdown: string; files?: Record<string, string> }) =>
+    name ? request<SkillDetailDTO>('PUT', `/code/skills/${encodeURIComponent(name)}`, body) : request<SkillDetailDTO>('POST', '/code/skills', body),
+  codeDeleteSkill: (name: string) => request<void>('DELETE', `/code/skills/${encodeURIComponent(name)}`),
+  codeImportSkill: (url: string, overwrite = false) => request<{ imported: SkillListItemDTO[]; skipped: number }>('POST', '/code/skills/import', { url, overwrite }),
+  codeShareSkill: (name: string, enabled: boolean) => request<{ shareToken: string | null }>('POST', `/code/skills/${encodeURIComponent(name)}/share`, { enabled }),
+  codeSharedSkill: (token: string) => request<SkillDetailDTO>('GET', `/code/skills/shared/${encodeURIComponent(token)}`),
+  codeImportShared: (token: string, overwrite = false) => request<SkillDetailDTO>('POST', `/code/skills/shared/${encodeURIComponent(token)}/import`, { overwrite }),
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
   /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */
   codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),

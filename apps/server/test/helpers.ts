@@ -64,6 +64,8 @@ export async function setup(extraTools: ToolDef[] = [], toolsOptions: ToolsOptio
     },
   };
   const { app, ctx } = await buildApp({ config: loadConfig(), ai, mailer, tools: createTools(extraTools, toolsOptions), migrate: true, ...extra });
+  // Testler gerçek yerleşik skill'lerden bağımsız kalsın (her test kendi skill'lerini ekler).
+  ctx.skills.builtin.clear();
   await app.ready();
   return { app, ctx, ai, mails };
 }

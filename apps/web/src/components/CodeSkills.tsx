@@ -112,13 +112,9 @@ export function SkillEditor({ name, source, onClose, onChanged }: { name: string
           )}
           <span className="spacer" />
           <button className="btn btn-ghost" onClick={onClose}>
-            {t('common.cancel')}
+            {readonly ? t('common.close') : t('common.cancel')}
           </button>
-          {readonly ? (
-            <button className="btn btn-primary" onClick={() => void save(null)} disabled={busy || !detail}>
-              {t('code.skills.copy')}
-            </button>
-          ) : (
+          {!readonly && (
             <button className="btn btn-primary" onClick={() => void save(name)} disabled={busy || (Boolean(name) && !detail)}>
               {t('common.save')}
             </button>
