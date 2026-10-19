@@ -81,6 +81,8 @@ export interface McpToolset {
   servers: Array<{ name: string; label: string; tools: number }>;
   /** Sınır yüzünden modele verilmeyen araç sayısı. */
   hidden: number;
+  /** Onay istemeyen (salt okunur ya da izinli) araçların adları: alt ajanlar yalnızca bunları görür. */
+  safeNames: Set<string>;
 }
 
 const slug = (s: string) =>
@@ -464,22 +466,25 @@ export function createMcp(deps: McpDeps) {
    * `readOnly` araçlar otomatik çalışır; diğerleri `auto_approve`/`allow_tools` yoksa kullanıcı onayı ister (tur biter).
    */
   async function toolsFor(userId: string, scope: McpScope, opts: { readOnlyOnly?: boolean } = {}): Promise<McpToolset> {
-    if (!enabled) return { defs: [], servers: [], hidden: 0 };
+    if (!enabled) return { defs: [], servers: [], hidden: 0, safeNames: new Set() };
     const r = await db.query<Row>(`select * from mcp_servers where user_id = $1 and enabled and $2 = any(scopes) and jsonb_array_length(tools) > 0 order by created_at`, [userId, scope]);
     const used = new Set<string>();
     const all: ToolDef[] = [];
     const servers: McpToolset['servers'] = [];
+    const safe = new Set<string>();
     for (const row of r.rows) {
       let n = 0;
       for (const t of row.tools) {
         if (opts.readOnlyOnly && !t.readOnly) continue;
-        all.push(makeTool(row, t, mcpToolName(row.name, t.name, used)));
+        const name = mcpToolName(row.name, t.name, used);
+        all.push(makeTool(row, t, name));
+        if (t.readOnly || row.auto_approve || row.allow_tools.includes(t.name)) safe.add(name);
         n++;
       }
       if (n) servers.push({ name: row.name, label: row.label, tools: n });
     }
     const defs = all.slice(0, MCP_LIMITS.modelTools);
-    return { defs, servers, hidden: all.length - defs.length };
+    return { defs, servers, hidden: all.length - defs.length, safeNames: safe };
   }
 
   function makeTool(row: Row, t: McpRemoteTool, name: string): ToolDef {

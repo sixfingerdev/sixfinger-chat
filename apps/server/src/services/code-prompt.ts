@@ -25,6 +25,8 @@ export interface CodePromptInput {
   skills?: SkillSummary[];
   /** Kullanıcı mesajına uyan skill'ler (sunucu tarafı eşleştirme): önce bunları yüklemesi söylenir. */
   skillHints?: string[];
+  /** Bağlayıcılar (MCP) bölümü (hazır metin; boşsa eklenmez). */
+  connectors?: string;
   /** Ortamda "commit'e oturum bağlantısı ekle" açıksa bu adres commit gövdesine satır olarak eklenir. */
   sessionUrl?: string | null;
   /** Bu oturumda daha önce yüklenmiş skill'lerin gövdeleri (sıkıştırma/yeni tur sonrası talimat kaybolmasın). */
@@ -109,6 +111,7 @@ export function buildCodeSystemPrompt(i: CodePromptInput): string {
       : []),
     ...(i.instructions?.trim() ? ['', '## Instructions from the user (environment settings; follow them)', i.instructions.trim().slice(0, 8_000)] : []),
     ...skillsSection(i.skills ?? [], i.skillHints),
+    ...(i.connectors ? ['', i.connectors] : []),
     ...activeSkillsSection(i.activeSkills ?? []),
     '',
     '## Final answer',

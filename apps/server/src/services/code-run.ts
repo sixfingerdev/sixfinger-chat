@@ -24,6 +24,9 @@ import type { Run } from './runs.ts';
 import { runToolCall, toolSpecs, type Tools } from './tools/index.ts';
 import { createSkillCreateTool, createSkillTool } from './tools/skills.ts';
 import { createSkillRuntime, discoverRepoSkills, hintsFor, type Skills } from './skills.ts';
+import { isMcpToolName } from '@sixfinger/shared';
+import { connectorsSection } from './mcp/prompt.ts';
+import type { Mcp } from './mcp/index.ts';
 import { PLAN_TOOLS, TERMINAL_TOOLS, createAskUserTool, createExitPlanTool, createTaskTool, type SubagentReport } from './tools/agent.ts';
 import type { ToolContext, ToolDef } from './tools/types.ts';
 import type { CodeSandboxClient, CodeScope } from './tools/code-client.ts';
@@ -31,6 +34,8 @@ import type { CodeSandboxClient, CodeScope } from './tools/code-client.ts';
 type Logger = { warn: (o: object, m: string) => void; error: (o: object, m: string) => void; info?: (o: object, m: string) => void };
 
 export interface CodeRunDeps {
+  /** MCP bağlayıcıları (yoksa araç eklenmez). */
+  mcp?: Mcp;
   db: Db;
   ai: AiProvider;
   tools: Tools;
@@ -275,12 +280,16 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
       const body = await skillRt.peekBody(n, signal);
       if (body) activeFromHistory.push({ name: n, body });
     }
+    // --- bağlayıcılar (MCP): plan modunda yalnızca salt okunur araçlar ---
+    const mcpSet = deps.mcp ? await deps.mcp.toolsFor(user.id, 'code', { readOnlyOnly: g.planMode }).catch(() => null) : null;
+    const connectors = mcpSet ? connectorsSection(mcpSet) : '';
     const makeSystem = (active: Array<{ name: string; body: string }>) =>
       buildCodeSystemPrompt({
         locale: user.locale, repo: session.repo, baseBranch: session.baseBranch, workBranch: session.workBranch, network: env.network,
         allowedDomains: env.allowedDomains, diskMb: env.diskMb, brief,
         setupFailure: prepared.setupRan && prepared.setupOk === false ? prepared.setupOutput.slice(-1_500) : undefined,
         planMode: g.planMode, instructions: env.instructions, skills: catalog.list, skillHints: hints, activeSkills: active,
+        connectors,
         sessionUrl: env.commitSessionLink ? `${config.PUBLIC_WEB_URL.replace(/\/$/, '')}/code/s/${chat.id}` : null,
       });
     const system = makeSystem(activeFromHistory);
@@ -292,8 +301,8 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     const isCompactCmd = g.userText.trim() === '/compact';
     // Araçlar: plan modunda yalnızca okuma/araştırma + soru/plan; normal modda hepsi + alt ajan + soru.
     let runSubagent: (a: { description: string; prompt: string; agent: 'explore' | 'general' }, ctx: ToolContext) => Promise<SubagentReport> = async () => ({ text: '', steps: 0, tools: {} });
-    const agentTools: ToolDef[] = [createTaskTool((a, c) => runSubagent(a, c)), createAskUserTool(), ...(catalog.list.length ? [createSkillTool(skillRt)] : []), createSkillCreateTool(sandbox, new Set(deps.skills.builtin.keys())), ...(g.planMode ? [createExitPlanTool()] : [])];
-    const defs: ToolDef[] = g.planMode ? [...baseDefs, ...agentTools].filter((d) => PLAN_TOOLS.has(d.name)) : [...baseDefs, ...agentTools];
+    const agentTools: ToolDef[] = [createTaskTool((a, c) => runSubagent(a, c)), createAskUserTool(), ...(catalog.list.length ? [createSkillTool(skillRt)] : []), createSkillCreateTool(sandbox, new Set(deps.skills.builtin.keys())), ...(g.planMode ? [createExitPlanTool()] : []), ...(mcpSet?.defs ?? [])];
+    const defs: ToolDef[] = g.planMode ? [...baseDefs, ...agentTools].filter((d) => PLAN_TOOLS.has(d.name) || isMcpToolName(d.name)) : [...baseDefs, ...agentTools];
     const specs = toolSpecs(defs);
     const specTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(specs)));
     const toolCtx = { user, signal, chatId: chat.id, code: { session: scope.session, diskMb: env.diskMb, prepare } };
@@ -303,7 +312,8 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     /** Alt ajan: taze bağlamla çalışır, yalnızca raporu döndürür. Aynı frenler: döngü kırıcı, kredi, bağlam doluluğu, kullanıcının Durdur'u. */
     runSubagent = async (a, ctx) => {
       const readOnly = a.agent === 'explore' || g.planMode;
-      const subDefs = defs.filter((d) => (readOnly ? ['read', 'glob', 'grep', 'skill', 'web_search', 'web_fetch'].includes(d.name) : !['task', 'ask_user', 'exit_plan_mode', 'todo', 'preview', 'share_file', 'skill_create'].includes(d.name)));
+      // Alt ajanlar onay isteyemez: yalnızca onay gerektirmeyen (salt okunur ya da izinli) MCP araçlarını görür.
+      const subDefs = defs.filter((d) => (isMcpToolName(d.name) ? Boolean(mcpSet?.safeNames.has(d.name)) : readOnly ? ['read', 'glob', 'grep', 'skill', 'web_search', 'web_fetch'].includes(d.name) : !['task', 'ask_user', 'exit_plan_mode', 'todo', 'preview', 'share_file', 'skill_create'].includes(d.name)));
       const subSpecs = toolSpecs(subDefs);
       const subSpecTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(subSpecs)));
       const system = [
@@ -529,7 +539,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
         Object.assign(part, { status: result.status, output, summary: result.summary, meta: result.meta, ms: result.ms });
         send({ type: 'tool_end', id: part.id, status: result.status, output, summary: result.summary, meta: result.meta, ms: result.ms });
         messages.push({ role: 'tool', tool_call_id: call.id, content: output });
-        if (TERMINAL_TOOLS.has(call.function.name) && result.meta?.terminal === true) terminal = true;
+        if ((TERMINAL_TOOLS.has(call.function.name) || isMcpToolName(call.function.name)) && result.meta?.terminal === true) terminal = true;
         if (signal.aborted) throw new DOMException('aborted', 'AbortError');
         if (loopStop || terminal) break;
       }
