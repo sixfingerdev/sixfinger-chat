@@ -61,6 +61,8 @@ export interface CodeRunInput {
   isFirstExchange: boolean;
   /** Plan modu: yalnızca okuma araçları; ajan plan sunar (exit_plan_mode) ve kullanıcı onaylayınca uygular. */
   planMode?: boolean;
+  /** Model tercihi: fast = hız öncelikli, deep = güç öncelikli (varsayılan). */
+  codeMode?: 'fast' | 'deep';
 }
 
 /** Aynı araç + aynı argüman + aynı çıktı bu kadar kez gelirse uyarılır / durdurulur. */
@@ -337,7 +339,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
         let calls: AiToolCall[] = [];
         let text = '';
         let outChars = 0;
-        for await (const chunk of ai.stream({ messages: input, signal, mode: 'deep', route: 'code', tools: subSpecs, patient: report.steps > 0, onProvider: (n) => (provider = n) })) {
+        for await (const chunk of ai.stream({ messages: input, signal, mode: g.codeMode ?? 'deep', route: 'code', tools: subSpecs, patient: report.steps > 0, onProvider: (n) => (provider = n) })) {
           if (chunk.type === 'content') {
             text += chunk.text;
             outChars += chunk.text.length;
@@ -467,7 +469,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
       let stepOut = 0;
       let truncated = false;
       for await (const chunk of ai.stream({
-        messages: pruned, signal, mode: 'deep', route: 'code', tools: specs, patient: step > 0, onProvider: (n) => (provider = n),
+        messages: pruned, signal, mode: g.codeMode ?? 'deep', route: 'code', tools: specs, patient: step > 0, onProvider: (n) => (provider = n),
       })) {
         if (chunk.type === 'reasoning') {
           buf.addReasoning(chunk.text);

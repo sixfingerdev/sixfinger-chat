@@ -397,11 +397,19 @@ export function createAi(
 
   /** Bu mod için denenecek sağlayıcılar, sırayla (yapılandırılmamış olanlar atlanır). */
   const chain = (mode: ChatMode | undefined, route?: 'code'): Array<{ name: string; ai: AiProvider }> => {
-    // Code (Auto): Qwen, olmazsa Claude; ücretsiz modeller açıksa DeepSeek → GLM → Qwen → Claude. Hızlı (Pollinations) modeline ASLA düşülmez: kod ajanında sessizce zayıf modele geçmek kötü sonuç verir.
+    // Code: seçilen modele göre sıra (Hızlı/Derin); ücretsiz modeller kapalıysa Qwen, olmazsa Claude. Hızlı (Pollinations) modeline ASLA düşülmez: kod ajanında sessizce zayıf modele geçmek kötü sonuç verir.
     if (route === 'code') {
-      // Güç sırası (DeepSeek > GLM > Qwen > Claude). Ücretsiz üçüncü taraf modeller yalnızca `AI_FREE_FOR_CODE` açıksa girer; MiniMax koda yetmez.
-      const strong = config.AI_FREE_FOR_CODE ? free.filter((f) => f.name !== 'minimax') : [];
-      return [...strong, deep && { name: 'qwen', ai: deep }, backup && { name: 'claude', ai: backup }].filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
+      // Kullanıcının seçtiği model: Hızlı = hız öncelikli (MiniMax önde), Derin = güç öncelikli (DeepSeek > GLM > Qwen > Claude).
+      // Ücretsiz üçüncü taraf modeller yalnızca `AI_FREE_FOR_CODE` açıksa girer; kapalıyken ikisi de Qwen → Claude'dur.
+      const codeOrder = mode === 'fast' ? ['minimax', 'deepseek', 'glm', 'qwen', 'claude'] : ['deepseek', 'glm', 'qwen', 'claude'];
+      const codePool: Record<string, { name: string; ai: AiProvider } | undefined> = {
+        minimax: config.AI_FREE_FOR_CODE ? free.find((f) => f.name === 'minimax') : undefined,
+        deepseek: config.AI_FREE_FOR_CODE ? free.find((f) => f.name === 'deepseek') : undefined,
+        glm: config.AI_FREE_FOR_CODE ? free.find((f) => f.name === 'glm') : undefined,
+        qwen: deep && { name: 'qwen', ai: deep },
+        claude: backup && { name: 'claude', ai: backup },
+      };
+      return codeOrder.map((k) => codePool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
     }
     // Güç: DeepSeek > GLM > Qwen > MiniMax = Claude > gpt-oss-120b > gpt-oss-20b (Pollinations). Hız: DeepSeek > MiniMax > diğerleri eşit.
     // Hızlı: başta MiniMax (hızlı ve ücretsiz), ardından hız sırası. Dengeli: gpt-oss-120b → MiniMax → GLM, sonra kalanlar. Derin: güç sırası. Ücretsizler ücretli Claude'dan önce gelir.

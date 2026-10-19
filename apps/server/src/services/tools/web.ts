@@ -21,7 +21,7 @@ export function createWebSearchTool(searcher: Searcher = createSearcher()): Tool
   return {
     name: 'web_search',
     description:
-      'İnternette arama yapar (DuckDuckGo). Güncel bilgi, haber, fiyat, sürüm, belge ya da bilmediğin konular için kullan. ' +
+      'İnternette arama yapar (birden çok arama motorunun birleşik sonucu). Güncel bilgi, haber, fiyat, sürüm, belge ya da bilmediğin konular için kullan. ' +
       'Sonuç başlık, adres ve kısa özet döndürür; ayrıntı için web_fetch ile sayfayı oku.',
     parameters: {
       type: 'object',

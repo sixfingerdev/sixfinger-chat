@@ -304,12 +304,13 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     id: string;
     content: string;
     plan_mode: boolean;
+    mode: string;
     attachments: Array<{ name: string; mime: string; text: string }>;
     created_at: Date;
   }
   const queueDto = (r: QueueRow): CodeQueueItemDTO => ({ id: r.id, text: r.content, plan: r.plan_mode, attachments: (r.attachments ?? []).map((a) => a.name) });
   const listQueue = async (chatId: string) =>
-    (await db.query<QueueRow>('select id, content, plan_mode, attachments, created_at from code_queue where chat_id = $1 order by created_at, id', [chatId])).rows.map(queueDto);
+    (await db.query<QueueRow>('select id, content, plan_mode, mode, attachments, created_at from code_queue where chat_id = $1 order by created_at, id', [chatId])).rows.map(queueDto);
 
   /** Tur normal bitti ya da kullanıcı durdurdu: sıradaki mesajı sunucu kendisi başlatır (istemci açık olmasa da). Hata ile biten turdan sonra beklemez. */
   async function continueQueue(chatId: string, user: AuthUser, assistantId: string) {
@@ -330,7 +331,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       if (!chat || chat.kind !== 'code') return false;
       const claimed = await db.query<QueueRow>(
         `delete from code_queue where id = (select id from code_queue where chat_id = $1 order by created_at, id limit 1 for update skip locked)
-         returning id, content, plan_mode, attachments, created_at`,
+         returning id, content, plan_mode, mode, attachments, created_at`,
         [chatId],
       );
       const item = claimed.rows[0];
@@ -346,14 +347,15 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           userText: item.content,
           isFirstExchange: turn.isFirstExchange,
           planMode: item.plan_mode,
+          codeMode: item.mode === 'fast' ? 'fast' : 'deep',
         });
         return true;
       } catch (err) {
         // Başlatılamadı (ör. eşzamanlı çalışma sınırı): mesajı yerine geri koy, kaybolmasın.
         log.warn({ err }, 'sıradaki Code mesajı başlatılamadı, kuyruğa geri konuldu');
         await db
-          .query('insert into code_queue (id, chat_id, user_id, content, plan_mode, attachments, created_at) values ($1, $2, $3, $4, $5, $6, $7)', [
-            item.id, chatId, user.id, item.content, item.plan_mode, JSON.stringify(item.attachments ?? []), item.created_at,
+          .query('insert into code_queue (id, chat_id, user_id, content, plan_mode, mode, attachments, created_at) values ($1, $2, $3, $4, $5, $6, $7, $8)', [
+            item.id, chatId, user.id, item.content, item.plan_mode, item.mode, JSON.stringify(item.attachments ?? []), item.created_at,
           ])
           .catch(() => {});
         return false;
@@ -647,7 +649,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const turn = await beginTurn(chat, user, body, req.ip);
         const { userRow, assistantId, history, isFirstExchange } = turn;
         if (isCode) {
-          return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange, planMode: body.planMode === true });
+          return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange, planMode: body.planMode === true, codeMode: body.mode === 'fast' ? 'fast' : 'deep' });
         }
         generate(req, reply, {
           chat,
@@ -685,11 +687,12 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         assertTurnBody(user, body);
         const n = await db.query<{ n: number }>('select count(*)::int as n from code_queue where chat_id = $1', [chat.id]);
         if ((n.rows[0]?.n ?? 0) >= QUEUE_MAX) throw badRequest(`Sırada en fazla ${QUEUE_MAX} mesaj bekleyebilir.`);
-        await db.query('insert into code_queue (chat_id, user_id, content, plan_mode, attachments) values ($1, $2, $3, $4, $5)', [
+        await db.query('insert into code_queue (chat_id, user_id, content, plan_mode, mode, attachments) values ($1, $2, $3, $4, $5, $6)', [
           chat.id,
           user.id,
           body.content,
           body.planMode === true,
+          body.mode === 'fast' ? 'fast' : 'deep',
           JSON.stringify(body.attachments ?? []),
         ]);
         // O sırada çalışma yoksa (tur az önce bitti) sıradaki hemen başlar.

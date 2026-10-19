@@ -8,6 +8,7 @@ import { createCodeTools } from './code.ts';
 import type { CodeSandboxClient } from './code-client.ts';
 import { repairArgs, type ParamSchema } from './repair.ts';
 import { createWebFetchTool, createWebSearchTool } from './web.ts';
+import { createSearcher } from './search.ts';
 
 export { ToolError } from './errors.ts';
 export type { ToolContext, ToolDef, ToolResult } from './types.ts';
@@ -29,11 +30,14 @@ export interface ToolsOptions {
   sandbox?: SandboxClient;
   /** sandboxd Code uçları: Code oturumlarının araçları. */
   code?: CodeSandboxClient;
+  /** Kendi sunucundaki SearXNG adresi (web_search için; boşsa DuckDuckGo + Bing). */
+  searxngUrl?: string;
 }
 
 export function createTools(extra: ToolDef[] = [], opts: ToolsOptions = {}): Tools {
-  const all: ToolDef[] = [createWebSearchTool(), createWebFetchTool(), ...(opts.sandbox ? createSandboxTools(opts.sandbox) : []), ...extra];
-  const codeTools: ToolDef[] = opts.code ? [...createCodeTools(opts.code), createWebSearchTool(), createWebFetchTool()] : [];
+  const searcher = createSearcher(fetch, Date.now, { searxngUrl: opts.searxngUrl });
+  const all: ToolDef[] = [createWebSearchTool(searcher), createWebFetchTool(), ...(opts.sandbox ? createSandboxTools(opts.sandbox) : []), ...extra];
+  const codeTools: ToolDef[] = opts.code ? [...createCodeTools(opts.code), createWebSearchTool(searcher), createWebFetchTool()] : [];
   return { forUser: (user) => all.filter((t) => t.available(user)), forCode: () => codeTools };
 }
 

@@ -1493,6 +1493,19 @@ a.code-row.pr-link {
   border-color: var(--accent);
   color: var(--on-accent);
 }
+.mode-seg {
+  display: inline-flex;
+  gap: 4px;
+}
+/* Dar ekranda depo/dal notu gizlenir: Plan + Hızlı/Derin + gönder düğmesi sığsın */
+@media (max-width: 560px) {
+  .code-composer .composer-note {
+    display: none;
+  }
+  .code-composer .plan-toggle {
+    padding: 5px 8px;
+  }
+}
 .composer.plan-on {
   border-color: var(--accent);
 }

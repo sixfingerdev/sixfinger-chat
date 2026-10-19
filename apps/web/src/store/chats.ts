@@ -6,6 +6,7 @@ import { translate } from '../lib/i18n/index.ts';
 import { notifyIfHidden } from '../lib/notify.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 import { activePath, deepestLeaf, indexMessages } from '../lib/tree.ts';
+import { useCode } from './code.ts';
 import { useUi } from './ui.ts';
 
 export interface ChatDetail {
@@ -430,7 +431,8 @@ export const useChats = create<ChatsState>((set, get) => {
       const body = {
         content,
         parentId: parent,
-        mode: useUi.getState().mode,
+        // Code oturumunda model tercihi Code'un kendi Hızlı/Derin seçimidir; sohbetin modu değil.
+        mode: detail.chat.kind === 'code' ? useCode.getState().codeMode : useUi.getState().mode,
         effort: useUi.getState().effort,
         attachments: attachments.length ? attachments.map(({ name, mime, text }) => ({ name, mime, text })) : undefined,
         planMode: planMode || undefined,

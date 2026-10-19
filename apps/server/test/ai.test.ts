@@ -218,39 +218,21 @@ describe('Pollinations sağlayıcısı', () => {
       expect(mid.calls.map((c) => c.model)).toEqual(['gpt-oss-120b', 'minimax/minimax-m3.1-flash:free', 'GLM-5.3-Flash', 'DeepSeek-V4-Flash-0731', 'Qwen3.8-27B', 'openai-fast']);
     });
 
-    it('Code: varsayılan Qwen→(Claude); AI_FREE_FOR_CODE açıkken DeepSeek→GLM→Qwen (MiniMax yok)', async () => {
-      const code = async (c: typeof cfg) => {
+    it('Code: Hızlı = MiniMax → DeepSeek → GLM → Qwen, Derin = DeepSeek → GLM → Qwen; AI_FREE_FOR_CODE kapalıyken ikisi de yalnızca Qwen', async () => {
+      const code = async (c: typeof cfg, mode: 'fast' | 'deep') => {
         const models: string[] = [];
         const fetchMock = async (_u: string, init: RequestInit) => {
           models.push(JSON.parse(String(init.body)).model);
           return new Response('{}', { status: 400 });
         };
         const ai = createAi(c, undefined, fetchMock as unknown as typeof fetch);
-        await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'deep', route: 'code' }).catch(() => '');
+        await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode, route: 'code' }).catch(() => '');
         return models;
       };
-      expect(await code(cfg)).toEqual(['Qwen3.8-27B']);
-      expect(await code({ ...cfg, AI_FREE_FOR_CODE: true })).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B']);
-    });
-
-    it('reasoning_effort: ücretsiz modellere max, gpt-oss\'a high gider; AI_MAX_EFFORT kapalıysa kullanıcı düzeyi', async () => {
-      const efforts: Record<string, string> = {};
-      const fetchMock = async (_u: string, init: RequestInit) => {
-        const b = JSON.parse(String(init.body));
-        efforts[b.model] = b.reasoning_effort;
-        return new Response('{}', { status: 400 });
-      };
-      const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
-      await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' }).catch(() => '');
-      expect(efforts).toEqual({ 'DeepSeek-V4-Flash-0731': 'max', 'GLM-5.3-Flash': 'max', 'minimax/minimax-m3.1-flash:free': 'max', 'Qwen3.8-27B': undefined, 'gpt-oss-120b': 'high', 'openai-fast': 'high' });
-      const user: Record<string, string> = {};
-      const ai2 = createAi({ ...cfg, AI_MAX_EFFORT: false }, undefined, (async (_u: string, init: RequestInit) => {
-        const b = JSON.parse(String(init.body));
-        user[b.model] = b.reasoning_effort;
-        return new Response('{}', { status: 400 });
-      }) as unknown as typeof fetch);
-      await ai2.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' }).catch(() => '');
-      expect(Object.entries(user).filter(([m]) => m !== 'Qwen3.8-27B').every(([, v]) => v === 'low')).toBe(true);
+      expect(await code(cfg, 'fast')).toEqual(['minimax/minimax-m3.1-flash:free', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B']);
+      expect(await code(cfg, 'deep')).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B']);
+      expect(await code({ ...cfg, AI_FREE_FOR_CODE: false }, 'fast')).toEqual(['Qwen3.8-27B']);
+      expect(await code({ ...cfg, AI_FREE_FOR_CODE: false }, 'deep')).toEqual(['Qwen3.8-27B']);
     });
 
     it('AI_FREE_ENABLED kapalıyken zincire girmez', async () => {
