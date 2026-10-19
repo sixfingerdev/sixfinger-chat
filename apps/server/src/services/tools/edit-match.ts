@@ -13,10 +13,10 @@ export type EditOutcome =
 /** Her karakteri tek karakterle değiştirir: indeksler değişmez, eşleşme konumları doğrudan kullanılabilir. */
 export function normalizeTypographic(s: string): string {
   return s
-    .replace(/[‘’‚‛′]/g, "'")
-    .replace(/[“”„‟″]/g, '"')
-    .replace(/[‐-―−]/g, '-')
-    .replace(/[   -   　]/g, ' ');
+    .replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
+    .replace(/[\u2010-\u2015\u2212]/g, '-')
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ');
 }
 
 function indicesOf(hay: string, needle: string): number[] {

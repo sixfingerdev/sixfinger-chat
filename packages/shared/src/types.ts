@@ -232,8 +232,6 @@ export interface CodeEnvironmentDTO {
   envVars?: Record<string, string>;
   /** Listede gösterim için değişken adlarının sayısı. */
   envVarCount: number;
-  /** Commit'lere `Co-Authored-By: SixFinger Code` eklensin mi? (varsayılan açık) */
-  commitCoAuthor: boolean;
   /** Commit'lere oturum bağlantısı eklensin mi? (varsayılan kapalı) */
   commitSessionLink: boolean;
   createdAt: string;

@@ -15,12 +15,15 @@ import { useLocale, useT } from '../../lib/i18n/index.ts';
 import { useCode } from '../../store/code.ts';
 import { useUi } from '../../store/ui.ts';
 import { Field } from '../../components/Field.tsx';
-import { Segmented } from '../../components/Segmented.tsx';
+import { DiskSlider } from '../../components/code/DiskSlider.tsx';
 import { Button, Press } from '../../components/Ui.tsx';
 import { CodeHeader, NETWORK_ICON } from '../../components/code/CodeUi.tsx';
 
 const NETWORKS: CodeNetwork[] = ['none', 'trusted', 'full', 'custom'];
-const DISK_STEPS = [128, 256, 512, 1024, 1536] as const;
+const DISK_MIN = 128;
+const DISK_MAX = 1536;
+const DISK_STEP = 64;
+const DISK_MARKS = [128, 512, 1024, 1536];
 const VAR_LINE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /** "ANAHTAR=değer" satırlarını nesneye çevirir; biçimi bozuk satır varsa null. */
@@ -53,7 +56,6 @@ export default function EnvEditor() {
   const [setup, setSetup] = useState('');
   const [disk, setDisk] = useState<number>(CODE_DISK_DEFAULT_MB);
   const [vars, setVars] = useState('');
-  const [coAuthor, setCoAuthor] = useState(true);
   const [sessionLink, setSessionLink] = useState(false);
   const [busy, setBusy] = useState(false);
   const [varsBad, setVarsBad] = useState(false);
@@ -68,7 +70,6 @@ export default function EnvEditor() {
         setDomains(e.allowedDomains.join('\n'));
         setSetup(e.setupScript);
         setDisk(e.diskMb);
-        setCoAuthor(e.commitCoAuthor ?? true);
         setSessionLink(e.commitSessionLink ?? false);
         setVars(Object.entries(e.envVars ?? {}).map(([k, v]) => `${k}=${v}`).join('\n'));
         setLoading(false);
@@ -96,7 +97,6 @@ export default function EnvEditor() {
       allowedDomains: network === 'custom' ? domains.split(/[\s,]+/).filter(Boolean) : [],
       setupScript: setup,
       diskMb: disk,
-      commitCoAuthor: coAuthor,
       commitSessionLink: sessionLink,
       envVars,
     };
@@ -201,38 +201,37 @@ export default function EnvEditor() {
               <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text2 }}>{t('code.env.disk')}</RNText>
               <RNText style={{ fontFamily: fonts.mono, fontSize: 13, color: c.text }}>{formatMb(disk, locale)}</RNText>
             </View>
-            <Segmented<string>
-              value={String(DISK_STEPS.includes(disk as never) ? disk : CODE_DISK_DEFAULT_MB)}
-              onChange={(v) => setDisk(Number(v))}
-              options={DISK_STEPS.map((d) => ({ id: String(d), label: formatMb(d, locale) }))}
+            <DiskSlider
+              value={disk}
+              min={DISK_MIN}
+              max={DISK_MAX}
+              step={DISK_STEP}
+              marks={DISK_MARKS}
+              format={(v) => formatMb(v, locale)}
+              onChange={setDisk}
+              accessibilityLabel={t('code.env.disk')}
             />
             <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, color: c.text3 }}>{t('code.env.diskHint')}</RNText>
           </View>
 
-          <View style={{ gap: 12 }}>
+          <View style={{ gap: 10 }}>
             <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text2 }}>{t('code.env.attribution')}</RNText>
-            {(
-              [
-                [coAuthor, setCoAuthor, 'code.env.coauthor', 'code.env.coauthorHint'],
-                [sessionLink, setSessionLink, 'code.env.sessionLink', 'code.env.sessionLinkHint'],
-              ] as const
-            ).map(([on, set, label, hint]) => (
-              <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 14.5, color: c.text }}>{t(label)}</RNText>
-                  <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, lineHeight: 17, color: c.text3 }}>{t(hint)}</RNText>
-                </View>
-                <Switch
-                  value={on}
-                  onValueChange={(v) => {
-                    haptic.select?.();
-                    set(v);
-                  }}
-                  trackColor={{ false: c.line, true: c.accent }}
-                  thumbColor={on ? c.onAccent : c.text3}
-                />
+            <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, lineHeight: 17, color: c.text3 }}>{t('code.env.attributionNote')}</RNText>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 14.5, color: c.text }}>{t('code.env.sessionLink')}</RNText>
+                <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, lineHeight: 17, color: c.text3 }}>{t('code.env.sessionLinkHint')}</RNText>
               </View>
-            ))}
+              <Switch
+                value={sessionLink}
+                onValueChange={(v) => {
+                  haptic.select();
+                  setSessionLink(v);
+                }}
+                trackColor={{ false: c.line, true: c.accent }}
+                thumbColor={sessionLink ? c.onAccent : c.text3}
+              />
+            </View>
           </View>
 
           <Field

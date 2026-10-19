@@ -591,20 +591,109 @@
   line-height: 1.4;
   color: var(--text-3);
 }
+.disk-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
 .disk-value {
-  margin-left: 6px;
-  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.disk-slider {
+  --thumb: 26px;
+  --track: 6px;
+  position: relative;
+  padding: 6px 0 30px;
 }
 .disk-range {
+  display: block;
   width: 100%;
-  accent-color: var(--accent);
+  height: var(--thumb);
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  outline: none;
 }
-.disk-ticks {
-  display: flex;
-  justify-content: space-between;
+/* iz: dolu kısım vurgu renginde */
+.disk-range::-webkit-slider-runnable-track {
+  height: var(--track);
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) 0 calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--p)), var(--surface-3) 0);
+}
+.disk-range::-moz-range-track {
+  height: var(--track);
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+.disk-range::-moz-range-progress {
+  height: var(--track);
+  border-radius: 999px;
+  background: var(--accent);
+}
+.disk-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: var(--thumb);
+  height: var(--thumb);
+  margin-top: calc((var(--track) - var(--thumb)) / 2);
+  border-radius: 50%;
+  border: 4px solid var(--bg);
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--line-strong), 0 3px 10px -2px rgba(0, 0, 0, 0.45);
+  transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast);
+}
+.disk-range::-moz-range-thumb {
+  width: calc(var(--thumb) - 8px);
+  height: calc(var(--thumb) - 8px);
+  border-radius: 50%;
+  border: 4px solid var(--bg);
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--line-strong), 0 3px 10px -2px rgba(0, 0, 0, 0.45);
+}
+.disk-range:hover::-webkit-slider-thumb {
+  transform: scale(1.08);
+}
+.disk-range:active::-webkit-slider-thumb {
+  transform: scale(1.16);
+}
+.disk-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 1px var(--line-strong), 0 0 0 5px var(--accent-soft);
+}
+/* işaretler: gerçek değer konumlarında */
+.disk-marks {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--thumb) + 10px);
+  height: 22px;
+  pointer-events: none;
+}
+.disk-marks span {
+  position: absolute;
+  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--p));
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+.disk-marks i {
+  width: 2px;
+  height: 5px;
+  border-radius: 1px;
+  background: var(--line-strong);
+}
+.disk-marks .on i {
+  background: var(--accent);
+}
+.disk-marks em {
+  font-style: normal;
   font-size: 11.5px;
   color: var(--text-3);
-  margin-top: -2px;
+  white-space: nowrap;
 }
 .mono,
 .textarea.mono {

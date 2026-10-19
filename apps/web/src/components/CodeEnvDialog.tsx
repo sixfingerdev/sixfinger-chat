@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { CodeEnvironmentDTO, CodeNetwork } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
@@ -8,7 +8,10 @@ import { useCode } from '../store/code.ts';
 import { useUi } from '../store/ui.ts';
 import { Modal } from './Modal.tsx';
 
-export const DISK_STEPS = [128, 256, 512, 1024, 1536] as const;
+export const DISK_MIN = 128;
+export const DISK_MAX = 1536;
+export const DISK_STEP = 64;
+const DISK_MARKS = [128, 512, 1024, 1536] as const;
 export const formatDisk = (mb: number): string => (mb >= 1024 ? `${+(mb / 1024).toFixed(1)} GB` : `${mb} MB`);
 const NETWORKS: CodeNetwork[] = ['none', 'trusted', 'full', 'custom'];
 
@@ -34,7 +37,6 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
   const [setup, setSetup] = useState(env?.setupScript ?? '');
   const [disk, setDisk] = useState<number>(env?.diskMb ?? 512);
   const [vars, setVars] = useState('');
-  const [coAuthor, setCoAuthor] = useState(env?.commitCoAuthor ?? true);
   const [sessionLink, setSessionLink] = useState(env?.commitSessionLink ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +58,7 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
     };
   }, [env, loaded]);
 
-  const diskIndex = useMemo(() => Math.max(0, DISK_STEPS.findIndex((d) => d >= disk)), [disk]);
+  const diskPct = useMemo(() => (Math.min(DISK_MAX, Math.max(DISK_MIN, disk)) - DISK_MIN) / (DISK_MAX - DISK_MIN), [disk]);
   const editingBlocked = Boolean(env) && !loaded;
 
   const save = async () => {
@@ -71,7 +73,6 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
       allowedDomains: network === 'custom' ? domains.split('\n').map((d) => d.trim()).filter(Boolean) : [],
       setupScript: setup,
       diskMb: disk,
-      commitCoAuthor: coAuthor,
       commitSessionLink: sessionLink,
       envVars: parsed,
     });
@@ -139,24 +140,30 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
         )}
 
         <div className="field">
-          <label htmlFor="env-disk">
-            {t('code.env.disk')} <b className="disk-value">{formatDisk(disk)}</b>
-          </label>
-          <input
-            id="env-disk"
-            type="range"
-            className="disk-range"
-            min={0}
-            max={DISK_STEPS.length - 1}
-            step={1}
-            value={diskIndex}
-            onChange={(e) => setDisk(DISK_STEPS[Number(e.target.value)]!)}
-            aria-valuetext={formatDisk(disk)}
-          />
-          <div className="disk-ticks" aria-hidden>
-            {DISK_STEPS.map((d) => (
-              <span key={d}>{formatDisk(d)}</span>
-            ))}
+          <div className="disk-head">
+            <label htmlFor="env-disk">{t('code.env.disk')}</label>
+            <b className="disk-value">{formatDisk(disk)}</b>
+          </div>
+          <div className="disk-slider" style={{ '--p': diskPct } as CSSProperties}>
+            <input
+              id="env-disk"
+              type="range"
+              className="disk-range"
+              min={DISK_MIN}
+              max={DISK_MAX}
+              step={DISK_STEP}
+              value={disk}
+              onChange={(e) => setDisk(Number(e.target.value))}
+              aria-valuetext={formatDisk(disk)}
+            />
+            <div className="disk-marks" aria-hidden>
+              {DISK_MARKS.map((m) => (
+                <span key={m} className={disk >= m ? 'on' : ''} style={{ '--p': (m - DISK_MIN) / (DISK_MAX - DISK_MIN) } as CSSProperties}>
+                  <i />
+                  <em>{formatDisk(m)}</em>
+                </span>
+              ))}
+            </div>
           </div>
           <span className="hint">{t('code.env.diskHint')}</span>
         </div>
@@ -169,20 +176,14 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
 
         <div className="field">
           <span className="label">{t('code.env.attribution')}</span>
-          {(
-            [
-              [coAuthor, setCoAuthor, 'code.env.coauthor', 'code.env.coauthorHint'],
-              [sessionLink, setSessionLink, 'code.env.sessionLink', 'code.env.sessionLinkHint'],
-            ] as const
-          ).map(([on, set, label, hint]) => (
-            <div key={label} className="switch-row">
-              <span className="switch-text">
-                <strong>{t(label)}</strong>
-                <span className="hint">{t(hint)}</span>
-              </span>
-              <button className="switch" role="switch" aria-checked={on} aria-label={t(label)} onClick={() => set(!on)} />
-            </div>
-          ))}
+          <span className="hint">{t('code.env.attributionNote')}</span>
+          <div className="switch-row">
+            <span className="switch-text">
+              <strong>{t('code.env.sessionLink')}</strong>
+              <span className="hint">{t('code.env.sessionLinkHint')}</span>
+            </span>
+            <button className="switch" role="switch" aria-checked={sessionLink} aria-label={t('code.env.sessionLink')} onClick={() => setSessionLink(!sessionLink)} />
+          </div>
         </div>
 
         <div className="field">

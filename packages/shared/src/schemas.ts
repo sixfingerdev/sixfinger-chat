@@ -131,7 +131,6 @@ export const codeEnvFields = z.object({
     .transform((a) => [...new Set(a)]),
   setupScript: z.string().max(4_000),
   diskMb: z.number().int().min(CODE_DISK_MIN_MB).max(CODE_DISK_MAX_MB),
-  commitCoAuthor: z.boolean(),
   commitSessionLink: z.boolean(),
   envVars: z
     .record(z.string().max(4_000))
@@ -144,7 +143,6 @@ export const createCodeEnvSchema = codeEnvFields.partial({
   allowedDomains: true,
   setupScript: true,
   diskMb: true,
-  commitCoAuthor: true,
   commitSessionLink: true,
   envVars: true,
 });

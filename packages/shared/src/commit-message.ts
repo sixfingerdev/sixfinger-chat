@@ -1,13 +1,11 @@
 /**
- * SixFinger Code'un attığı commit'lerin ve PR'ların atıf satırları. Commit yazarı kullanıcının kendisidir; ajan ortak yazar olarak eklenir.
- * İkisi de ortam ayarlarından kapatılabilir.
+ * SixFinger Code'un attığı commit'lerin ve PR'ların atıf satırları. Commit yazarı kullanıcının kendisidir; ajan HER ZAMAN ortak yazar
+ * olarak eklenir (kapatılamaz). Yalnızca oturum bağlantısı satırı kullanıcının seçimine bağlıdır.
  */
 export const CODE_COAUTHOR = 'SixFinger Code <noreply@sixfinger.live>';
 
 export interface CommitAttribution {
-  /** `Co-Authored-By: SixFinger Code …` satırı. */
-  coAuthor: boolean;
-  /** Oturum bağlantısı satırı (özel bir adres; varsayılan kapalı). */
+  /** Oturum bağlantısı satırı (özel bir adres; ortam ayarında açılırsa verilir). */
   sessionUrl?: string | null;
 }
 
@@ -22,9 +20,8 @@ export function commitSubject(raw: string, fallback = 'SixFinger Code değişikl
 }
 
 /** Başlık + (varsa) gövde + atıf satırları. Aynı satır iki kez eklenmez. */
-export function buildCommitMessage(subject: string, body: string | undefined, attr: CommitAttribution): string {
-  const trailers: string[] = [];
-  if (attr.coAuthor) trailers.push(`Co-Authored-By: ${CODE_COAUTHOR}`);
+export function buildCommitMessage(subject: string, body: string | undefined, attr: CommitAttribution = {}): string {
+  const trailers: string[] = [`Co-Authored-By: ${CODE_COAUTHOR}`];
   if (attr.sessionUrl) trailers.push(`SixFinger-Session: ${oneLine(attr.sessionUrl)}`);
   const cleanBody = (body ?? '')
     .replace(/\u0000/g, '')
@@ -36,8 +33,7 @@ export function buildCommitMessage(subject: string, body: string | undefined, at
 }
 
 /** PR açıklamasının sonuna eklenen atıf. */
-export function prFooter(attr: CommitAttribution): string {
-  if (!attr.coAuthor) return '';
+export function prFooter(attr: CommitAttribution = {}): string {
   return `Generated with SixFinger Code${attr.sessionUrl ? `\n\n${oneLine(attr.sessionUrl)}` : ''}`;
 }
 

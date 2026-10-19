@@ -53,7 +53,7 @@ describe('applyEdit', () => {
     const miss = applyEdit(file, '    return a  + b;', 'return 0;');
     expect(miss.ok).toBe(false);
     expect(!miss.ok && miss.error).toMatch(/closest text in the file/);
-    expect(!miss.ok && miss.error).toMatch(/2:   return a \+ b;/);
+    expect(!miss.ok && miss.error).toMatch(/2: {3}return a \+ b;/);
   });
 
   it('olmayan metinde benzer satır yoksa öneri eklemez', () => {

@@ -395,7 +395,7 @@ export class CodeService {
         limit + 8,
       );
       if (r.exitCode === 44) throw new SandboxError(`Dosya bulunamadı: ${path}`, 'not_found');
-      if (r.exitCode === 45) throw new SandboxError(`Bu bir klasör, dosya değil: ${path}`);
+      if (r.exitCode === 45) throw new SandboxError(`Bu bir klasör, dosya değil: ${path}`, 'is_directory');
       if (r.exitCode !== 0) throw new SandboxError(`Dosya okunamadı: ${r.stderr.trim().slice(0, 200)}`);
       if (r.stdout.includes('\u0000')) throw new SandboxError('Bu dosya ikili (binary) görünüyor; okunamaz.');
       const truncated = Buffer.byteLength(r.stdout) > limit;

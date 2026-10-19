@@ -80,7 +80,7 @@ export class SandboxBusyError extends Error {
 export class SandboxError extends Error {
   constructor(
     message: string,
-    readonly code: 'bad_request' | 'not_found' | 'too_large' | 'internal' | 'not_prepared' | 'disk_full' = 'bad_request',
+    readonly code: 'bad_request' | 'not_found' | 'too_large' | 'internal' | 'not_prepared' | 'disk_full' | 'is_directory' = 'bad_request',
   ) {
     super(message);
     this.name = 'SandboxError';
