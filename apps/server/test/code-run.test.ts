@@ -146,6 +146,24 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     expect(String(agentCalls()[0]!.messages[0]!.content)).toContain(`SixFinger-Session: http://localhost:5173/code/s/${s.chatId}`);
   });
 
+  it('CODE_COAUTHOR verilirse ortak yazar satırı (GitHub hesabına bağlı e-posta) istemde ve örneklerde o olur', async () => {
+    const custom = 'SixFinger Code <12345+sixfinger-code@users.noreply.github.com>';
+    await boot({ CODE_COAUTHOR: custom });
+    await resetDb(env.ctx);
+    const { a, s } = await prepared();
+    env.ai.steps = [text('Merhaba.')];
+    await send(a, s.chatId, 'selam');
+    const base = String(agentCalls()[0]!.messages[0]!.content);
+    expect(base).toContain(`-m "Co-Authored-By: ${custom}"`);
+    expect(base).not.toContain('noreply@sixfinger.live');
+    const envId = (await env.ctx.code.listEnvironments(a.user.id))[0]!.id;
+    await env.ctx.code.updateEnvironment(a.user.id, envId, { commitSessionLink: true });
+    env.ai.calls.length = 0;
+    env.ai.steps = [text('Tamam.')];
+    await send(a, s.chatId, 'tekrar');
+    expect(String(agentCalls()[0]!.messages[0]!.content)).toContain(`Co-Authored-By: ${custom}\\nSixFinger-Session:`);
+  });
+
   it('ajan commit etmezse platform de etmez: değişiklikler çalışma ağacında kalır, kart "commit yok" der ve geri sarma noktası alınır', async () => {
     const { a, s } = await prepared();
     env.ai.steps = [[call('c1', 'write', { path: 'x.txt', content: 'x\n' })], text('Yazdım.')];

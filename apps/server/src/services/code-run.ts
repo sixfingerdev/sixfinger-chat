@@ -290,6 +290,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
         setupFailure: prepared.setupRan && prepared.setupOk === false ? prepared.setupOutput.slice(-1_500) : undefined,
         planMode: g.planMode, instructions: env.instructions, skills: catalog.list, skillHints: hints, activeSkills: active,
         connectors,
+        coAuthor: config.CODE_COAUTHOR.trim() || undefined,
         sessionUrl: env.commitSessionLink ? `${config.PUBLIC_WEB_URL.replace(/\/$/, '')}/code/s/${chat.id}` : null,
       });
     const system = makeSystem(activeFromHistory);
