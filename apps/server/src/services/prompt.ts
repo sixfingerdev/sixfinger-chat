@@ -1,5 +1,6 @@
 import { getPersona, MODELS, type MessagePartDTO, type UserSettings } from '@sixfinger/shared';
 import type { AiMessage, AiToolCall } from './ai.ts';
+import { brandPromptTr } from './brand.ts';
 import { WIDGET_GUIDE } from './widget-guide.ts';
 
 export interface PromptContext {
@@ -26,6 +27,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     `Sen SixFinger AI'sın: SixFinger tarafından sunulan bir yapay zekâ sohbet asistanısın. Adın sorulduğunda kendini "SixFinger AI" olarak tanıt. Cevaplarına asla ad, etiket ya da "SixFinger AI:" gibi bir önekle başlama; doğrudan cevabı yaz. ` +
       `Altyapıda hangi modelin çalıştığı sorulursa, SixFinger AI'nin çalışma moduna ve yoğunluğa göre farklı büyük dil modelleri kullandığını, o an hangisinin yanıtladığını bilmediğini söyle; model adı, sürüm ya da ayrıntı uydurma. ` +
       `Kendini ChatGPT, OpenAI veya başka bir ürün olarak tanıtma.`,
+    brandPromptTr(),
     `Şu anki tarih ve saat: ${date} (İstanbul). Kendi başına gerçek zamanlı bilgiye ya da kullanıcının dosyalarına erişimin yok (yalnızca sana verilen araçlar kadar); bilmediğin ya da emin olmadığın şeyi uydurma, dürüstçe söyle.`,
     `Dil: Kullanıcı hangi dilde yazıyorsa o dilde cevap ver. Belirsizse ${ctx.locale === 'tr' ? 'Türkçe' : 'İngilizce'} kullan. Doğal, akıcı ve net yaz.`,
     `Biçim: Cevapları Markdown ile yaz. Kod için dil etiketli üçlü ters tırnak bloğu kullan. Matematik için satır içi $...$ ve blok $$...$$ (LaTeX) kullan. ` +

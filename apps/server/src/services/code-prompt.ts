@@ -1,4 +1,5 @@
 import type { CodeNetwork } from '@sixfinger/shared';
+import { brandPromptEn } from './brand.ts';
 
 /**
  * SixFinger Code sistem istemi. Kısa, eylem odaklı ve araç kullanımına yönelik; kurallar opencode (Kimi/Trinity istemleri) ve aider
@@ -14,7 +15,7 @@ export interface CodePromptInput {
   diskMb: number;
   /** Kurulum betiği bu turda çalışıp başarısız olduysa çıktısının sonu. */
   setupFailure?: string;
-  /** Çalışma alanı özeti (kök dizin listesi, AGENTS.md/CLAUDE.md, son commit'ler). */
+  /** Çalışma alanı özeti (kök dizin listesi, SIXFINGER.md/AGENTS.md/CLAUDE.md, son commit'ler). */
   brief?: string;
   /** Plan modu: yalnızca okuma araçları; ajan değişiklik yapmaz, plan sunar. */
   planMode?: boolean;
@@ -39,6 +40,7 @@ export function buildCodeSystemPrompt(i: CodePromptInput): string {
   const lang = i.locale === 'tr' ? 'Turkish' : 'English';
   return [
     'You are SixFinger Code, an autonomous software engineering agent. You work inside a cloud sandbox that contains the user\'s GitHub repository and you change it by calling tools. Do not state which underlying AI model you are; say you are SixFinger Code.',
+    brandPromptEn(),
     '',
     '## Workspace',
     `- Repository: ${i.repo}. You are on the working branch \`${i.workBranch}\` (created from \`${i.baseBranch}\`). The workspace root /work is the repository root; use paths relative to it.`,
@@ -47,7 +49,7 @@ export function buildCodeSystemPrompt(i: CodePromptInput): string {
     ...(i.setupFailure ? ['', `The environment setup script FAILED. Tell the user and work around it if you can. Last output:\n${i.setupFailure}`] : []),
     '',
     '## How to work',
-    '1. Understand before you change: use glob, grep and read to find the relevant code. Read a file before you edit it. Read AGENTS.md / CLAUDE.md / README when they are relevant, and follow the repository\'s own conventions, style and tooling.',
+    '1. Understand before you change: use glob, grep and read to find the relevant code. Read a file before you edit it. Read SIXFINGER.md (or AGENTS.md / CLAUDE.md) / README when they are relevant, and follow the repository\'s own conventions, style and tooling.',
     '2. Make the smallest change that fully solves the task. Do not reformat unrelated code, do not rename things needlessly, and do not add dependencies without checking what the project already uses.',
     '3. Edit existing files with edit (exact text copied from the read output, without the line-number prefixes). Use write for new files and full rewrites. Code that only appears in your text reply is NOT saved: it must go through write or edit.',
     '4. Verify your work: after changing code, run the project\'s own checks with bash (tests, type checks, lint, build) when they exist and are reasonably fast. If something fails, read the error, fix the cause and run it again. Never claim success without evidence.',
@@ -75,7 +77,7 @@ export function buildCodeSystemPrompt(i: CodePromptInput): string {
 
 /** Çalışma alanı özetini çıkaran komut (kök dizin, kural dosyaları, son commit'ler). */
 export const WORKSPACE_BRIEF_COMMAND =
-  'ls -1Ap | head -n 60; for f in AGENTS.md CLAUDE.md; do if [ -f "$f" ]; then echo; echo "--- $f"; head -c 3500 "$f"; fi; done; echo; echo "--- git log"; git log -n 5 --format="%h %s" 2>/dev/null';
+  'ls -1Ap | head -n 60; for f in SIXFINGER.md AGENTS.md CLAUDE.md; do if [ -f "$f" ]; then echo; echo "--- $f"; head -c 3500 "$f"; fi; done; echo; echo "--- git log"; git log -n 5 --format="%h %s" 2>/dev/null';
 
 /** Commit mesajı üretimi için istem (tek satır, Conventional Commits). */
 export function commitMessagePrompt(userRequest: string, files: Array<{ path: string; additions: number; deletions: number }>, locale: 'tr' | 'en'): Array<{ role: 'system' | 'user'; content: string }> {

@@ -120,7 +120,7 @@ Kullanıcı elle başlık/açıklama yazmaz.
 - **Alt ajan (`task`)**: ağır araştırmayı ayrı bağlamda yürütür, ana ajana rapor döner (bkz. [code-agent.md](code-agent.md)).
 - **Soru ve plan modu**: ajan `ask_user` ile seçenekli soru sorabilir. Composer'daki **Plan** anahtarı (ya da `/plan`) açıkken ajan yalnızca okur,
   plan sunar; **Onayla** ile uygulamaya geçer.
-- **Slash komutları**: `/plan`, `/compact` (bağlamı hemen özetle), `/pr`, `/init`, `/review`, `/test` ve reponun `.claude/commands/*.md` ile
+- **Slash komutları**: `/plan`, `/compact` (bağlamı hemen özetle), `/pr`, `/init` (SIXFINGER.md yazar), `/review`, `/test` ve reponun `.claude/commands/*.md` ile
   `.sixfinger/commands/*.md` dosyaları (`$ARGUMENTS` desteklenir). `/` yazınca menü açılır.
 - **`@dosya`**: yazarken repo dosyaları önerilir (`GET /files?q=`).
 - **Mesaj kuyruğu**: ajan çalışırken yazılan mesajlar kuyruğa girer, tur bitince sırayla gönderilir (kuyruktan silinebilir).
