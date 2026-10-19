@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Check, ChevronRight, Plug, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import { MCP_LIMITS, fillPresetUrl, mcpHost, type McpPresetView, type McpScope, type McpServerDTO } from '@sixfinger/shared';
+import { MCP_LIMITS, fillPresetUrl, mcpHost, mcpLogo, type McpPresetView, type McpScope, type McpServerDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
@@ -25,10 +25,24 @@ export function StatusChip({ server }: { server: McpServerDTO }) {
 }
 
 /** Tek renkli kare harf avatarı (katalog ve satırlar). */
-export function Avatar({ label }: { label: string }) {
+/** Bağlayıcı simgesi: katalog logosu (varsa), yoksa adın baş harfi. */
+export function Avatar({ label, preset }: { label: string; preset?: string | null }) {
+  const logo = mcpLogo(preset);
   return (
     <span className="mcp-avatar" aria-hidden>
-      {label.trim().charAt(0).toUpperCase() || '?'}
+      {logo && 'shapes' in logo ? (
+        <svg viewBox="0 0 24 24" width="20" height="20">
+          {logo.shapes.map((sh, i) => (
+            <path key={i} d={sh.d} fill={sh.fill} />
+          ))}
+        </svg>
+      ) : logo ? (
+        <span className="mcp-mono" style={{ color: logo.fill }}>
+          {logo.letter}
+        </span>
+      ) : (
+        label.trim().charAt(0).toUpperCase() || '?'
+      )}
     </span>
   );
 }
@@ -66,7 +80,7 @@ export function PresetCard({
   return (
     <li className={`mcp-card${preset.available ? '' : ' disabled'}`}>
       <div className="mcp-card-top">
-        <Avatar label={preset.label} />
+        <Avatar label={preset.label} preset={preset.id} />
         <div className="mcp-card-title">
           <strong>
             {preset.label}
@@ -102,7 +116,7 @@ export function ServerRow({ server, onOpen }: { server: McpServerDTO; onOpen: (s
   return (
     <li>
       <button className="skill-row" onClick={() => onOpen(server)}>
-        <Avatar label={server.label} />
+        <Avatar label={server.label} preset={server.preset} />
         <span className="skill-main">
           <strong className="mcp-row-title">
             {server.label}
@@ -379,7 +393,7 @@ export function ServerDialog({ server, onClose, onChanged, onRemoved }: { server
     >
       <div className="modal-body">
       <div className="mcp-detail-head">
-        <Avatar label={s.label} />
+        <Avatar label={s.label} preset={s.preset} />
         <div>
           <strong className="mono">{mcpHost(s.url)}</strong>
           <StatusChip server={s} />

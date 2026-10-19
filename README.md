@@ -63,7 +63,7 @@ Yapay zekâ sağlayıcıları (çalışma moduna göre, `apps/server/src/service
 
 | Mod | Sağlayıcı / model | Ayarlar |
 |---|---|---|
-| Hızlı | Pollinations `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
+| Hızlı | Önce ücretsiz modeller (aşağıda), sonra Pollinations `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
 | Dengeli | OVH AI Endpoints `gpt-oss-120b` | `AI_BALANCED_BASE_URL`, `AI_BALANCED_MODEL`, `AI_BALANCED_API_KEY` |
 | Derin | OVH AI Endpoints `Qwen3.8-27B` (akıl yürütmeli) | `AI_DEEP_BASE_URL`, `AI_DEEP_MODEL`, `AI_DEEP_API_KEY` |
 
@@ -72,6 +72,12 @@ sağlayıcıya düşer; `AI_BALANCED_BASE_URL=` (boş) vermek o modu doğrudan H
 Başlık üretimi ve hafıza gibi arka plan işleri Hızlı sağlayıcıyı kullanır.
 **Yedek:** bunlardan biri hata verir, hız sınırına takılır ya da boş yanıt dönerse istek otomatik olarak Amazon Bedrock'taki
 Claude'a düşer (isteğe bağlı; bkz. [docs/bedrock.md](docs/bedrock.md)).
+
+**Ücretsiz sağlayıcılar** (`AI_FREE_ENABLED`, varsayılan açık; anahtarsız çalışır): LLM7 `DeepSeek-V4-Flash-0731` → LLM7 `GLM-5.3-Flash` → Kilo
+`minimax/minimax-m3.1-flash:free` sırasıyla denenir (güç: DeepSeek > GLM > MiniMax). Hızlı modda ilk sıradadırlar; Dengeli/Derin'de seçilen modelden sonra, Bedrock'tan ve
+Pollinations'tan önce gelirler. `LLM7_API_KEY` isteğe bağlıdır: anahtar reddedilir (401/402/403) ya da kotası dolarsa (429) 10 dakika anahtarsız denenir; ≥ 1 dk beklemesi istenen
+uç o süre atlanır. Code'da varsayılan olarak **kullanılmaz** (depo içeriği üçüncü taraf servislere gider); `AI_FREE_FOR_CODE=true` ile Qwen'den sonra, Claude'dan önce DeepSeek/GLM denenir.
+Ayarlar: `LLM7_BASE_URL/MODEL/MODEL_2/API_KEY`, `KILO_BASE_URL/MODEL/API_KEY` (adres boşsa o sağlayıcı kapalı).
 
 İstemci iki ayrı değer gönderir: `mode` (`fast`/`balanced`/`deep`, hangi model) ve `effort` (`low`/`medium`/`high`, düşünme düzeyi).
 Düşünme düzeyi Hızlı ve Dengeli'de uygulanır; Derin'de menüde gizlenir. `mode` göndermeyen eski istemcilerde `effort` modu belirler.

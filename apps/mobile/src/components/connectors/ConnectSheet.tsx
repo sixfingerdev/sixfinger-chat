@@ -42,7 +42,7 @@ function Body({ preset, onSubmit }: { preset: McpPresetView; onSubmit: (p: McpPr
   return (
     <View style={{ gap: 14 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-        <Avatar label={preset.label} />
+        <Avatar label={preset.label} preset={preset.id} />
         <View style={{ flex: 1, gap: 2 }}>
           <RNText style={[type.heading as never, { color: c.text }]}>{preset.label}</RNText>
           <RNText numberOfLines={2} style={[type.small, { color: c.text3 }]}>

@@ -37,6 +37,24 @@ const schema = z.object({
   AI_DEEP_MODEL: z.string().default('Qwen3.8-27B'),
   AI_DEEP_API_KEY: z.string().optional().default(''),
   /**
+   * Ücretsiz sağlayıcılar (OpenAI uyumlu). LLM7: DeepSeek ana, GLM ikinci; anahtar isteğe bağlıdır (anahtar 401/402/403 verirse
+   * anahtarsız denenir). Kilo: MiniMax, anahtarsız. Sıra: DeepSeek → GLM → MiniMax. `*_BASE_URL` boşsa o sağlayıcı kapalıdır.
+   * Chat'te seçilen modelden sonra (Bedrock'tan önce) devreye girer; Hızlı modun başındadır. Code'da yalnızca `AI_FREE_FOR_CODE`
+   * açıksa Qwen'den sonra, Claude'dan önce denenir (depo içeriği üçüncü taraf ücretsiz servislere gideceği için varsayılan kapalı).
+   */
+  AI_FREE_ENABLED: z
+    .enum(['true', 'false', '1', '0', ''])
+    .optional()
+    .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
+  AI_FREE_FOR_CODE: bool,
+  LLM7_BASE_URL: z.string().default('https://api.llm7.io/v1/chat/completions'),
+  LLM7_API_KEY: z.string().optional().default(''),
+  LLM7_MODEL: z.string().default('DeepSeek-V4-Flash-0731'),
+  LLM7_MODEL_2: z.string().default('GLM-5.3-Flash'),
+  KILO_BASE_URL: z.string().default('https://api.kilo.ai/api/gateway/chat/completions'),
+  KILO_API_KEY: z.string().optional().default(''),
+  KILO_MODEL: z.string().default('minimax/minimax-m3.1-flash:free'),
+  /**
    * Yedek: Amazon Bedrock'taki Claude (Converse API). Diğer sağlayıcılar hata verirse (hız sınırı, kesinti, 200 dışı yanıt,
    * boş yanıt) istek buraya düşer. `BEDROCK_MODEL_ID` ve bir kimlik bilgisi (API anahtarı ya da IAM anahtarı) verilmezse kapalıdır.
    */

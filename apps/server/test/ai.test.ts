@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
-import { createAi } from '../src/services/ai.ts';
+import { createAi, stripToolMarkup } from '../src/services/ai.ts';
 
 const config = loadConfig();
 const sse = (chunks: object[]) =>
@@ -140,6 +140,100 @@ describe('Pollinations sağlayıcısı', () => {
       const r = await run('deep', (url) => (url === config.AI_DEEP_BASE_URL ? new Response('{}', { status: 400 }) : ok()));
       expect(r.text).toBe('ok');
       expect(r.calls.map((c) => c.body.model)).toEqual(['Qwen3.8-27B', 'openai-fast']);
+    });
+  });
+
+  describe('ücretsiz sağlayıcılar (LLM7 + Kilo)', () => {
+    const cfg = { ...config, AI_FREE_ENABLED: true, LLM7_API_KEY: 'k-test' };
+    const ok = () => new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+    const run = async (mode: 'fast' | 'balanced' | 'deep', handler: (url: string, body: any, auth: string | undefined) => Response, c = cfg) => {
+      const calls: Array<{ url: string; model: string; auth?: string }> = [];
+      const fetchMock = async (url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        const auth = (init.headers as Record<string, string>).authorization;
+        calls.push({ url, model: body.model, auth });
+        return handler(url, body, auth);
+      };
+      const ai = createAi(c, undefined, fetchMock as unknown as typeof fetch);
+      const text = await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode, effort: 'medium' });
+      return { calls, text };
+    };
+    const llm7 = cfg.LLM7_BASE_URL;
+
+    it('fast: önce DeepSeek (anahtarla), olmazsa GLM, MiniMax, en sonda Pollinations', async () => {
+      const first = await run('fast', ok);
+      expect(first.calls).toEqual([{ url: llm7, model: 'DeepSeek-V4-Flash-0731', auth: 'Bearer k-test' }]);
+      const r = await run('fast', (url, body) => (url === llm7 && body.model !== 'MiniMax' ? new Response('{}', { status: 400 }) : ok()));
+      expect(r.calls.map((c) => c.model)).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'minimax/minimax-m3.1-flash:free']);
+      const all = await run('fast', (url) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 })));
+      expect(all.calls.map((c) => c.model)).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'minimax/minimax-m3.1-flash:free', 'openai-fast']);
+    });
+
+    it('LLM7 anahtarı reddedilirse (402) aynı istek anahtarsız yeniden denenir ve bir süre anahtar kullanılmaz', async () => {
+      let n = 0;
+      const calls: Array<string | undefined> = [];
+      const fetchMock = async (_u: string, init: RequestInit) => {
+        const auth = (init.headers as Record<string, string>).authorization;
+        calls.push(auth);
+        return auth && n++ === 0 ? new Response('{"error":"balance"}', { status: 402 }) : ok();
+      };
+      const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
+      const req = { messages: [{ role: 'user' as const, content: 'x' }], mode: 'fast' as const };
+      expect(await ai.complete(req)).toBe('ok');
+      expect(await ai.complete(req)).toBe('ok');
+      expect(calls).toEqual(['Bearer k-test', undefined, undefined]);
+    });
+
+    it('kota dolduğunda (429 + uzun retry-after) anahtarsız dener; o da dolarsa uç bir süre atlanır', async () => {
+      const calls: Array<string | undefined> = [];
+      const fetchMock = async (_u: string, init: RequestInit) => {
+        calls.push((init.headers as Record<string, string>).authorization);
+        return new Response('{"error":{"message":"Daily token quota exceeded","type":"insufficient_quota"}}', { status: 429, headers: { 'retry-after': '3600' } });
+      };
+      const only = { ...cfg, KILO_BASE_URL: '', LLM7_MODEL_2: '', AI_BASE_URL: 'https://p.example/x', AI_BALANCED_BASE_URL: '' };
+      const ai = createAi(only, undefined, fetchMock as unknown as typeof fetch);
+      const req = { messages: [{ role: 'user' as const, content: 'x' }], mode: 'fast' as const, failFast: true };
+      await expect(ai.complete(req)).rejects.toMatchObject({ status: 503 });
+      expect(calls.slice(0, 2)).toEqual(['Bearer k-test', undefined]);
+      const before = calls.length;
+      await expect(ai.complete(req)).rejects.toMatchObject({ status: 503 });
+      // LLM7 artık denenmez (bekleme süresi), yalnızca son sağlayıcıya gidilir.
+      expect(calls.length - before).toBeLessThanOrEqual(2);
+    });
+
+    it('balanced/deep: seçilen model, sonra ücretsizler, sonra Pollinations', async () => {
+      const r = await run('deep', (url) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 })));
+      expect(r.calls.map((c) => c.model)).toEqual(['Qwen3.8-27B', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'minimax/minimax-m3.1-flash:free', 'openai-fast']);
+    });
+
+    it('Code: varsayılan Qwen→(Claude); AI_FREE_FOR_CODE açıkken Qwen→DeepSeek→GLM (MiniMax yok)', async () => {
+      const code = async (c: typeof cfg) => {
+        const models: string[] = [];
+        const fetchMock = async (_u: string, init: RequestInit) => {
+          models.push(JSON.parse(String(init.body)).model);
+          return new Response('{}', { status: 400 });
+        };
+        const ai = createAi(c, undefined, fetchMock as unknown as typeof fetch);
+        await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'deep', route: 'code' }).catch(() => '');
+        return models;
+      };
+      expect(await code(cfg)).toEqual(['Qwen3.8-27B']);
+      expect(await code({ ...cfg, AI_FREE_FOR_CODE: true })).toEqual(['Qwen3.8-27B', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash']);
+    });
+
+    it('AI_FREE_ENABLED kapalıyken zincire girmez', async () => {
+      const r = await run('fast', ok, { ...cfg, AI_FREE_ENABLED: false });
+      expect(r.calls.map((c) => c.model)).toEqual(['openai-fast']);
+    });
+
+    it('aynı araç çağrısını tekrar eden modelde (GLM) tek çağrı kalır; DeepSeek ayraçları düz metinden silinir', async () => {
+      const tc = (i: number, id: string, args: string) => delta({ tool_calls: [{ index: i, id, type: 'function', function: { name: 'get', arguments: args } }] });
+      const fetchMock = async () => sse([tc(0, 'a', '{"c":"x"}'), tc(1, 'b', '{"c":"x"}'), tc(2, 'c', '{"c":"y"}')]);
+      const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
+      const calls = [];
+      for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }], mode: 'fast' })) if (c.type === 'tool_calls') calls.push(...c.calls);
+      expect(calls.map((c) => c.id)).toEqual(['a', 'c']);
+      expect(stripToolMarkup('Merhaba<｜｜tool▁calls▁begin｜｜><｜｜tool▁call▁begin｜｜>get<｜｜tool▁sep｜｜>{}<｜｜tool▁call▁end｜｜><｜｜tool▁calls▁end｜｜>')).toBe('Merhaba');
     });
   });
 

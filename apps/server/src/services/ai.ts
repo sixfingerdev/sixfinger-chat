@@ -124,6 +124,13 @@ interface Profile {
   apiKey: string;
   /** `reasoning_effort` yalnızca bunu destekleyen modele gönderilir (Llama reddediyor, Qwen boş yanıt veriyor). */
   sendEffort: boolean;
+  /** Anahtar isteğe bağlıdır: 401/402/403 gelirse bir süre anahtarsız denenir (LLM7: bakiyesiz/iptal edilmiş anahtar). */
+  keyOptional?: boolean;
+}
+
+/** DeepSeek akışsız yanıtlarda araç çağrısı ayraçlarını (`<｜tool▁calls▁begin｜>…`) içeriğe de yazar; düz metinde istenmez. */
+export function stripToolMarkup(text: string): string {
+  return text.replace(/<[｜|]+tool▁calls▁begin[｜|]+>[\s\S]*?(?:<[｜|]+tool▁calls▁end[｜|]+>|$)/g, '').trim();
 }
 
 /** Zaman aşımı hatası (bağlanma ya da akış arası sessizlik): yeniden denenebilir sayılır. */
@@ -132,9 +139,13 @@ const timeoutError = () => new DOMException('The operation was aborted due to ti
 function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl: typeof fetch): AiProvider {
   const gate = new Semaphore(config.AI_MAX_CONCURRENCY);
 
+  let keyBlockedUntil = 0;
+  let cooldownUntil = 0;
+  const KEY_RETRY_MS = 10 * 60_000;
+
   function headers(): Record<string, string> {
     const h: Record<string, string> = { 'content-type': 'application/json', accept: 'text/event-stream' };
-    if (profile.apiKey) h.authorization = `Bearer ${profile.apiKey}`;
+    if (profile.apiKey && Date.now() >= keyBlockedUntil) h.authorization = `Bearer ${profile.apiKey}`;
     return h;
   }
 
@@ -169,6 +180,7 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
     let failed = 0;
     let lastStatus = 0;
     for (;;) {
+      if (Date.now() < cooldownUntil) throw new HttpError(503, 'upstream_busy', 'Yapay zekâ servisi şu an yoğun. Birkaç saniye sonra tekrar dene.');
       await pace(req.signal);
       // Süre yalnızca bağlanma/ilk yanıt için geçerlidir; akış başladıktan sonra boşta kalma süresiyle (stream) denetlenir.
       const ctl = new AbortController();
@@ -194,6 +206,14 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
         lastStatus = res.status;
         const retryAfter = Number(res.headers.get('retry-after'));
         const snippet = (await res.text().catch(() => '')).slice(0, 300);
+        // Anahtar reddedildi ya da anahtarın kotası doldu: bir süre anahtarsız denenir (ayrı kota olabilir).
+        if (profile.keyOptional && profile.apiKey && Date.now() >= keyBlockedUntil && ([401, 402, 403].includes(res.status) || (res.status === 429 && /quota/i.test(snippet)))) {
+          keyBlockedUntil = Date.now() + KEY_RETRY_MS;
+          log.warn({ status: res.status, body: snippet }, 'anahtar kullanılamadı, anahtarsız deneniyor');
+          continue;
+        }
+        // Uzun süre (≥ 1 dk) beklemesi istenen uç, o süre boyunca (en çok 10 dk) denenmez: zincir hemen yedeğe geçer.
+        if (res.status === 429 && Number.isFinite(retryAfter) && retryAfter >= 60) cooldownUntil = Date.now() + Math.min(retryAfter, 600) * 1_000;
         log.warn(
           { status: res.status, retryAfter: res.headers.get('retry-after'), body: snippet },
           'üst servis hatası',
@@ -292,7 +312,9 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
           const list = [...calls.entries()]
             .sort((a, b) => a[0] - b[0])
             .map(([, c], n) => ({ ...c, id: c.id || `call_${Date.now().toString(36)}_${n}` }))
-            .filter((c) => c.function.name);
+            .filter((c) => c.function.name)
+            // Bazı modeller (GLM) aynı çağrıyı birden çok kez üretir: birebir aynı olanlar tek sayılır.
+            .filter((c, i, all) => all.findIndex((o) => o.function.name === c.function.name && o.function.arguments === c.function.arguments) === i);
           if (list.length) yield { type: 'tool_calls', calls: list };
         }
         if (truncated) yield { type: 'truncated' };
@@ -323,7 +345,7 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
         clearTimeout(timer);
       }
       const content = json?.choices?.[0]?.message?.content;
-      return typeof content === 'string' ? content : '';
+      return typeof content === 'string' ? stripToolMarkup(content) : '';
     } finally {
       release();
     }
@@ -333,7 +355,7 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
 }
 
 /**
- * Çalışma moduna göre sağlayıcı seçer: fast → Pollinations, balanced → gpt-oss-120b, deep → Qwen3.8.
+ * Çalışma moduna göre sağlayıcı seçer: fast → ücretsiz modeller (DeepSeek/GLM/MiniMax) + Pollinations, balanced → gpt-oss-120b, deep → Qwen3.8.
  * Seçilen sağlayıcı yanıt vermeye başlamadan başarısız olursa (200 dışı yanıt, hız sınırı, kesinti, boş yanıt) sırayla
  * Bedrock'taki Claude'a (yapılandırıldıysa), sonra Hızlı sağlayıcıya düşülür.
  */
@@ -350,6 +372,17 @@ export function createAi(
   // gpt-oss `reasoning_effort` ister; Qwen3.8 bununla boş yanıt döner.
   const balanced = make(config.AI_BALANCED_BASE_URL, config.AI_BALANCED_MODEL, config.AI_BALANCED_API_KEY, true);
   const deep = make(config.AI_DEEP_BASE_URL, config.AI_DEEP_MODEL, config.AI_DEEP_API_KEY, false);
+  // Ücretsiz sağlayıcılar: DeepSeek (LLM7) → GLM (LLM7) → MiniMax (Kilo). Her biri `reasoning_effort`'u kabul eder.
+  const free: Array<{ name: string; ai: AiProvider }> = [];
+  if (config.AI_FREE_ENABLED) {
+    const llm7 = (model: string) => (config.LLM7_BASE_URL && model ? createEndpoint({ baseUrl: config.LLM7_BASE_URL, model, apiKey: config.LLM7_API_KEY, sendEffort: true, keyOptional: true }, config, log, fetchImpl) : undefined);
+    const d = llm7(config.LLM7_MODEL);
+    const g = llm7(config.LLM7_MODEL_2);
+    const k = make(config.KILO_BASE_URL, config.KILO_MODEL, config.KILO_API_KEY, true);
+    if (d) free.push({ name: 'deepseek', ai: d });
+    if (g) free.push({ name: 'glm', ai: g });
+    if (k) free.push({ name: 'minimax', ai: k });
+  }
   const backup = bedrockImpl ?? (bedrockConfigured(config) ? createBedrock(config) : undefined);
 
   /** Code'da Claude yedeğinin tüm kullanıcılar için günlük token tavanı (Bedrock harcamasını korur). */
@@ -365,17 +398,18 @@ export function createAi(
   const chain = (mode: ChatMode | undefined, route?: 'code'): Array<{ name: string; ai: AiProvider }> => {
     // Code: önce Qwen (deep), olmazsa Claude. Hızlı (Pollinations) modeline ASLA düşülmez: kod ajanında sessizce zayıf modele geçmek kötü sonuç verir.
     if (route === 'code') {
-      return [deep && { name: 'qwen', ai: deep }, backup && { name: 'claude', ai: backup }].filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
+      // İsteğe bağlı: güçlü ücretsiz modeller (DeepSeek, GLM) Qwen'den sonra, ücretli Claude'dan önce. MiniMax koda yetmez.
+      const strong = config.AI_FREE_FOR_CODE ? free.filter((f) => f.name !== 'minimax') : [];
+      return [deep && { name: 'qwen', ai: deep }, ...strong, backup && { name: 'claude', ai: backup }].filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
     }
     const main = mode === 'deep' ? deep : mode === 'balanced' ? balanced : undefined;
-    const all = [
-      main && { name: mode ?? 'main', ai: main },
-      { name: 'fast', ai: fast },
-      backup && { name: 'bedrock', ai: backup },
-    ].filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
-    // Seçilen model Hızlı değilse Bedrock, Hızlı'dan önce gelir (daha güçlü yedek).
-    if (main && backup) [all[1], all[2]] = [all[2]!, all[1]!];
-    return all;
+    const pollinations = { name: 'fast', ai: fast };
+    const paid = backup && { name: 'bedrock', ai: backup };
+    // Hızlı: ücretsiz güçlü modeller önde. Dengeli/Derin: seçilen model → ücretsizler → Bedrock → Hızlı (Pollinations).
+    const all = main
+      ? [{ name: mode ?? 'main', ai: main }, ...free, paid, pollinations]
+      : [...free, pollinations, paid];
+    return all.filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
   };
   const aborted = (req: AiRequest, err: unknown) => req.signal?.aborted || (err as Error)?.name === 'AbortError';
 

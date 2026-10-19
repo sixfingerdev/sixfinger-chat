@@ -72,6 +72,14 @@
   font-weight: 600;
   font-size: 15px;
 }
+.mcp-avatar svg {
+  display: block;
+}
+.mcp-mono {
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1;
+}
 .mcp-row-title {
   font-family: var(--font-sans);
 }

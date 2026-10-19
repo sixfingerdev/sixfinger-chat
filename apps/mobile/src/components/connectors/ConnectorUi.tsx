@@ -1,15 +1,28 @@
 import { Switch, Text as RNText, View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
+import { mcpLogo } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
 import { useT } from '../../lib/i18n/index.ts';
 import type { ServerStatus } from '../../lib/mcp.ts';
 
-/** Tek renkli kare harf avatarı (marka logoları yerine adın baş harfi). */
-export function Avatar({ label, size = 40 }: { label: string; size?: number }) {
+/** Bağlayıcı simgesi: katalog logosu (varsa), yoksa adın baş harfi. */
+export function Avatar({ label, preset, size = 40 }: { label: string; preset?: string | null; size?: number }) {
   const { c } = useTheme();
+  const logo = mcpLogo(preset);
   return (
     <View style={{ width: size, height: size, borderRadius: size * 0.28, backgroundColor: c.surface2, borderWidth: 1, borderColor: c.line, alignItems: 'center', justifyContent: 'center' }}>
-      <RNText style={{ fontFamily: fonts.sansSemibold, fontSize: size * 0.42, color: c.text2 }}>{(label.trim()[0] ?? '?').toUpperCase()}</RNText>
+      {logo && 'shapes' in logo ? (
+        <Svg width={size * 0.55} height={size * 0.55} viewBox="0 0 24 24">
+          {logo.shapes.map((sh, i) => (
+            <Path key={i} d={sh.d} fill={sh.fill === 'currentColor' ? c.text : sh.fill} />
+          ))}
+        </Svg>
+      ) : logo ? (
+        <RNText style={{ fontFamily: fonts.sansSemibold, fontSize: size * 0.46, color: logo.fill }}>{logo.letter}</RNText>
+      ) : (
+        <RNText style={{ fontFamily: fonts.sansSemibold, fontSize: size * 0.42, color: c.text2 }}>{(label.trim()[0] ?? '?').toUpperCase()}</RNText>
+      )}
     </View>
   );
 }

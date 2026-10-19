@@ -160,7 +160,7 @@ function Body({ s, onClose, onChanged, onRemoved, onConnect }: Omit<Props, 'serv
   return (
     <>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-        <Avatar label={s.label} />
+        <Avatar label={s.label} preset={s.preset} />
         <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
           <RNText numberOfLines={1} style={[type.heading as never, { color: c.text }]}>
             {s.label}

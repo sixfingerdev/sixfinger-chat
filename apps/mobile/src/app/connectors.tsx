@@ -329,7 +329,7 @@ function ServerRow({ s, busy, onOpen, onConnect }: { s: McpServerDTO; busy: bool
   const status = serverStatus(s);
   return (
     <Press scale={0.985} haptics="select" onPress={onOpen} style={[cardBase, { alignItems: 'center', borderColor: c.line, backgroundColor: c.surface }]}>
-      <Avatar label={s.label} />
+      <Avatar label={s.label} preset={s.preset} />
       <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
         <RNText numberOfLines={1} style={{ fontFamily: fonts.sansMedium, fontSize: 15, color: c.text }}>
           {s.label}
@@ -362,7 +362,7 @@ function PresetRow({ p, added, busy, disabled, onPress }: { p: McpPresetView; ad
   const linked = Boolean(added?.connected && added && !needsOauth(added));
   return (
     <Press scale={0.985} haptics={off ? false : 'select'} disabled={off} onPress={onPress} style={[cardBase, { alignItems: 'flex-start', borderColor: c.line, backgroundColor: c.surface, opacity: off ? 0.6 : 1 }]}>
-      <Avatar label={p.label} />
+      <Avatar label={p.label} preset={p.id} />
       <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <RNText numberOfLines={1} style={{ flexShrink: 1, fontFamily: fonts.sansMedium, fontSize: 15, color: c.text }}>
