@@ -29,6 +29,7 @@ import { createSessions } from './services/sessions.ts';
 import { createUsage } from './services/usage.ts';
 import { createCodeGit } from './services/code-git.ts';
 import { createCodePreview } from './services/code-preview.ts';
+import { createSkills } from './services/skills.ts';
 import { createCode } from './services/code.ts';
 import { createGithub } from './services/github.ts';
 import { createSecretBox } from './lib/secretbox.ts';
@@ -44,6 +45,8 @@ export interface BuildOptions {
   github?: ReturnType<typeof createGithub>;
   /** sandboxd Code istemcisi (testlerde sahte). */
   codeSandbox?: import('./services/tools/code-client.ts').CodeSandboxClient | null;
+  /** Yerleşik skill'ler (testlerde sabit küme). */
+  skills?: import('./services/skills.ts').Skills;
   /** Başlangıçta migrasyonları çalıştır. */
   migrate?: boolean;
 }
@@ -91,8 +94,9 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     tools: opts.tools ?? createTools([], { sandbox: sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : undefined, code: codeSandbox ?? undefined }),
     codeGit: undefined as never,
     codePreview: undefined as never,
+    skills: opts.skills ?? createSkills({ db }),
   };
-  ctx.codeGit = createCodeGit({ db, ai: ctx.ai, code: ctx.code, github: ctx.github, sandbox: codeSandbox, runs: ctx.runs, config });
+  ctx.codeGit = createCodeGit({ db, ai: ctx.ai, code: ctx.code, github: ctx.github, sandbox: codeSandbox, runs: ctx.runs, config, skills: ctx.skills });
   ctx.codePreview = createCodePreview({ codeGit: ctx.codeGit, secrets: ctx.secrets, code: ctx.code });
   const guard = createGuard(ctx);
   app.decorateRequest('user', null);

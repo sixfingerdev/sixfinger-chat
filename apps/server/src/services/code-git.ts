@@ -1,4 +1,4 @@
-import { githubNoreply, parseRepoCommand, type CodeDiffDTO, type CodePrDraftDTO, type CodePullDTO, type SlashCommand } from '@sixfinger/shared';
+import { BUILTIN_COMMANDS, githubNoreply, parseRepoCommand, type CodeDiffDTO, type CodePrDraftDTO, type CodePullDTO, type SlashCommand } from '@sixfinger/shared';
 import type { Config } from '../config.ts';
 import type { Db } from '../db/pool.ts';
 import { HttpError, notFound } from '../lib/errors.ts';
@@ -7,6 +7,7 @@ import type { AiProvider } from './ai.ts';
 import type { Code } from './code.ts';
 import type { Github } from './github.ts';
 import type { RunHub } from './runs.ts';
+import { discoverRepoSkills, type Catalog, type Skills } from './skills.ts';
 import { ToolError } from './tools/errors.ts';
 import { getPath } from './chats.ts';
 import { FileNotFoundError, IsDirectoryError, NotPreparedError, type CodeSandboxClient, type CodeScope, type SandboxHttpRequest } from './tools/code-client.ts';
@@ -24,6 +25,7 @@ export interface CodeGitDeps {
   sandbox: CodeSandboxClient | null;
   runs: RunHub;
   config: Config;
+  skills: Skills;
 }
 
 const PR_SYSTEM = [
@@ -204,10 +206,24 @@ export function createCodeGit(deps: CodeGitDeps) {
           list.push(cmd);
         }
       }
-      return list.slice(0, 40);
+      const repoCmds = list.slice(0, 40);
+      const taken = new Set([...BUILTIN_COMMANDS.map((c) => c.name), ...repoCmds.map((c) => c.name)]);
+      const cat = await skillCatalog(user, chatId, true).catch(() => null);
+      const skillCmds: SlashCommand[] = (cat?.list ?? [])
+        .filter((s) => !taken.has(s.name))
+        .map((s) => ({ name: s.name, kind: 'send', source: 'skill', description: s.description.slice(0, 160), template: `Use the "${s.name}" skill (call the skill tool first and follow it) for this task: $ARGUMENTS` }));
+      return [...repoCmds, ...skillCmds];
     } catch {
       return [];
     }
+  }
+
+  /** Oturumun skill kataloğu: yerleşik + kullanıcı (+ `repo` ise çalışma alanından keşfedilen) − ortamda kapatılanlar. */
+  async function skillCatalog(user: Who, chatId: string, repo: boolean): Promise<Catalog> {
+    const { session, scope, sandbox } = await load(user, chatId);
+    const env = session.environmentId ? await code.getEnvironment(user.id, session.environmentId).catch(() => null) : null;
+    const found = repo ? await withWorkspace(user, chatId, () => discoverRepoSkills(sandbox, scope, AbortSignal.timeout(30_000))).catch(() => []) : [];
+    return deps.skills.catalog(user.id, env?.skillsOff ?? [], found);
   }
 
   /** Çalışma alanındaki dosyalar (izlenen + yeni, .gitignore hariç); `q` verilirse yola göre süzülür (@dosya ve dosya gezgini için). */
@@ -322,7 +338,7 @@ export function createCodeGit(deps: CodeGitDeps) {
     const { scope, sandbox } = await load(user, chatId);
     try {
       await withWorkspace(user, chatId, async () => {
-        await sandbox.exec(scope, "mkdir -p .git/info && (grep -qxF '.sixfinger/' .git/info/exclude 2>/dev/null || echo '.sixfinger/' >> .git/info/exclude)", 15, AbortSignal.timeout(30_000));
+        await sandbox.exec(scope, "mkdir -p .git/info && for p in .sixfinger/uploads/ .sixfinger/run/; do grep -qxF \"$p\" .git/info/exclude 2>/dev/null || echo \"$p\" >> .git/info/exclude; done", 15, AbortSignal.timeout(30_000));
         return sandbox.upload(scope, path, data, AbortSignal.timeout(60_000));
       });
     } catch (err) {
@@ -332,6 +348,6 @@ export function createCodeGit(deps: CodeGitDeps) {
     return { path, name, bytes: data.length };
   }
 
-  return { push, draft, publish, diff, commands, files, readFile, archive, rewind, sandboxFile, sandboxPorts, sandboxHttp, download, upload };
+  return { push, draft, publish, diff, commands, files, readFile, archive, rewind, sandboxFile, sandboxPorts, sandboxHttp, download, upload, skillCatalog };
 }
 export type CodeGit = ReturnType<typeof createCodeGit>;

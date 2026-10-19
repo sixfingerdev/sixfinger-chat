@@ -11,7 +11,7 @@ import type { ToolContext, ToolDef, ToolResult } from './types.ts';
 export const TERMINAL_TOOLS = new Set(['ask_user', 'exit_plan_mode']);
 
 /** Plan modunda izin verilen araçlar: yalnızca okuma/araştırma + soru/plan. */
-export const PLAN_TOOLS = new Set(['read', 'glob', 'grep', 'todo', 'web_search', 'web_fetch', 'task', 'ask_user', 'exit_plan_mode']);
+export const PLAN_TOOLS = new Set(['read', 'glob', 'grep', 'todo', 'skill', 'web_search', 'web_fetch', 'task', 'ask_user', 'exit_plan_mode']);
 
 const available = () => true;
 

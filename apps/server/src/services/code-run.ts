@@ -24,6 +24,8 @@ import type { CodeQueue } from './code-queue.ts';
 import { cleanTitle, fallbackTitle, titlePrompt, type HistoryItem } from './prompt.ts';
 import type { Run } from './runs.ts';
 import { runToolCall, toolSpecs, type Tools } from './tools/index.ts';
+import { createSkillTool } from './tools/skills.ts';
+import { createSkillRuntime, discoverRepoSkills, hintsFor, type Skills } from './skills.ts';
 import { PLAN_TOOLS, TERMINAL_TOOLS, createAskUserTool, createExitPlanTool, createTaskTool, type SubagentReport } from './tools/agent.ts';
 import type { ToolContext, ToolDef } from './tools/types.ts';
 import type { CodeSandboxClient, CodeScope } from './tools/code-client.ts';
@@ -41,6 +43,8 @@ export interface CodeRunDeps {
   log: Logger;
   /** Tur sonu push + PR. */
   git: CodeGit;
+  /** Skill'ler: yerleşik + kullanıcı + repo. */
+  skills: Skills;
 }
 
 export interface CodeRunInput {
@@ -171,8 +175,8 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
   let diskUsedMb = 0;
   let contextTokens = 0;
   let branches = { work: '', base: '' };
-  let env: Pick<CodeEnvironmentDTO, 'network' | 'allowedDomains' | 'diskMb' | 'setupScript' | 'commitSessionLink' | 'autoPr' | 'instructions'> & { envVars: Record<string, string> } = {
-    network: 'trusted', allowedDomains: [], diskMb: 512, setupScript: '', commitSessionLink: false, autoPr: true, instructions: '', envVars: {},
+  let env: Pick<CodeEnvironmentDTO, 'network' | 'allowedDomains' | 'diskMb' | 'setupScript' | 'commitSessionLink' | 'autoPr' | 'instructions' | 'skillsOff'> & { envVars: Record<string, string> } = {
+    network: 'trusted', allowedDomains: [], diskMb: 512, setupScript: '', commitSessionLink: false, autoPr: true, instructions: '', skillsOff: [], envVars: {},
   };
 
   try {
@@ -193,7 +197,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     if (!gh) throw new HttpError(409, 'github_required', 'GitHub bağlantın yok ya da geçersiz. Hesabını yeniden bağla.');
     if (session.environmentId) {
       const e = await code.getEnvironment(user.id, session.environmentId).catch(() => null);
-      if (e) env = { network: e.network, allowedDomains: e.allowedDomains, diskMb: e.diskMb, setupScript: e.setupScript, commitSessionLink: e.commitSessionLink, autoPr: e.autoPr, instructions: e.instructions, envVars: e.envVars ?? {} };
+      if (e) env = { network: e.network, allowedDomains: e.allowedDomains, diskMb: e.diskMb, setupScript: e.setupScript, commitSessionLink: e.commitSessionLink, autoPr: e.autoPr, instructions: e.instructions, skillsOff: e.skillsOff, envVars: e.envVars ?? {} };
     }
 
     // --- sıra ---
@@ -250,12 +254,34 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
 
     // --- konuşma ---
     send({ type: 'phase', phase: 'working' });
-    const system = buildCodeSystemPrompt({
-      locale: user.locale, repo: session.repo, baseBranch: session.baseBranch, workBranch: session.workBranch, network: env.network,
-      allowedDomains: env.allowedDomains, diskMb: env.diskMb, brief,
-      setupFailure: prepared.setupRan && prepared.setupOk === false ? prepared.setupOutput.slice(-1_500) : undefined,
-      planMode: g.planMode, instructions: env.instructions,
-    });
+    // --- skill'ler: katalog (yerleşik + kullanıcı + repo), sunucu tarafı eşleştirme ipucu, önceki turlarda yüklenenler ---
+    const repoSkills = await discoverRepoSkills(sandbox, scope, signal);
+    const catalog = await deps.skills.catalog(user.id, env.skillsOff, repoSkills);
+    const skillRt = createSkillRuntime(catalog, sandbox, scope);
+    const hints = g.userText.trim().startsWith('/') ? [] : hintsFor(catalog, g.userText).map((x) => x.name);
+    const activeNames: string[] = [];
+    for (const m of g.history) {
+      for (const p of m.parts ?? []) {
+        if (p.type === 'tool' && p.name === 'skill' && p.status === 'done' && typeof p.meta?.name === 'string' && !p.meta.file && catalog.get(p.meta.name)) {
+          const at = activeNames.indexOf(p.meta.name);
+          if (at >= 0) activeNames.splice(at, 1);
+          activeNames.push(p.meta.name);
+        }
+      }
+    }
+    const activeFromHistory: Array<{ name: string; body: string }> = [];
+    for (const n of activeNames.slice(-3)) {
+      const body = await skillRt.peekBody(n, signal);
+      if (body) activeFromHistory.push({ name: n, body });
+    }
+    const makeSystem = (active: Array<{ name: string; body: string }>) =>
+      buildCodeSystemPrompt({
+        locale: user.locale, repo: session.repo, baseBranch: session.baseBranch, workBranch: session.workBranch, network: env.network,
+        allowedDomains: env.allowedDomains, diskMb: env.diskMb, brief,
+        setupFailure: prepared.setupRan && prepared.setupOk === false ? prepared.setupOutput.slice(-1_500) : undefined,
+        planMode: g.planMode, instructions: env.instructions, skills: catalog.list, skillHints: hints, activeSkills: active,
+      });
+    const system = makeSystem(activeFromHistory);
     let messages: AiMessage[] = [{ role: 'system', content: system }, ...buildCodeHistory(g.history, Math.floor(config.CODE_CONTEXT_TOKENS * 0.6))];
     /** Bu turun kullanıcı mesajının dizini (özetlemede kuyruk yalnızca bu turdan alınır). */
     let turnStart = messages.length - 1;
@@ -264,7 +290,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     const isCompactCmd = g.userText.trim() === '/compact';
     // Araçlar: plan modunda yalnızca okuma/araştırma + soru/plan; normal modda hepsi + alt ajan + soru.
     let runSubagent: (a: { description: string; prompt: string; agent: 'explore' | 'general' }, ctx: ToolContext) => Promise<SubagentReport> = async () => ({ text: '', steps: 0, tools: {} });
-    const agentTools: ToolDef[] = [createTaskTool((a, c) => runSubagent(a, c)), createAskUserTool(), ...(g.planMode ? [createExitPlanTool()] : [])];
+    const agentTools: ToolDef[] = [createTaskTool((a, c) => runSubagent(a, c)), createAskUserTool(), ...(catalog.list.length ? [createSkillTool(skillRt)] : []), ...(g.planMode ? [createExitPlanTool()] : [])];
     const defs: ToolDef[] = g.planMode ? [...baseDefs, ...agentTools].filter((d) => PLAN_TOOLS.has(d.name)) : [...baseDefs, ...agentTools];
     const specs = toolSpecs(defs);
     const specTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(specs)));
@@ -275,7 +301,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     /** Alt ajan: taze bağlamla çalışır, yalnızca raporu döndürür. Aynı frenler: döngü kırıcı, kredi, bağlam doluluğu, kullanıcının Durdur'u. */
     runSubagent = async (a, ctx) => {
       const readOnly = a.agent === 'explore' || g.planMode;
-      const subDefs = defs.filter((d) => (readOnly ? ['read', 'glob', 'grep', 'web_search', 'web_fetch'].includes(d.name) : !['task', 'ask_user', 'exit_plan_mode', 'todo', 'preview', 'share_file'].includes(d.name)));
+      const subDefs = defs.filter((d) => (readOnly ? ['read', 'glob', 'grep', 'skill', 'web_search', 'web_fetch'].includes(d.name) : !['task', 'ask_user', 'exit_plan_mode', 'todo', 'preview', 'share_file'].includes(d.name)));
       const subSpecs = toolSpecs(subDefs);
       const subSpecTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(subSpecs)));
       const system = [
@@ -393,6 +419,10 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
             }
             const r = applyCompaction(pruned, split, turnStart, summary, g.userText);
             messages = r.messages;
+            // Sıkıştırma eski tool sonuçlarını özetledi: yüklü skill talimatları sistem istemine taşınır, kaybolmaz.
+            const live = new Map(activeFromHistory.map((a) => [a.name, a]));
+            for (const l of skillRt.loaded.values()) live.set(l.name, { name: l.name, body: l.body });
+            messages[0] = { role: 'system', content: makeSystem([...live.values()]) };
             turnStart = r.turnStart;
             pruned = prune();
             contextTokens = messagesTokens(pruned) + specTokens;

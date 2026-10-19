@@ -14,6 +14,7 @@ import type { Github } from './services/github.ts';
 import type { SecretBox } from './lib/secretbox.ts';
 import type { CodeGit } from './services/code-git.ts';
 import type { CodePreview } from './services/code-preview.ts';
+import type { Skills } from './services/skills.ts';
 import type { CodeQueue } from './services/code-queue.ts';
 import type { CodeSandboxClient } from './services/tools/code-client.ts';
 
@@ -40,6 +41,8 @@ export interface AppContext {
   codeGit: CodeGit;
   /** Önizleme: çalışma alanı dosyaları (statik) ve dev-server proxy'si. */
   codePreview: CodePreview;
+  /** Skill'ler: yerleşik, kullanıcı ve repo kaynaklı playbook'lar. */
+  skills: Skills;
   /** Sır şifreleme; CODE_SECRET_KEY yoksa null (Code kapalı). */
   secrets: SecretBox | null;
 }

@@ -246,6 +246,8 @@ export interface CodeEnvironmentDTO {
   autoPr: boolean;
   /** Her turun sistem istemine eklenen kalıcı talimatlar. */
   instructions: string;
+  /** Bu ortamda kapatılan skill adları. */
+  skillsOff: string[];
   createdAt: string;
   updatedAt: string;
 }

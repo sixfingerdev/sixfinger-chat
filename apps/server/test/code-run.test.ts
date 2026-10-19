@@ -1001,7 +1001,7 @@ describe('Önizleme, indirme ve yükleme', () => {
     expect(up.statusCode).toBe(200);
     expect(up.json()).toEqual({ path: '.sixfinger/uploads/Logo Ö.png', name: 'Logo Ö.png', bytes: 4 });
     expect(fc.state.uploads).toEqual([{ path: '.sixfinger/uploads/Logo Ö.png', bytes: 4 }]);
-    expect(fc.state.execs.some((c) => c.includes('.git/info/exclude') && c.includes('.sixfinger/'))).toBe(true);
+    expect(fc.state.execs.some((c) => c.includes('.git/info/exclude') && c.includes('.sixfinger/uploads/') && c.includes('.sixfinger/run/'))).toBe(true);
     expect((await post(a, `/code/sessions/${s.chatId}/upload`, { name: '.gizli', dataBase64: 'AQ==' })).json().name).toBe('gizli');
     expect((await post(a, `/code/sessions/${s.chatId}/upload`, { name: 'x', dataBase64: '' })).statusCode).toBe(400);
     env.ctx.config.codeAllowed.emails.add('up-other@example.com');

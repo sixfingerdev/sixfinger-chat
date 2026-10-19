@@ -10,6 +10,10 @@ const estimateTokens = (s: string): number => Math.ceil(s.length / 3.5);
 export const messagesTokens = (messages: AiMessage[]): number =>
   messages.reduce((n, m) => n + estimateTokens(m.content) + (m.tool_calls ? estimateTokens(JSON.stringify(m.tool_calls)) : 0), 0);
 
+/** `skill` aracının sonuçları bununla başlar: son birkaçı kırpılmaz (talimat bağlamdan düşmesin). */
+export const SKILL_MARK = '[skill:';
+const SKILL_KEEP = 3;
+
 const TRIM_NOTE = '\n[… older output trimmed to save context. Re-run the command or re-read the file if you need it again.]';
 
 export interface PruneOptions {
@@ -29,8 +33,9 @@ export function pruneToolResults(messages: AiMessage[], o: PruneOptions): AiMess
   for (;;) {
     // Korunacak son `keep` sonuç; daha az sonuç varsa hepsi korunur.
     const protectedFrom = toolIdx.length > keep ? toolIdx[toolIdx.length - keep]! : 0;
+    const skillIdx = new Set(toolIdx.filter((i) => messages[i]!.content.startsWith(SKILL_MARK)).slice(-SKILL_KEEP));
     out = messages.map((m, i) => {
-      if (m.role !== 'tool' || i >= protectedFrom || m.content.length <= o.trimTo + TRIM_NOTE.length) return m;
+      if (m.role !== 'tool' || i >= protectedFrom || skillIdx.has(i) || m.content.length <= o.trimTo + TRIM_NOTE.length) return m;
       return { ...m, content: m.content.slice(0, o.trimTo) + TRIM_NOTE };
     });
     if (messagesTokens(out) <= o.budgetTokens || keep <= 2) return out;

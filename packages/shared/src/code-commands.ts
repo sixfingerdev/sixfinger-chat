@@ -9,7 +9,7 @@ export interface SlashCommand {
   template?: string;
   /** Repodaki komut dosyasından geliyorsa açıklama. */
   description?: string;
-  source: 'builtin' | 'repo';
+  source: 'builtin' | 'repo' | 'skill';
 }
 
 /** Yerleşik komutlar (açıklama metinleri i18n'de: `code.slash.<ad>`). */
@@ -55,7 +55,8 @@ export function expandTemplate(body: string, args: string): string {
 /** Yazılan "/öntanı"ya uyan komutlar (yerleşikler önce). */
 export function matchCommands(all: SlashCommand[], typed: string): SlashCommand[] {
   const q = typed.replace(/^\//, '').toLowerCase();
-  return all.filter((c) => c.name.startsWith(q)).sort((a, b) => Number(a.source === 'repo') - Number(b.source === 'repo') || a.name.localeCompare(b.name));
+  const rank = (c: SlashCommand) => (c.source === 'builtin' ? 0 : c.source === 'skill' ? 1 : 2);
+  return all.filter((c) => c.name.startsWith(q)).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 
 /** Repo komut dosyasının (`.claude/commands/x.md`) başındaki `description:` satırı ve gövdesi. */
