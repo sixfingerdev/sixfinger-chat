@@ -24,6 +24,8 @@ export interface PrepareRequest {
   /** GitHub erişim token'ı. Yalnızca ilk klonlamada gerekir; konteynere ASLA verilmez. */
   token?: string;
   network: EgressPolicy;
+  /** Commit yazarı (kullanıcının GitHub kimliği). Verilmezse SixFinger Code. */
+  author?: { name: string; email: string };
   diskMb: number;
   setupScript: string;
   env: Record<string, string>;
@@ -115,8 +117,8 @@ const CLEANUP_CMD = /^\s*(rm|du|ls|df|find|git\s+(clean|gc|status|stash|reset))\
 const GIT_INIT_SCRIPT = `
 set -e
 mkdir -p .git/sixfinger
-git config user.name "SixFinger Code"
-git config user.email "code@sixfinger.live"
+git config user.name "$2"
+git config user.email "$3"
 git config core.hooksPath /dev/null
 if [ ! -f .git/sixfinger/base ]; then
   git rev-parse HEAD > .git/sixfinger/base
@@ -333,7 +335,8 @@ export class CodeService {
       // 2) konteyner + ilk kurulum (dal, kimlik)
       await this.ensureRunning(st);
       if (!existsSync(join(dir, '.git', 'sixfinger', 'init'))) {
-        const r = await this.container(st, ['sh', '-c', GIT_INIT_SCRIPT, 'sh', req.workBranch], 60);
+        const author = req.author ?? { name: 'SixFinger Code', email: 'noreply@sixfinger.live' };
+        const r = await this.container(st, ['sh', '-c', GIT_INIT_SCRIPT, 'sh', req.workBranch, author.name, author.email], 60);
         if (r.exitCode !== 0) throw new SandboxError(`Dal hazırlanamadı: ${(r.stderr || r.stdout).trim().slice(-300)}`, 'internal');
       }
 

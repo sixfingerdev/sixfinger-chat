@@ -8,6 +8,7 @@ export { tr, type DictKey } from './i18n/tr.ts';
 export { en } from './i18n/en.ts';
 export * from './greetings.ts';
 export * from './code-credits.ts';
+export * from './commit-message.ts';
 export * from './code-greetings.ts';
 export * from './code-mascot.ts';
 export * from './tools.ts';

@@ -34,6 +34,8 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
   const [setup, setSetup] = useState(env?.setupScript ?? '');
   const [disk, setDisk] = useState<number>(env?.diskMb ?? 512);
   const [vars, setVars] = useState('');
+  const [coAuthor, setCoAuthor] = useState(env?.commitCoAuthor ?? true);
+  const [sessionLink, setSessionLink] = useState(env?.commitSessionLink ?? false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,6 +71,8 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
       allowedDomains: network === 'custom' ? domains.split('\n').map((d) => d.trim()).filter(Boolean) : [],
       setupScript: setup,
       diskMb: disk,
+      commitCoAuthor: coAuthor,
+      commitSessionLink: sessionLink,
       envVars: parsed,
     });
     setBusy(false);
@@ -161,6 +165,24 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
           <label htmlFor="env-setup">{t('code.env.setup')}</label>
           <textarea id="env-setup" className="textarea mono" rows={3} value={setup} maxLength={4000} onChange={(e) => setSetup(e.target.value)} placeholder="npm ci" spellCheck={false} />
           <span className="hint">{t('code.env.setupHint')}</span>
+        </div>
+
+        <div className="field">
+          <span className="label">{t('code.env.attribution')}</span>
+          {(
+            [
+              [coAuthor, setCoAuthor, 'code.env.coauthor', 'code.env.coauthorHint'],
+              [sessionLink, setSessionLink, 'code.env.sessionLink', 'code.env.sessionLinkHint'],
+            ] as const
+          ).map(([on, set, label, hint]) => (
+            <div key={label} className="switch-row">
+              <span className="switch-text">
+                <strong>{t(label)}</strong>
+                <span className="hint">{t(hint)}</span>
+              </span>
+              <button className="switch" role="switch" aria-checked={on} aria-label={t(label)} onClick={() => set(!on)} />
+            </div>
+          ))}
         </div>
 
         <div className="field">

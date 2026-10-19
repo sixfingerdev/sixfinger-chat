@@ -86,9 +86,20 @@ describe('çalışma alanı hazırlığı', () => {
     const dir = join(cfg.CODE_DATA_DIR, 'workspaces', codeSessionId('u1:chat1'));
     expect(existsSync(join(dir, 'app.js'))).toBe(true);
     expect(readFileSync(join(dir, '.git', 'sixfinger', 'base'), 'utf8').trim()).toBe(r.baseSha);
-    expect(execFileSync('git', ['config', 'user.email'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('code@sixfinger.live');
+    expect(execFileSync('git', ['config', 'user.email'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('noreply@sixfinger.live');
+    expect(execFileSync('git', ['config', 'user.name'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('SixFinger Code');
     // remote adresine token yazılmaz
     expect(git(dir, 'remote', 'get-url', 'origin')).not.toMatch(/x-access-token|gho_/);
+  });
+
+  it('commit yazarı kullanıcının kimliğidir (verilmişse)', async () => {
+    const { code, cfg } = makeCode();
+    await code.prepare(req({ author: { name: 'octo', email: '42+octo@users.noreply.github.com' } }));
+    await code.writeFile('u1', 'u1:chat1', 'x.txt', 'x');
+    await code.commit('u1', 'u1:chat1', 'deneme\n\nCo-Authored-By: SixFinger Code <noreply@sixfinger.live>');
+    const dir = join(cfg.CODE_DATA_DIR, 'workspaces', codeSessionId('u1:chat1'));
+    expect(execFileSync('git', ['log', '-1', '--format=%an <%ae>'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('octo <42+octo@users.noreply.github.com>');
+    expect(execFileSync('git', ['log', '-1', '--format=%B'], { cwd: dir, encoding: 'utf8' })).toContain('Co-Authored-By: SixFinger Code <noreply@sixfinger.live>');
   });
 
   it('ikinci hazırlıkta yeniden klonlamaz; kurulum betiği içeriği değişmedikçe bir kez çalışır', async () => {

@@ -23,6 +23,8 @@ interface EnvRow {
   env_vars_enc: string;
   setup_script: string;
   disk_mb: number;
+  commit_coauthor: boolean;
+  commit_session_link: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -48,6 +50,8 @@ export interface EnvInput {
   allowedDomains?: string[];
   setupScript?: string;
   diskMb?: number;
+  commitCoAuthor?: boolean;
+  commitSessionLink?: boolean;
   envVars?: Record<string, string>;
 }
 
@@ -96,16 +100,16 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
   };
 
   // ---- GitHub bağlantısı ----
-  async function getConnection(userId: string): Promise<(GithubAccountDTO & { token: string }) | null> {
-    const r = await db.query<{ login: string; avatar_url: string; token_enc: string }>(
-      'select login, avatar_url, token_enc from github_connections where user_id = $1',
+  async function getConnection(userId: string): Promise<(GithubAccountDTO & { token: string; githubId: number }) | null> {
+    const r = await db.query<{ login: string; avatar_url: string; token_enc: string; github_id: number }>(
+      'select login, avatar_url, token_enc, github_id from github_connections where user_id = $1',
       [userId],
     );
     const row = r.rows[0];
     if (!row) return null;
     const token = needBox().open(row.token_enc);
     if (!token) return null;
-    return { login: row.login, avatarUrl: row.avatar_url, token };
+    return { login: row.login, avatarUrl: row.avatar_url, token, githubId: Number(row.github_id) };
   }
 
   async function saveConnection(
@@ -140,6 +144,8 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
       setupScript: r.setup_script,
       diskMb: r.disk_mb,
       envVarCount: Object.keys(vars).length,
+      commitCoAuthor: r.commit_coauthor,
+      commitSessionLink: r.commit_session_link,
       ...(withVars ? { envVars: vars } : {}),
       createdAt: r.created_at.toISOString(),
       updatedAt: r.updated_at.toISOString(),
@@ -179,8 +185,8 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
     const enc = input.envVars && Object.keys(input.envVars).length ? needBox().seal(JSON.stringify(input.envVars)) : '';
     try {
       const r = await db.query<EnvRow>(
-        `insert into code_environments (user_id, name, network, allowed_domains, env_vars_enc, setup_script, disk_mb)
-         values ($1, $2, $3, $4, $5, $6, $7) returning *`,
+        `insert into code_environments (user_id, name, network, allowed_domains, env_vars_enc, setup_script, disk_mb, commit_coauthor, commit_session_link)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
         [
           userId,
           input.name ?? 'Ortam',
@@ -189,6 +195,8 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
           enc,
           input.setupScript ?? '',
           input.diskMb ?? CODE_DISK_DEFAULT_MB,
+          input.commitCoAuthor ?? true,
+          input.commitSessionLink ?? false,
         ],
       );
       return toEnvDTO(r.rows[0]!, true);
@@ -208,9 +216,11 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
             env_vars_enc = coalesce($6, env_vars_enc),
             setup_script = coalesce($7, setup_script),
             disk_mb = coalesce($8, disk_mb),
+            commit_coauthor = coalesce($9, commit_coauthor),
+            commit_session_link = coalesce($10, commit_session_link),
             updated_at = now()
           where id = $1 and user_id = $2 returning *`,
-        [id, userId, input.name ?? null, input.network ?? null, input.allowedDomains ?? null, enc, input.setupScript ?? null, input.diskMb ?? null],
+        [id, userId, input.name ?? null, input.network ?? null, input.allowedDomains ?? null, enc, input.setupScript ?? null, input.diskMb ?? null, input.commitCoAuthor ?? null, input.commitSessionLink ?? null],
       );
       if (!r.rows[0]) throw notFound('Ortam bulunamadı.');
       return toEnvDTO(r.rows[0], true);

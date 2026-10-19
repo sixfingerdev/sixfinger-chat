@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { creditsFor, diskMultiplier, pickCodeGreeting } from '@sixfinger/shared';
+import { CODE_COAUTHOR, buildCommitMessage, commitSubject, creditsFor, diskMultiplier, githubNoreply, pickCodeGreeting, prFooter } from '@sixfinger/shared';
 import { loadConfig } from '../src/config.ts';
 import { createGithub } from '../src/services/github.ts';
 import { createSecretBox } from '../src/lib/secretbox.ts';
@@ -322,6 +322,32 @@ describe('oturumlar', () => {
     expect(after.json().session.environmentId).toBeNull();
     expect((await env.app.inject({ method: 'DELETE', url: `/api/code/sessions/${s.chatId}`, headers: auth(a) })).statusCode).toBe(204);
     expect((await env.app.inject({ method: 'GET', url: `/api/chats/${s.chatId}`, headers: auth(a) })).statusCode).toBe(404);
+  });
+});
+
+describe('commit atfı', () => {
+  it('ortam varsayılanları: ortak yazar açık, oturum bağlantısı kapalı; değiştirilebilir', async () => {
+    const a = await coder();
+    const def = (await env.app.inject({ method: 'GET', url: '/api/code/environments', headers: auth(a) })).json().environments[0];
+    expect(def).toMatchObject({ commitCoAuthor: true, commitSessionLink: false });
+    const u = await env.app.inject({ method: 'PATCH', url: `/api/code/environments/${def.id}`, headers: auth(a), payload: { commitCoAuthor: false, commitSessionLink: true } });
+    expect(u.json().environment).toMatchObject({ commitCoAuthor: false, commitSessionLink: true });
+    const c = await env.app.inject({ method: 'POST', url: '/api/code/environments', headers: auth(a), payload: { name: 'Yeni' } });
+    expect(c.json().environment).toMatchObject({ commitCoAuthor: true, commitSessionLink: false });
+  });
+
+  it('commit mesajı: başlık temizlenir, atıf satırları eklenir, çift eklenmez', () => {
+    const on = buildCommitMessage('feat: giriş hatasını düzelt.', undefined, { coAuthor: true });
+    expect(on).toBe(`feat: giriş hatasını düzelt\n\nCo-Authored-By: ${CODE_COAUTHOR}`);
+    const both = buildCommitMessage('fix: x', 'Ayrıntı\nCo-Authored-By: Biri <b@x>\nSixFinger-Session: http://eski', { coAuthor: true, sessionUrl: 'https://chat.sixfinger.live/code/s/abc' });
+    expect(both).toBe(`fix: x\n\nAyrıntı\n\nCo-Authored-By: ${CODE_COAUTHOR}\nSixFinger-Session: https://chat.sixfinger.live/code/s/abc`);
+    expect(buildCommitMessage('fix: x', undefined, { coAuthor: false })).toBe('fix: x');
+    expect(commitSubject('a\nb\r\nc')).toBe('a b c');
+    expect(commitSubject('x'.repeat(100))).toHaveLength(72);
+    expect(commitSubject('   ')).toBe('SixFinger Code değişiklikleri');
+    expect(prFooter({ coAuthor: false })).toBe('');
+    expect(prFooter({ coAuthor: true })).toContain('SixFinger Code');
+    expect(githubNoreply(42, 'octo')).toBe('42+octo@users.noreply.github.com');
   });
 });
 

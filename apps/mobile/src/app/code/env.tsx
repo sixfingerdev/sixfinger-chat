@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text as RNText, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Switch, Text as RNText, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -53,6 +53,8 @@ export default function EnvEditor() {
   const [setup, setSetup] = useState('');
   const [disk, setDisk] = useState<number>(CODE_DISK_DEFAULT_MB);
   const [vars, setVars] = useState('');
+  const [coAuthor, setCoAuthor] = useState(true);
+  const [sessionLink, setSessionLink] = useState(false);
   const [busy, setBusy] = useState(false);
   const [varsBad, setVarsBad] = useState(false);
 
@@ -66,6 +68,8 @@ export default function EnvEditor() {
         setDomains(e.allowedDomains.join('\n'));
         setSetup(e.setupScript);
         setDisk(e.diskMb);
+        setCoAuthor(e.commitCoAuthor ?? true);
+        setSessionLink(e.commitSessionLink ?? false);
         setVars(Object.entries(e.envVars ?? {}).map(([k, v]) => `${k}=${v}`).join('\n'));
         setLoading(false);
       })
@@ -92,6 +96,8 @@ export default function EnvEditor() {
       allowedDomains: network === 'custom' ? domains.split(/[\s,]+/).filter(Boolean) : [],
       setupScript: setup,
       diskMb: disk,
+      commitCoAuthor: coAuthor,
+      commitSessionLink: sessionLink,
       envVars,
     };
     try {
@@ -201,6 +207,32 @@ export default function EnvEditor() {
               options={DISK_STEPS.map((d) => ({ id: String(d), label: formatMb(d, locale) }))}
             />
             <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, color: c.text3 }}>{t('code.env.diskHint')}</RNText>
+          </View>
+
+          <View style={{ gap: 12 }}>
+            <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text2 }}>{t('code.env.attribution')}</RNText>
+            {(
+              [
+                [coAuthor, setCoAuthor, 'code.env.coauthor', 'code.env.coauthorHint'],
+                [sessionLink, setSessionLink, 'code.env.sessionLink', 'code.env.sessionLinkHint'],
+              ] as const
+            ).map(([on, set, label, hint]) => (
+              <View key={label} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 14.5, color: c.text }}>{t(label)}</RNText>
+                  <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, lineHeight: 17, color: c.text3 }}>{t(hint)}</RNText>
+                </View>
+                <Switch
+                  value={on}
+                  onValueChange={(v) => {
+                    haptic.select?.();
+                    set(v);
+                  }}
+                  trackColor={{ false: c.line, true: c.accent }}
+                  thumbColor={on ? c.onAccent : c.text3}
+                />
+              </View>
+            ))}
           </View>
 
           <Field

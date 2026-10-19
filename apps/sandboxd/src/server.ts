@@ -32,6 +32,7 @@ const prepareBody = z.object({
   base_branch: z.string().min(1).max(200),
   work_branch: z.string().min(1).max(200),
   token: z.string().max(500).optional(),
+  author: z.object({ name: z.string().min(1).max(100), email: z.string().min(3).max(200) }).optional(),
   network: z.object({ mode: z.enum(['none', 'trusted', 'full', 'custom']), domains: z.array(z.string().max(253)).max(50).default([]) }),
   disk_mb: z.number().int().min(64).max(4096),
   setup_script: z.string().max(4_000).default(''),
@@ -113,7 +114,7 @@ export function buildServer(service: SandboxService, cfg: Config, opts: { logger
     app.post('/v1/code/prepare', async (req) => {
       const b = prepareBody.parse(req.body);
       return code.prepare({
-        user: b.user, session: b.session, repo: b.repo, baseBranch: b.base_branch, workBranch: b.work_branch, token: b.token,
+        user: b.user, session: b.session, repo: b.repo, baseBranch: b.base_branch, workBranch: b.work_branch, token: b.token, author: b.author,
         network: b.network, diskMb: b.disk_mb, setupScript: b.setup_script, env: b.env, cloneUrl: b.clone_url,
       });
     });
