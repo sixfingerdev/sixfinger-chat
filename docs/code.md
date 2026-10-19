@@ -236,3 +236,8 @@ uygulanır. Bu yanıltmasın diye imajdaki `df` (`sandbox/df-quota`, **imaj yeni
 `TMPDIR=/work/.sixfinger/tmp` (kotaya sayılır, git dışı) ve `PIP_NO_CACHE_DIR=1` ayarlıdır, böylece büyük tekerlekler "No space left" hatası vermez.
 Kotadan büyük paketler (torch, tensorflow…) yine sığmaz; istem ajana bunları kurmayı denememesini söyler.
 `.local/` (pip kullanıcı paketleri) ve `.npm-global/` sandbox'ın `.git/info/exclude` dosyasındadır: commit'e ve fark sayısına girmez.
+
+## Oturum silinince
+Bir Code oturumu silinince (`DELETE /api/code/sessions/:id`, genel `DELETE /api/chats/:id` ya da hesap silme) süren üretim durdurulur ve çalışma alanı
+sandboxd'de **konteyneri ve diskteki klasörüyle birlikte silinir** (`services/code-cleanup.ts`). Sandboxd'ye ulaşılamazsa oturum yine silinir, hata yalnızca
+günlüğe yazılır (kalan klasör `CODE_DATA_DIR/workspaces/` altında elle temizlenebilir).

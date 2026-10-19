@@ -159,6 +159,41 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     expect(of(r.events, 'phase').map((p) => p.phase)).not.toContain('publishing');
   });
 
+  it('Code oturumu silinince çalışma alanı (sandbox) da silinir; süren üretim durdurulur; sandbox hata verse de oturum silinir', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [[call('c1', 'write', { path: 'x.txt', content: 'x\n' })], text('Tamam.')];
+    await send(a, s.chatId, 'x yaz');
+    expect(fc.state.destroyed).toEqual([]);
+    expect((await env.app.inject({ method: 'DELETE', url: `/api/code/sessions/${s.chatId}`, headers: auth(a) })).statusCode).toBe(204);
+    expect(fc.state.destroyed).toEqual([`${a.user.id}:${s.chatId}`]);
+    expect((await env.app.inject({ method: 'GET', url: `/api/chats/${s.chatId}`, headers: auth(a) })).statusCode).toBe(404);
+
+    // sandbox'a ulaşılamıyorsa kullanıcının silme isteği yine başarılı olur
+    const s2 = await env.ctx.code.createSession(a.user.id, { repo: 'octo/alpha', baseBranch: 'main' });
+    const orig = fc.client.destroy;
+    fc.client.destroy = async () => {
+      throw new Error('sandboxd kapalı');
+    };
+    expect((await env.app.inject({ method: 'DELETE', url: `/api/code/sessions/${s2.chatId}`, headers: auth(a) })).statusCode).toBe(204);
+    fc.client.destroy = orig;
+  });
+
+  it('genel sohbet silme ucu da Code oturumunun sandbox\'ını siler; normal sohbette sandbox\'a dokunmaz; hesap silinince tüm çalışma alanları silinir', async () => {
+    const { a, s } = await prepared();
+    expect((await env.app.inject({ method: 'DELETE', url: `/api/chats/${s.chatId}`, headers: auth(a) })).statusCode).toBe(204);
+    expect(fc.state.destroyed).toEqual([`${a.user.id}:${s.chatId}`]);
+
+    const chat = (await env.app.inject({ method: 'POST', url: '/api/chats', headers: auth(a), payload: {} })).json().chat;
+    expect((await env.app.inject({ method: 'DELETE', url: `/api/chats/${chat.id}`, headers: auth(a) })).statusCode).toBe(204);
+    expect(fc.state.destroyed).toHaveLength(1);
+
+    const s2 = await env.ctx.code.createSession(a.user.id, { repo: 'octo/alpha', baseBranch: 'main' });
+    const s3 = await env.ctx.code.createSession(a.user.id, { repo: 'octo/beta', baseBranch: 'main' });
+    const del = await env.app.inject({ method: 'DELETE', url: '/api/me', headers: auth(a), payload: { password: 'correct-horse-battery' } });
+    expect(del.statusCode).toBe(204);
+    expect(fc.state.destroyed.slice(1).sort()).toEqual([`${a.user.id}:${s2.chatId}`, `${a.user.id}:${s3.chatId}`].sort());
+  });
+
   it('değişiklik yoksa commit atılmaz', async () => {
     const { a, s } = await prepared();
     env.ai.steps = [text('Bir şey değiştirmeye gerek yok.')];

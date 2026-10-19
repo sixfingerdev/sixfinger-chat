@@ -17,6 +17,7 @@ import {
   type MessageRow,
 } from '../services/chats.ts';
 import { findUserById, settingsOf } from '../services/users.ts';
+import { destroyCodeWorkspaces } from '../services/code-cleanup.ts';
 
 export function chatRoutes(ctx: AppContext, guard: Guard) {
   const { db } = ctx;
@@ -133,8 +134,10 @@ export function chatRoutes(ctx: AppContext, guard: Guard) {
     });
 
     app.delete<{ Params: { id: string } }>('/chats/:id', async (req, reply) => {
-      const r = await db.query('delete from chats where id = $1 and user_id = $2', [req.params.id, req.user!.id]);
+      const r = await db.query<{ kind: string }>('delete from chats where id = $1 and user_id = $2 returning kind', [req.params.id, req.user!.id]);
       if (!r.rowCount) throw notFound('Sohbet bulunamadı.');
+      // Code oturumuysa çalışma alanı (sandbox) da silinir.
+      if (r.rows[0]!.kind === 'code') await destroyCodeWorkspaces(ctx, req.user!.id, [req.params.id]);
       return reply.code(204).send();
     });
 

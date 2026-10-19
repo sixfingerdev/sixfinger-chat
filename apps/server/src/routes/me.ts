@@ -1,3 +1,4 @@
+import { destroyCodeWorkspaces } from '../services/code-cleanup.ts';
 import type { FastifyInstance } from 'fastify';
 import {
   MODELS,
@@ -99,7 +100,10 @@ export function meRoutes(ctx: AppContext, guard: Guard) {
           throw new HttpError(401, 'invalid_credentials', 'Şifre hatalı.');
         }
       }
+      // Hesapla birlikte tüm Code çalışma alanları da silinir.
+      const codeChats = (await db.query<{ id: string }>("select id from chats where user_id = $1 and kind = 'code'", [user.id])).rows.map((r) => r.id);
       await db.query('delete from users where id = $1', [user.id]);
+      await destroyCodeWorkspaces(ctx, user.id, codeChats);
       return reply.code(204).send();
     });
 

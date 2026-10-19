@@ -20,6 +20,8 @@ export function fakeCode(initial: Record<string, string> = {}) {
     delayMs: 0,
     changesCalls: 0,
     checkpoints: 0,
+    /** Silinen çalışma alanları (`user:chat`). */
+    destroyed: [] as string[],
     /** Sahte dev-server: port → istek işleyici (null: dinleyen yok). */
     servers: new Map<number, (r: { method: string; path: string; headers: Record<string, string>; body?: Buffer }) => { status: number; headers?: Array<[string, string]>; body: Buffer | string }>(),
     httpCalls: [] as Array<{ port: number; method: string; path: string; headers: Record<string, string> }>,
@@ -130,7 +132,9 @@ export function fakeCode(initial: Record<string, string> = {}) {
     async usage() {
       return { diskUsedMb: 3, diskMb: 512, running: true };
     },
-    async destroy() {},
+    async destroy(s) {
+      state.destroyed.push(s.session);
+    },
   };
   return { client, fs, bin, state };
 }

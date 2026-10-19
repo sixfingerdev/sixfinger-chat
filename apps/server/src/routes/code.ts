@@ -23,6 +23,7 @@ import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
 import { registerSkillRoutes } from './code-skills.ts';
 import { mimeOf } from '../lib/mime.ts';
+import { destroyCodeWorkspaces } from '../services/code-cleanup.ts';
 
 const REPO_CACHE_MS = 60_000;
 
@@ -353,7 +354,10 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
       });
 
       authed.delete<{ Params: { id: string } }>('/code/sessions/:id', async (req, reply) => {
+        const stop = ctx.runs.forChat(req.params.id);
         if (!(await code.deleteSession(req.user!.id, req.params.id))) throw notFound('Oturum bulunamadı.');
+        stop?.stop();
+        await destroyCodeWorkspaces(ctx, req.user!.id, [req.params.id]);
         return reply.code(204).send();
       });
     });
