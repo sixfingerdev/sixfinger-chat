@@ -45,6 +45,12 @@ export default function CodeSession() {
   const [pr, setPr] = useState<CodePullDTO | null>(null);
   const [startedAt, setStartedAt] = useState(0);
   const run = useChats((s) => (id ? s.codeRun[id] : undefined));
+  /** Üretilen yanıtın sunucuda oluşturulma zamanı: sunucu evre süresi göndermese bile sayaç yeniden açılışta sıfırlanmaz. */
+  const streamingSince = useChats((s) => {
+    const m = id ? s.detail[id]?.messages.find((x) => x.id === s.generating[id]?.assistantId) : undefined;
+    const t = m ? Date.parse(m.createdAt) : NaN;
+    return Number.isFinite(t) && t <= Date.now() && Date.now() - t < 6 * 3_600_000 ? t : 0;
+  });
   const runningTasks = useChats((s) => {
     const m = id ? s.detail[id]?.messages.find((x) => x.id === s.generating[id]?.assistantId) : undefined;
     return m ? (m.parts ?? []).filter((p) => p.type === 'tool' && p.name === 'task' && p.status === 'running').length : 0;
@@ -224,7 +230,7 @@ export default function CodeSession() {
 
       {generating && (
         <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
-          <CodeRunStatus run={run} startedAt={run?.startedAt ?? startedAt} runningTasks={runningTasks} />
+          <CodeRunStatus run={run} startedAt={run?.startedAt ?? (streamingSince || startedAt)} runningTasks={runningTasks} />
         </View>
       )}
       {(session.additions + session.deletions > 0 || pr) && (
