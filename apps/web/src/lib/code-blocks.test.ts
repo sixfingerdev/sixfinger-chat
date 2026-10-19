@@ -32,6 +32,10 @@ describe('toBlocks', () => {
     expect(toBlocks([tool('c', 'commit'), tool('p', 'pull_request')]).map((b) => b.kind)).toEqual(['commit', 'pull_request']);
   });
 
+  it('soru, plan ve alt ajan parçaları kendi bloklarıdır ve komut grubunu bölmez ama araya girer', () => {
+    expect(toBlocks([tool('1', 'bash'), tool('t', 'task'), tool('2', 'bash'), tool('q', 'ask_user'), tool('p', 'exit_plan_mode')]).map((b) => b.kind)).toEqual(['group', 'task', 'group', 'question', 'plan']);
+  });
+
   it('metinle bölünen komutlar ayrı gruplardır; düşünce son parçaysa işaretlenir', () => {
     const blocks = toBlocks([tool('1', 'bash'), { type: 'text', text: 'x' }, tool('2', 'bash'), { type: 'reasoning', text: 'düşünüyor', ms: null }]);
     expect(blocks.map((b) => b.kind)).toEqual(['group', 'text', 'group', 'reasoning']);

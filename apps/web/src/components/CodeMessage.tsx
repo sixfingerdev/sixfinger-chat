@@ -2,6 +2,9 @@ import { memo, useState } from 'react';
 import {
   Check,
   ArrowUpRight,
+  Bot,
+  CircleHelp,
+  ListChecks,
   ChevronRight,
   CircleAlert,
   CircleDot,
@@ -20,10 +23,10 @@ import { describeTool, messageParts, type MessageDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { useChats } from '../store/chats.ts';
+import { buildAnswerText, type AskQuestion } from '@sixfinger/shared';
 import { clsx, compactNumber } from '../lib/format.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 import { diffLines, toBlocks, type ToolPart } from '../lib/code-blocks.ts';
-import type { CodeLive } from '../store/chats.ts';
 import { Delta, Sheet } from './CodeSheets.tsx';
 import { LogoMark } from './Logo.tsx';
 import { ReasoningBlock } from './ReasoningBlock.tsx';
@@ -324,6 +327,153 @@ function PullRequestRow({ part, chatId }: { part: ToolPart; chatId: string }) {
   return <div className="code-row quiet">{body}</div>;
 }
 
+/** Ajanın kullanıcıya sorduğu çoktan seçmeli sorular (ask_user). */
+function QuestionCard({ part, actions }: { part: ToolPart; actions?: MessageActions }) {
+  const t = useT();
+  const questions = (Array.isArray(part.meta?.questions) ? part.meta.questions : []) as AskQuestion[];
+  const [picked, setPicked] = useState<string[][]>(() => questions.map(() => []));
+  const [other, setOther] = useState<string[]>(() => questions.map(() => ''));
+  const [otherOn, setOtherOn] = useState<boolean[]>(() => questions.map(() => false));
+  if (!questions.length) return null;
+  const live = Boolean(actions?.answerable);
+  const answers = questions.map((q, i) => [...picked[i]!, ...(otherOn[i] && other[i]!.trim() ? [other[i]!.trim()] : [])]);
+  const ready = answers.every((a) => a.length > 0);
+
+  const toggle = (qi: number, label: string, multi: boolean) =>
+    setPicked((p) => p.map((arr, i) => (i !== qi ? arr : multi ? (arr.includes(label) ? arr.filter((l) => l !== label) : [...arr, label]) : [label])));
+
+  return (
+    <div className={clsx('q-card', !live && 'done')}>
+      <div className="q-head">
+        <CircleHelp size={15} />
+        <strong>{t('code.q.title')}</strong>
+        {!live && <span className="q-state">{t('code.q.answered')}</span>}
+      </div>
+      {questions.map((q, qi) => (
+        <div key={qi} className="q-block">
+          <div className="q-text">
+            {q.header && <span className="q-chip">{q.header}</span>} {q.question}
+          </div>
+          {q.multiSelect && live && <div className="muted">{t('code.q.multi')}</div>}
+          <div className="q-options" role={q.multiSelect ? 'group' : 'radiogroup'}>
+            {q.options.map((o) => {
+              const on = picked[qi]!.includes(o.label);
+              return (
+                <button
+                  key={o.label}
+                  className={clsx('q-option', on && 'on')}
+                  disabled={!live}
+                  role={q.multiSelect ? 'checkbox' : 'radio'}
+                  aria-checked={on}
+                  onClick={() => {
+                    toggle(qi, o.label, Boolean(q.multiSelect));
+                    if (!q.multiSelect) setOtherOn((s) => s.map((v, i) => (i === qi ? false : v)));
+                  }}
+                >
+                  <strong>{o.label}</strong>
+                  {o.description && <small>{o.description}</small>}
+                </button>
+              );
+            })}
+            {live && (
+              <button
+                className={clsx('q-option', otherOn[qi] && 'on')}
+                role="radio"
+                aria-checked={otherOn[qi]}
+                onClick={() => {
+                  setOtherOn((s) => s.map((v, i) => (i === qi ? !v : v)));
+                  if (!q.multiSelect) setPicked((p) => p.map((arr, i) => (i === qi ? [] : arr)));
+                }}
+              >
+                <strong>{t('code.q.other')}</strong>
+              </button>
+            )}
+          </div>
+          {live && otherOn[qi] && (
+            <input className="input q-other" value={other[qi]} placeholder={t('code.q.otherPlaceholder')} maxLength={500} onChange={(e) => setOther((s) => s.map((v, i) => (i === qi ? e.target.value : v)))} />
+          )}
+        </div>
+      ))}
+      {live && (
+        <div className="pr-actions">
+          <button className="btn btn-primary" disabled={!ready} onClick={() => actions!.onAnswer(buildAnswerText(questions, answers))}>
+            {t('code.q.send')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Plan modunda ajanın sunduğu plan (exit_plan_mode); onaylanınca ajan uygular. */
+function PlanCard({ part, actions }: { part: ToolPart; actions?: MessageActions }) {
+  const t = useT();
+  const plan = str(part.meta?.plan) || part.output || '';
+  const live = Boolean(actions?.answerable);
+  return (
+    <div className="plan-card">
+      <div className="q-head">
+        <ListChecks size={15} />
+        <strong>{t('code.plan.title')}</strong>
+        {!live && <span className="q-state">{t('code.plan.approved')}</span>}
+      </div>
+      <div className="plan-body">
+        <RichText text={plan} />
+      </div>
+      {live && (
+        <div className="pr-actions">
+          <button className="btn btn-ghost" onClick={actions!.onRevise}>
+            {t('code.plan.revise')}
+          </button>
+          <button className="btn btn-primary" onClick={actions!.onApprove}>
+            {t('code.plan.approve')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Alt ajan (task): satır + (dokununca) görev ve rapor. */
+function TaskRow({ part }: { part: ToolPart }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const running = part.status === 'running';
+  const failed = part.status === 'error';
+  const title = str(part.meta?.description) || str(part.args.description) || t('code.task.done');
+  return (
+    <>
+      <button className={clsx('code-row', running && 'running', failed && 'failed')} onClick={() => setOpen(true)}>
+        <span className="code-row-icon">{running ? <Loader size={14} className="spin" /> : failed ? <CircleAlert size={14} /> : <Bot size={15} />}</span>
+        <span className="code-row-label">
+          {running ? `${t('code.task.running')} · ` : `${t('code.task.done')} · `}
+          {title}
+          {!running && part.summary && !failed && <small> · {part.summary}</small>}
+        </span>
+        <ChevronRight size={14} className="code-row-go" />
+      </button>
+      {open && (
+        <Sheet title={title} onClose={() => setOpen(false)}>
+          <div className="usage-row">
+            <strong>{t('code.task.prompt')}</strong>
+          </div>
+          <pre className="step-out">{str(part.args.prompt)}</pre>
+          {!running && (
+            <>
+              <div className="usage-row">
+                <strong>{t('code.task.report')}</strong>
+              </div>
+              <div className="plan-body">
+                <RichText text={part.output ?? ''} />
+              </div>
+            </>
+          )}
+        </Sheet>
+      )}
+    </>
+  );
+}
+
 function GenericTool({ part }: { part: ToolPart }) {
   const [open, setOpen] = useState(false);
   return (
@@ -344,25 +494,21 @@ function GenericTool({ part }: { part: ToolPart }) {
   );
 }
 
-function PhaseLine({ live }: { live: CodeLive | undefined }) {
-  const t = useT();
-  const phase = live?.phase ?? 'working';
-  const text = phase === 'queued' && live?.position ? t('code.phase.queuedPos', { n: live.position }) : t(`code.phase.${phase}`);
-  return (
-    <div className="phase-line" role="status">
-      <span className="phase-dot" aria-hidden />
-      {text}
-    </div>
-  );
+export interface MessageActions {
+  /** Bu mesaj son mesaj ve ajan çalışmıyor: soru/plan kartları yanıtlanabilir. */
+  answerable: boolean;
+  onAnswer: (text: string) => void;
+  onApprove: () => void;
+  onRevise: () => void;
 }
 
 interface Props {
   msg: MessageDTO;
   streaming: boolean;
-  live: CodeLive | undefined;
+  actions?: MessageActions;
 }
 
-export const CodeMessage = memo(function CodeMessage({ msg, streaming, live }: Props) {
+export const CodeMessage = memo(function CodeMessage({ msg, streaming, actions }: Props) {
   const t = useT();
   if (msg.role === 'user') {
     return (
@@ -399,11 +545,16 @@ export const CodeMessage = memo(function CodeMessage({ msg, streaming, live }: P
               return <CompactionRow key={b.part.id} part={b.part} />;
             case 'pull_request':
               return <PullRequestRow key={b.part.id} part={b.part} chatId={msg.chatId} />;
+            case 'question':
+              return <QuestionCard key={b.part.id} part={b.part} actions={actions} />;
+            case 'plan':
+              return <PlanCard key={b.part.id} part={b.part} actions={actions} />;
+            case 'task':
+              return <TaskRow key={b.part.id} part={b.part} />;
             default:
               return <GenericTool key={b.part.id} part={b.part} />;
           }
         })}
-        {streaming && <PhaseLine live={live} />}
         {!streaming && msg.status === 'stopped' && <div className="msg-note">{t('code.session.stopped')}</div>}
         {!streaming && msg.status === 'error' && <div className="msg-note error">{t('code.session.failed')}</div>}
       </div>

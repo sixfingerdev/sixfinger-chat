@@ -39,6 +39,7 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
   const [vars, setVars] = useState('');
   const [sessionLink, setSessionLink] = useState(env?.commitSessionLink ?? false);
   const [autoPr, setAutoPr] = useState(env?.autoPr ?? true);
+  const [instructions, setInstructions] = useState(env?.instructions ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,6 +77,7 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
       diskMb: disk,
       commitSessionLink: sessionLink,
       autoPr,
+      instructions,
       envVars: parsed,
     });
     setBusy(false);
@@ -186,6 +188,12 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
             </span>
             <button className="switch" role="switch" aria-checked={sessionLink} aria-label={t('code.env.sessionLink')} onClick={() => setSessionLink(!sessionLink)} />
           </div>
+        </div>
+
+        <div className="field">
+          <label htmlFor="env-instr">{t('code.env.instructions')}</label>
+          <textarea id="env-instr" className="textarea" rows={4} value={instructions} maxLength={8000} onChange={(e) => setInstructions(e.target.value)} placeholder="pnpm kullan. Commit mesajları Türkçe olsun." />
+          <span className="hint">{t('code.env.instructionsHint')}</span>
         </div>
 
         <div className="field">

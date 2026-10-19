@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowDown, ArrowUp, Ellipsis, GitPullRequest, Square, Trash2 } from 'lucide-react';
-import type { CodeSessionDTO } from '@sixfinger/shared';
+import { ArrowDown, Ellipsis, GitPullRequest, Trash2 } from 'lucide-react';
+import type { CodePullDTO, CodeSessionDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { clsx } from '../lib/format.ts';
@@ -11,8 +11,10 @@ import { selectPath, useChats } from '../store/chats.ts';
 import { useCode } from '../store/code.ts';
 import { ChangesSheet, ContextRing, Delta, PullsSheet, UsageSheet } from '../components/CodeSheets.tsx';
 import { DiffSheet } from '../components/CodeGitSheets.tsx';
+import { CodeComposer } from '../components/CodeComposer.tsx';
+import { CodeRunStatus } from '../components/CodeRunStatus.tsx';
 import { CodeMascot } from '../components/CodeMascot.tsx';
-import { CodeMessage } from '../components/CodeMessage.tsx';
+import { CodeMessage, type MessageActions } from '../components/CodeMessage.tsx';
 import { CodeTopBar } from '../components/CodeTopBar.tsx';
 import { Popover } from '../components/Popover.tsx';
 
@@ -27,8 +29,8 @@ export function CodeSessionPage() {
   const [missing, setMissing] = useState(false);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [diffPath, setDiffPath] = useState<{ path?: string } | null>(null);
-  const [text, setText] = useState('');
-  const area = useRef<HTMLTextAreaElement>(null);
+  const [focusSignal, setFocusSignal] = useState(0);
+  const [pr, setPr] = useState<CodePullDTO | null>(null);
 
   const detail = useChats((s) => (chatId ? s.detail[chatId] : undefined));
   const generating = useChats((s) => (chatId ? s.generating[chatId] : undefined));
@@ -119,19 +121,41 @@ export function CodeSessionPage() {
   const ctx = live?.context ?? (session ? { tokens: session.contextTokens, limit: session.contextLimit } : null);
   const changes = live?.changes ?? (session ? { additions: session.additions, deletions: session.deletions, files: session.filesChanged } : null);
 
-  const grow = () => {
-    const el = area.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
-  };
-  const submit = () => {
-    const content = text.trim();
-    if (!content || !chatId || generating) return;
-    setText('');
-    requestAnimationFrame(grow);
-    void useChats.getState().send({ content, chatId });
-  };
+
+  // Çalışma süresi sayacı ve çalışan alt ajan sayısı (durum çubuğu).
+  const [startedAt, setStartedAt] = useState(0);
+  useEffect(() => setStartedAt(generating ? Date.now() : 0), [Boolean(generating)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const runningTasks = useMemo(() => {
+    const m = path.find((x) => x.id === generating?.assistantId);
+    return m ? m.parts.filter((p) => p.type === 'tool' && p.name === 'task' && p.status === 'running').length : 0;
+  }, [path, generating?.assistantId]);
+
+  // Alttaki PR çipi: oturumun PR'ının güncel durumu (açık/birleştirildi/kapatıldı).
+  useEffect(() => {
+    if (!chatId || !session?.prNumber || generating) return;
+    let off = false;
+    api
+      .codePulls(chatId)
+      .then((r) => !off && setPr(r.pulls.find((p) => p.number === session.prNumber) ?? r.pulls[0] ?? null))
+      .catch(() => {});
+    return () => {
+      off = true;
+    };
+  }, [chatId, session?.prNumber, session?.headSha, generating]);
+
+  // Soru/plan kartlarının düğmeleri (yalnızca son mesajda ve ajan çalışmıyorken).
+  const actions = useMemo<MessageActions | undefined>(() => {
+    if (!chatId) return undefined;
+    return {
+      answerable: !generating,
+      onAnswer: (answer) => void useChats.getState().send({ content: answer, chatId, planMode: useCode.getState().plan[chatId] || undefined }),
+      onApprove: () => {
+        useCode.getState().setPlan(chatId, false);
+        void useChats.getState().send({ content: t('code.plan.approveText'), chatId });
+      },
+      onRevise: () => setFocusSignal((n) => n + 1),
+    };
+  }, [chatId, generating, t]);
 
   const empty = Boolean(session && detail && detail.messages.length === 0 && !generating);
 
@@ -192,7 +216,7 @@ export function CodeSessionPage() {
           )}
           {path.map((m) => {
             const streaming = generating?.assistantId === m.id || m.status === 'streaming';
-            return <CodeMessage key={m.id} msg={m} streaming={streaming} live={streaming ? live : undefined} />;
+            return <CodeMessage key={m.id} msg={m} streaming={streaming} actions={m.id === last?.id ? actions : undefined} />;
           })}
         </div>
         {showJump && (
@@ -201,47 +225,29 @@ export function CodeSessionPage() {
           </button>
         )}
       </div>
-      <div className="composer-wrap">
-        <div className="composer code-composer">
-          <textarea
-            ref={area}
-            className="composer-input"
-            rows={1}
-            value={text}
-            disabled={!session}
-            placeholder={t('code.composer.placeholder')}
-            aria-label={t('code.composer.placeholder')}
-            onChange={(e) => {
-              setText(e.target.value);
-              grow();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && (e.metaKey || e.ctrlKey || !('ontouchstart' in window))) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-          />
-          <div className="composer-bar">
-            <span className="composer-note">{session ? `${session.repo.split('/')[1]}  ⎇ ${session.workBranch}` : ''}</span>
-            <div className="composer-end">
-              {changes && (changes.additions > 0 || changes.deletions > 0) && (
-                <button className="changes-chip" onClick={() => setSheet('changes')} aria-label={t('code.changes')} title={t('code.changes')}>
-                  <Delta add={changes.additions} del={changes.deletions} />
-                </button>
-              )}
-              {generating ? (
-                <button className="send-btn stop" onClick={() => chatId && useChats.getState().stop(chatId)} aria-label={t('composer.stop')} title={t('composer.stop')}>
-                  <Square size={14} fill="currentColor" />
-                </button>
-              ) : (
-                <button className="send-btn" onClick={submit} disabled={!text.trim() || !session} aria-label={t('composer.send')} title={t('composer.send')}>
-                  <ArrowUp size={18} />
-                </button>
-              )}
-            </div>
+      <div className="code-bottom">
+        {generating && <CodeRunStatus live={live} startedAt={startedAt} runningTasks={runningTasks} />}
+        {session && ((changes && (changes.additions > 0 || changes.deletions > 0)) || pr) && (
+          <div className="chip-row">
+            {changes && (changes.additions > 0 || changes.deletions > 0) && (
+              <button className="chip diff-chip" onClick={() => setSheet('changes')} aria-label={t('code.changes')}>
+                <strong>{t('code.chip.diff')}</strong>
+                <Delta add={changes.additions} del={changes.deletions} />
+                {session.headSha && session.headSha !== session.pushedSha && <span className="unpushed-dot" title={t('code.pr.unpushed')} aria-label={t('code.pr.unpushed')} />}
+              </button>
+            )}
+            {pr && (
+              <a className={clsx('chip pr-chip', pr.state)} href={pr.url} target="_blank" rel="noreferrer">
+                <GitPullRequest size={14} />
+                <span>
+                  #{pr.number} · {session.repo.split('/')[1]}
+                </span>
+                <strong>{pr.draft && pr.state === 'open' ? t('code.pr.draft') : t(`code.pr.${pr.state}`)}</strong>
+              </a>
+            )}
           </div>
-        </div>
+        )}
+        <CodeComposer session={session} generating={Boolean(generating)} focusSignal={focusSignal} />
       </div>
       {sheet === 'usage' && ctx && <UsageSheet tokens={ctx.tokens} limit={ctx.limit} onClose={() => setSheet(null)} />}
       {sheet === 'pulls' && chatId && <PullsSheet chatId={chatId} onClose={() => setSheet(null)} onChanged={() => { loadSession(); void useChats.getState().openChat(chatId, true); }} />}

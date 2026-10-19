@@ -1367,3 +1367,290 @@ a.code-row.pr-link {
 .code-row .link-btn {
   flex: none;
 }
+
+/* ---------- Alt alan: durum çubuğu, çipler, composer ---------- */
+.code-bottom {
+  width: min(var(--content-w), 100%);
+  margin: 0 auto;
+  padding: 0 16px;
+  display: grid;
+  gap: 8px;
+}
+.code-bottom .composer-wrap {
+  padding: 0;
+}
+.run-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 6px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  min-height: 24px;
+}
+.run-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+.run-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: run-dot 1.2s ease-in-out infinite;
+}
+.run-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.run-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes run-dot {
+  0%,
+  100% {
+    transform: scale(0.7);
+    opacity: 0.35;
+  }
+  40% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+.run-elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.run-sep {
+  color: var(--text-3);
+}
+.run-tasks {
+  color: var(--text);
+  font-weight: 550;
+}
+.run-word {
+  color: var(--text-2);
+  animation: run-word-in var(--t-med) var(--ease);
+}
+@keyframes run-word-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .run-dots i,
+  .run-word {
+    animation: none;
+  }
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13.5px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.chip:hover {
+  background: var(--surface-2);
+}
+.chip.pr-chip strong {
+  font-weight: 600;
+}
+.chip.pr-chip.merged {
+  border-color: color-mix(in srgb, var(--hl-type) 45%, var(--line));
+  color: var(--hl-type);
+}
+.chip.pr-chip.closed strong {
+  color: var(--danger);
+}
+.plan-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.plan-toggle.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.composer.plan-on {
+  border-color: var(--accent);
+}
+.slash-pop {
+  display: grid;
+  gap: 2px;
+  margin: 0 8px 4px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  max-height: 260px;
+  overflow: auto;
+}
+.slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.slash-item.on,
+.slash-item:hover {
+  background: var(--surface-3);
+}
+.slash-item code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  flex: none;
+}
+.slash-item span {
+  font-size: 12.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slash-empty {
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.queue-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px 0;
+  display: grid;
+  gap: 4px;
+}
+.queue-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.queue-tag {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.queue-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Soru ve plan kartları */
+.q-card,
+.plan-card {
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  padding: 12px 14px;
+  display: grid;
+  gap: 12px;
+}
+.q-card.done {
+  opacity: 0.7;
+}
+.q-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.q-head strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.q-state {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.q-block {
+  display: grid;
+  gap: 8px;
+}
+.q-text {
+  font-size: 14.5px;
+  line-height: 1.45;
+}
+.q-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.q-options {
+  display: grid;
+  gap: 6px;
+}
+.q-option {
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.q-option:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+.q-option.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.q-option:disabled {
+  cursor: default;
+}
+.q-option strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.q-option small {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.plan-body {
+  font-size: 14px;
+  max-height: 420px;
+  overflow: auto;
+}

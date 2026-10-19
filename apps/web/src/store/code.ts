@@ -20,6 +20,11 @@ function readDraft(): CodeDraft {
   }
 }
 
+export interface QueuedMessage {
+  text: string;
+  plan: boolean;
+}
+
 interface CodeState {
   status: CodeStatusDTO | null;
   envs: CodeEnvironmentDTO[] | null;
@@ -27,6 +32,14 @@ interface CodeState {
   loadError: string | null;
   /** Yeni oturum ekranında seçilenler (son seçim hatırlanır). */
   draft: CodeDraft;
+  /** Oturum başına plan modu anahtarı. */
+  plan: Record<string, boolean>;
+  /** Ajan çalışırken yazılan, tur bitince sırayla gönderilecek mesajlar. */
+  queue: Record<string, QueuedMessage[]>;
+  setPlan: (chatId: string, on: boolean) => void;
+  enqueue: (chatId: string, m: QueuedMessage) => void;
+  takeQueued: (chatId: string) => QueuedMessage | undefined;
+  removeQueued: (chatId: string, index: number) => void;
 
   setDraft: (patch: Partial<CodeDraft>) => void;
   loadStatus: () => Promise<void>;
@@ -50,6 +63,17 @@ export const useCode = create<CodeState>((set, get) => ({
   sessions: null,
   loadError: null,
   draft: readDraft(),
+  plan: {},
+  queue: {},
+
+  setPlan: (chatId, on) => set((s) => ({ plan: { ...s.plan, [chatId]: on } })),
+  enqueue: (chatId, m) => set((s) => ({ queue: { ...s.queue, [chatId]: [...(s.queue[chatId] ?? []), m] } })),
+  takeQueued(chatId) {
+    const [first, ...rest] = get().queue[chatId] ?? [];
+    if (first) set((s) => ({ queue: { ...s.queue, [chatId]: rest } }));
+    return first;
+  },
+  removeQueued: (chatId, index) => set((s) => ({ queue: { ...s.queue, [chatId]: (s.queue[chatId] ?? []).filter((_, i) => i !== index) } })),
 
   setDraft(patch) {
     const draft = { ...get().draft, ...patch };
