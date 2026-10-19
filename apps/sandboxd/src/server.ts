@@ -41,7 +41,7 @@ const prepareBody = z.object({
 });
 const codeExecBody = z.object({ ...codeWho, command: z.string().min(1).max(8_000), timeout_seconds: z.number().int().min(1).max(3_600).optional() });
 const codeReadBody = z.object({ ...codeWho, path: z.string().min(1).max(400) });
-const codeWriteBody = z.object({ ...codeWho, path: z.string().min(1).max(400), content: z.string().max(4_000_000) });
+const codeWriteBody = z.object({ ...codeWho, path: z.string().min(1).max(400), content: z.string().max(4_000_000), encoding: z.enum(['utf8', 'base64']).optional() });
 const codeGlobBody = z.object({ ...codeWho, pattern: z.string().min(1).max(300), path: z.string().max(400).optional(), limit: z.number().int().min(1).max(1_000).optional() });
 const codeGrepBody = z.object({
   ...codeWho,
@@ -128,7 +128,7 @@ export function buildServer(service: SandboxService, cfg: Config, opts: { logger
     });
     app.post('/v1/code/write', async (req) => {
       const b = codeWriteBody.parse(req.body);
-      return code.writeFile(b.user, b.session, b.path, b.content);
+      return code.writeFile(b.user, b.session, b.path, b.content, b.encoding);
     });
     app.post('/v1/code/glob', async (req) => {
       const b = codeGlobBody.parse(req.body);

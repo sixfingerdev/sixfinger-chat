@@ -472,10 +472,10 @@ export class CodeService {
     });
   }
 
-  async writeFile(user: string, session: string, path: string, content: string): Promise<{ bytes: number; diskUsedMb: number }> {
+  async writeFile(user: string, session: string, path: string, content: string, encoding: 'utf8' | 'base64' = 'utf8'): Promise<{ bytes: number; diskUsedMb: number }> {
     const rel = workPath(path);
     if (rel === '.git' || rel.startsWith('.git/')) throw new SandboxError('.git klasörüne yazılamaz (git işlemleri sunucu tarafından yapılır).');
-    const data = Buffer.from(content, 'utf8');
+    const data = Buffer.from(content, encoding);
     if (data.length > this.cfg.CODE_FILE_MAX_BYTES) throw new SandboxError(`Dosya çok büyük (en fazla ${this.cfg.CODE_FILE_MAX_BYTES} bayt). Daha küçük parçalara böl.`, 'too_large');
     const s = this.state(user, session);
     return this.serial(s, async () => {

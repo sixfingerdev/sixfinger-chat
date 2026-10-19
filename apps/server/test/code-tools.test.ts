@@ -56,6 +56,18 @@ function fake(initial: Record<string, string> = {}) {
     async push() {
       return { sha: 'a'.repeat(40), branch: 'x', output: '' };
     },
+    async raw() {
+      throw new Error('raw: bu sahtede yok');
+    },
+    async ports() {
+      return [];
+    },
+    async http() {
+      throw new Error('http: bu sahtede yok');
+    },
+    async upload() {
+      throw new Error('upload: bu sahtede yok');
+    },
     async usage() {
       return { diskUsedMb: 1, diskMb: 512, running: true };
     },

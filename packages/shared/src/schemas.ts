@@ -173,6 +173,17 @@ export const createPrSchema = z.object({
 });
 export const rewindSchema = z.object({ messageId: z.string().uuid() });
 export const filesQuery = z.object({ q: z.string().trim().max(200).optional() });
+/** Önizleme: çalışma alanındaki bir dosya (statik site/artifact) ya da konteynerde çalışan bir dev-server portu. */
+export const previewSchema = z
+  .object({
+    path: z.string().trim().min(1).max(400).optional(),
+    port: z.number().int().min(1024).max(65535).optional(),
+    /** Statik önizlemede kök dizin (varsayılan: dosyanın klasörü); köke göre yazılmış (`/x.js`) bağlantılar buna göre çözülür. */
+    root: z.string().trim().max(400).optional(),
+  })
+  .refine((v) => Boolean(v.path) !== Boolean(v.port), { message: 'path ya da port verilmeli (ikisi birden değil).' });
+/** Kullanıcının çalışma alanına dosya yüklemesi (base64). */
+export const uploadSchema = z.object({ name: z.string().trim().min(1).max(200), dataBase64: z.string().min(1).max(3_000_000) });
 export const diffQuery = z.object({ path: z.string().trim().min(1).max(500).optional() });
 export const listReposQuery = z.object({ q: z.string().trim().max(100).optional() });
 export const branchesQuery = z.object({ repo: createCodeSessionSchema.shape.repo });

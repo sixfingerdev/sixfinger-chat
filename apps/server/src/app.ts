@@ -1,5 +1,5 @@
-import Fastify, { type FastifyInstance } from 'fastify';
-import cors from '@fastify/cors';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
+import cors, { type FastifyCorsOptions } from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
@@ -28,6 +28,7 @@ import { createCodes } from './services/codes.ts';
 import { createSessions } from './services/sessions.ts';
 import { createUsage } from './services/usage.ts';
 import { createCodeGit } from './services/code-git.ts';
+import { createCodePreview } from './services/code-preview.ts';
 import { createCode } from './services/code.ts';
 import { createGithub } from './services/github.ts';
 import { createSecretBox } from './lib/secretbox.ts';
@@ -55,6 +56,8 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
       redact: ['req.headers.authorization', 'req.headers.cookie'],
     },
     trustProxy: config.TRUST_PROXY,
+    // Önizleme adresindeki imzalı token (oturum + kök/port) varsayılan 100 karakter sınırından uzundur.
+    maxParamLength: 2_000,
     bodyLimit: 1_048_576 * 2,
     genReqId: () => crypto.randomUUID(),
   });
@@ -87,17 +90,24 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     codeSandbox,
     tools: opts.tools ?? createTools([], { sandbox: sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : undefined, code: codeSandbox ?? undefined }),
     codeGit: undefined as never,
+    codePreview: undefined as never,
   };
   ctx.codeGit = createCodeGit({ db, ai: ctx.ai, code: ctx.code, github: ctx.github, sandbox: codeSandbox, runs: ctx.runs, config });
+  ctx.codePreview = createCodePreview({ codeGit: ctx.codeGit, secrets: ctx.secrets, code: ctx.code });
   const guard = createGuard(ctx);
   app.decorateRequest('user', null);
 
   await app.register(helmet, { contentSecurityPolicy: false, crossOriginResourcePolicy: { policy: 'cross-origin' } });
-  await app.register(cors, {
-    origin: (origin, cb) => cb(null, !origin || config.corsOrigins.includes(origin)),
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['authorization', 'content-type'],
-    maxAge: 86_400,
+  await app.register(cors, () => (req: FastifyRequest, cb: (err: Error | null, o: FastifyCorsOptions) => void) => {
+    // Önizleme sayfaları yalıtılmış (opak kaynaklı) iframe'de çalışır ve `Origin: null` gönderir; modül betikleri ve fetch
+    // için herkese açık CORS gerekir. Önizleme yanıtları kimlik bilgisi taşımaz (token yolda), bu yüzden güvenlidir.
+    if (req.url.startsWith('/api/code/preview/')) return cb(null, { origin: '*', methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'], maxAge: 600 });
+    cb(null, {
+      origin: (req.headers.origin ?? '') === '' || config.corsOrigins.includes(req.headers.origin as string),
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['authorization', 'content-type'],
+      maxAge: 86_400,
+    });
   });
   await app.register(rateLimit, {
     global: true,

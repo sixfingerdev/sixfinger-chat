@@ -13,6 +13,8 @@ let fc: Fake;
 
 const call = (id: string, name: string, args: object): AiChunk => ({ type: 'tool_calls', calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
 const text = (t: string): AiChunk[] => [{ type: 'content', text: t }];
+/** Tek turda birden çok araç çağrısı. */
+const many = (list: Array<[string, string, object]>): AiChunk => ({ type: 'tool_calls', calls: list.map(([id, name, args]) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } })) });
 
 async function boot(over: Record<string, unknown> = {}, files: Record<string, string> = { 'app.js': 'console.log(1);\n' }) {
   fc = fakeCode(files);
@@ -112,7 +114,7 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     fc.state.execImpl = (c) => (c.startsWith('ls -1Ap') ? { stdout: 'app.js\nREADME.md\n' } : {});
     const req = agentCalls()[0]!;
     expect(req.route).toBe('code');
-    expect(req.tools?.map((t) => t.function.name)).toEqual(['bash', 'job_output', 'job_kill', 'read', 'write', 'edit', 'glob', 'grep', 'todo', 'web_search', 'web_fetch', 'task', 'ask_user']);
+    expect(req.tools?.map((t) => t.function.name)).toEqual(['bash', 'job_output', 'job_kill', 'read', 'write', 'edit', 'glob', 'grep', 'todo', 'preview', 'share_file', 'web_search', 'web_fetch', 'task', 'ask_user']);
     const system = req.messages[0]!.content;
     expect(system).toContain('SixFinger Code');
     expect(system).toContain('octo/alpha');
@@ -798,5 +800,211 @@ describe('Ajan yetenekleri: soru, plan, alt ajan, /compact, talimatlar, arka pla
     env.ctx.config.codeAllowed.emails.add('baska@example.com');
     const other = await member(env, { email: 'baska@example.com' });
     expect((await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/files`, headers: auth(other) })).statusCode).toBe(404);
+  });
+});
+
+describe('Önizleme, indirme ve yükleme', () => {
+  const post = (a: Awaited<ReturnType<typeof member>>, url: string, payload: object = {}) => env.app.inject({ method: 'POST', url: `/api${url}`, headers: auth(a), payload });
+  const get = (a: Awaited<ReturnType<typeof member>>, url: string) => env.app.inject({ method: 'GET', url: `/api${url}`, headers: auth(a) });
+  const pub = (url: string, init: { method?: 'GET' | 'POST' | 'OPTIONS' | 'HEAD'; headers?: Record<string, string>; payload?: string } = {}) => env.app.inject({ method: init.method ?? 'GET', url, headers: init.headers, payload: init.payload });
+  const SITE_HTML = '<!doctype html><link rel="stylesheet" href="/style.css"><script type="module" src="app.js"></script><img src="/img/logo.png" srcset="/img/a.png 1x, /img/b.png 2x"><a href="//cdn.example/x">cdn</a>';
+
+  async function withSite() {
+    await boot();
+    await resetDb(env.ctx);
+    const { a, s } = await prepared();
+    fc.fs.set('site/index.html', SITE_HTML);
+    fc.fs.set('site/app.js', "import { x } from './lib.js'; console.log(x);\n");
+    fc.fs.set('site/lib.js', 'export const x = 1;\n');
+    fc.fs.set('site/style.css', "body{background:url(/img/bg.png)}\n@import '/base.css';\n");
+    fc.bin.set('site/img/logo.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 255]));
+    return { a, s };
+  }
+
+  it('statik önizleme: dosya ve klasör verilebilir; çok dosyalı site (js/css/ikili) sunulur, köke göre bağlantılar önekle yeniden yazılır', async () => {
+    const { a, s } = await withSite();
+    const r = await post(a, `/code/sessions/${s.chatId}/preview`, { path: 'site/index.html' });
+    expect(r.statusCode).toBe(200);
+    const { url, kind, entry } = r.json();
+    expect(kind).toBe('file');
+    expect(entry).toBe('site/index.html');
+    expect(url).toMatch(/^\/api\/code\/preview\/[\w.-]+\/index\.html$/);
+    const prefix = url.slice(0, url.lastIndexOf('/index.html'));
+
+    const html = await pub(url);
+    expect(html.statusCode).toBe(200);
+    expect(html.headers['content-type']).toContain('text/html');
+    expect(html.headers['content-security-policy']).toMatch(/^sandbox allow-scripts/);
+    expect(html.headers['access-control-allow-origin']).toBe('*');
+    expect(html.headers['x-frame-options']).toBeUndefined();
+    expect(html.headers['cache-control']).toBe('no-store');
+    expect(html.body).toContain(`href="${prefix}/style.css"`);
+    expect(html.body).toContain(`src="app.js"`); // göreli bağlantılara dokunulmaz
+    expect(html.body).toContain(`src="${prefix}/img/logo.png"`);
+    expect(html.body).toContain(`${prefix}/img/a.png 1x, ${prefix}/img/b.png 2x`);
+    expect(html.body).toContain('href="//cdn.example/x"'); // protokole göreli dış adres kalır
+
+    const js = await pub(`${prefix}/app.js`);
+    expect(js.headers['content-type']).toContain('text/javascript');
+    expect(js.body).toContain("from './lib.js'");
+    const css = await pub(`${prefix}/style.css`);
+    expect(css.body).toContain(`url(${prefix}/img/bg.png)`);
+    expect(css.body).toContain(`@import '${prefix}/base.css'`);
+    const png = await pub(`${prefix}/img/logo.png`);
+    expect(png.headers['content-type']).toBe('image/png');
+    expect(png.rawPayload.toString('hex')).toBe('89504e4700ff');
+
+    // klasör verilince index.html açılır; köke GET ile de gelinir
+    const dir = await post(a, `/code/sessions/${s.chatId}/preview`, { path: 'site' });
+    expect(dir.json().entry).toBe('site/index.html');
+    expect((await pub(`${dir.json().url.replace(/index\.html$/, '')}`)).statusCode).toBe(200);
+  });
+
+  it('statik önizleme güvenliği: kök dışına çıkış, kurcalanmış/başka amaçlı token, bilinmeyen dosya, yazma yöntemleri', async () => {
+    const { a, s } = await withSite();
+    fc.fs.set('gizli.txt', 'sir');
+    const { url } = (await post(a, `/code/sessions/${s.chatId}/preview`, { path: 'site/index.html' })).json();
+    const prefix = url.slice(0, url.lastIndexOf('/index.html'));
+    expect((await pub(`${prefix}/..%2fgizli.txt`)).body).not.toContain('sir');
+    expect((await pub(`${prefix}/%2e%2e/gizli.txt`)).body).not.toContain('sir');
+    expect((await pub(`${prefix}/..%5cgizli.txt`)).body).not.toContain('sir');
+    expect((await pub(`${prefix}/yok.js`)).statusCode).toBe(404);
+    expect((await pub(`${prefix}/app.js`, { method: 'POST', headers: { 'content-type': 'text/plain' }, payload: 'x' })).statusCode).toBe(405);
+    const token = prefix.split('/').pop()!;
+    expect((await pub(`/api/code/preview/${token.slice(0, -2)}xx/index.html`)).statusCode).toBe(404);
+    // OAuth state gibi başka amaçlı imzalı değerler önizleme token'ı sayılmaz
+    const state = env.ctx.secrets!.signState({ u: 'x', t: 'web' }, 60);
+    expect((await pub(`/api/code/preview/${state}/index.html`)).statusCode).toBe(404);
+    // süresi dolmuş
+    const old = env.ctx.secrets!.signState({ k: 'pv', u: 'x', c: 'y', f: 'file', r: '' }, -5);
+    expect((await pub(`/api/code/preview/${old}/index.html`)).statusCode).toBe(404);
+  });
+
+  it('mint: dosya yok → 404; başkasının oturumu → 404; yol dışarı çıkamaz; path ya da port gerekli', async () => {
+    const { a, s } = await withSite();
+    env.ctx.config.codeAllowed.emails.add('other@example.com');
+    const b = await member(env, { email: 'other@example.com' });
+    expect((await post(a, `/code/sessions/${s.chatId}/preview`, { path: 'yok.html' })).statusCode).toBe(404);
+    expect((await post(b, `/code/sessions/${s.chatId}/preview`, { path: 'site/index.html' })).statusCode).toBe(404);
+    expect((await post(a, `/code/sessions/${s.chatId}/preview`, { path: '../etc/passwd' })).statusCode).toBe(400);
+    expect((await post(a, `/code/sessions/${s.chatId}/preview`, {})).statusCode).toBe(400);
+    expect((await post(a, `/code/sessions/${s.chatId}/preview`, { path: 'a.html', port: 3000 })).statusCode).toBe(400);
+  });
+
+  it('CORS: opak kaynaklı (Origin: null) iframe için önizleme uçları herkese açık, diğer uçlar kapalı kalır', async () => {
+    const { a, s } = await withSite();
+    const { url } = (await post(a, `/code/sessions/${s.chatId}/preview`, { path: 'site/index.html' })).json();
+    const pre = await pub(url, { method: 'OPTIONS', headers: { origin: 'null', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type,x-ozel' } });
+    expect(pre.statusCode).toBe(204);
+    expect(pre.headers['access-control-allow-origin']).toBe('*');
+    const other = await env.app.inject({ method: 'OPTIONS', url: '/api/chats', headers: { origin: 'null', 'access-control-request-method': 'GET' } });
+    expect(other.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('dev-server önizleme: port dinlemiyorsa 409; varsa istekler iletilir (yöntem, gövde, sorgu), çerez gitmez, yönlendirme/JS yeniden yazılır', async () => {
+    const { a, s } = await withSite();
+    expect((await post(a, `/code/sessions/${s.chatId}/preview`, { port: 5173 })).statusCode).toBe(409);
+    fc.state.servers.set(5173, (r) => {
+      if (r.path === '/') return { status: 200, headers: [['content-type', 'text/html'], ['set-cookie', 'a=b']], body: '<script type="module" src="/src/main.js"></script>' };
+      if (r.path === '/src/main.js') return { status: 200, headers: [['content-type', 'text/javascript']], body: 'import { a } from "/src/a.js";\nconst s = "/kalir";\nexport default import("/src/b.js");' };
+      if (r.path === '/gec') return { status: 302, headers: [['location', 'http://localhost:5173/hedef'], ['content-type', 'text/plain']], body: '' };
+      return { status: 201, headers: [['content-type', 'application/json']], body: JSON.stringify({ m: r.method, p: r.path, b: r.body?.toString() ?? '' }) };
+    });
+    const r = await post(a, `/code/sessions/${s.chatId}/preview`, { port: 5173 });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().kind).toBe('port');
+    const base = r.json().url.replace(/\/$/, '');
+
+    const home = await pub(`${base}/`, { headers: { cookie: 'x=1', accept: 'text/html' } });
+    expect(home.statusCode).toBe(200);
+    expect(home.headers['set-cookie']).toBeUndefined();
+    expect(home.headers['content-security-policy']).toMatch(/^sandbox/);
+    expect(home.body).toContain(`src="${base}/src/main.js"`);
+    expect(fc.state.httpCalls[0]!.headers.accept).toBe('text/html');
+
+    const mod = await pub(`${base}/src/main.js`);
+    expect(mod.body).toContain(`from "${base}/src/a.js"`);
+    expect(mod.body).toContain(`import("${base}/src/b.js")`);
+    expect(mod.body).toContain('"/kalir"'); // modül belirteci olmayan dizgeler değişmez
+
+    const redir = await pub(`${base}/gec`);
+    expect(redir.statusCode).toBe(302);
+    expect(redir.headers.location).toBe(`${base}/hedef`);
+
+    const p = await pub(`${base}/api/x?y=1`, { method: 'POST', headers: { 'content-type': 'application/json' }, payload: '{"a":1}' });
+    expect(p.statusCode).toBe(201);
+    expect(p.json()).toEqual({ m: 'POST', p: '/api/x?y=1', b: '{"a":1}' });
+
+    fc.state.servers.clear();
+    const dead = await pub(`${base}/`);
+    expect(dead.statusCode).toBe(502);
+    expect(dead.headers['content-type']).toContain('text/html');
+  });
+
+  it('preview aracı: dosya ve port doğrulanır, kart meta verisi döner; yoksa model açıklayıcı hata görür', async () => {
+    const { a, s } = await withSite();
+    fc.fs.set('game/index.html', '<canvas></canvas>');
+    fc.state.servers.set(8080, () => ({ status: 200, body: 'ok' }));
+    env.ai.steps = [
+      [many([['p1', 'preview', { path: 'game/index.html', title: 'Oyun' }], ['p2', 'preview', { port: 8080 }], ['p3', 'preview', { path: 'yok.html' }], ['p4', 'preview', { port: 3999 }], ['p5', 'preview', { path: 'game' }], ['p6', 'preview', { path: 'a', port: 1 }]])],
+      text('Hazır.'),
+    ];
+    const r = await send(a, s.chatId, 'oyun yap');
+    const parts = (lastAssistant(await detail(a, s.chatId)).parts as Array<{ type: string; name?: string; status?: string; meta?: Record<string, unknown>; output?: string }>).filter((p) => p.name === 'preview');
+    expect(r.status).toBe(200);
+    expect(parts.map((p) => p.status)).toEqual(['done', 'done', 'error', 'error', 'done', 'error']);
+    expect(parts[0]!.meta).toMatchObject({ path: 'game/index.html', title: 'Oyun' });
+    expect(parts[1]!.meta).toMatchObject({ port: 8080 });
+    expect(parts[3]!.output).toContain('Nothing is listening on port 3999');
+    expect(parts[4]!.meta).toMatchObject({ path: 'game/index.html', root: 'game' });
+    expect(parts[5]!.output).toContain('exactly one');
+  });
+
+  it('share_file aracı: boyut ve ad meta verisinde; klasör, yok ve çok büyük dosya hata', async () => {
+    const { a, s } = await withSite();
+    fc.fs.set('out/rapor.csv', 'a,b\n1,2\n');
+    fc.state.execImpl = (c) => {
+      if (c.includes("p='out/rapor.csv'")) return { stdout: '8\n' };
+      if (c.includes("p='out'")) return { stdout: 'DIR\n' };
+      if (c.includes("p='buyuk.bin'")) return { stdout: `${100 * 1_048_576}\n` };
+      return { stdout: 'NONE\n' };
+    };
+    env.ai.steps = [[many([['s1', 'share_file', { path: 'out/rapor.csv', description: 'Aylık rapor' }], ['s2', 'share_file', { path: 'out' }], ['s3', 'share_file', { path: 'yok.txt' }], ['s4', 'share_file', { path: 'buyuk.bin' }]])], text('Verdim.')];
+    await send(a, s.chatId, 'rapor ver');
+    const parts = (lastAssistant(await detail(a, s.chatId)).parts as Array<{ name?: string; status?: string; meta?: Record<string, unknown>; output?: string }>).filter((p) => p.name === 'share_file');
+    expect(parts.map((p) => p.status)).toEqual(['done', 'error', 'error', 'error']);
+    expect(parts[0]!.meta).toEqual({ path: 'out/rapor.csv', name: 'rapor.csv', size: 8, description: 'Aylık rapor' });
+    expect(parts[1]!.output).toContain('directory');
+    expect(parts[3]!.output).toContain('limit');
+  });
+
+  it('indirme: ham bayt, ad ve yalıtım başlıkları; yok → 404, klasör → 400, başkasının oturumu → 404', async () => {
+    const { a, s } = await withSite();
+    env.ctx.config.codeAllowed.emails.add('dl-other@example.com');
+    const b = await member(env, { email: 'dl-other@example.com' });
+    const ok = await get(a, `/code/sessions/${s.chatId}/download?path=${encodeURIComponent('site/img/logo.png')}`);
+    expect(ok.statusCode).toBe(200);
+    expect(ok.headers['content-type']).toBe('image/png');
+    expect(ok.headers['content-disposition']).toContain('attachment; filename="logo.png"');
+    expect(ok.headers['content-security-policy']).toBe('sandbox');
+    expect(ok.rawPayload.toString('hex')).toBe('89504e4700ff');
+    expect((await get(a, `/code/sessions/${s.chatId}/download?path=yok.txt`)).statusCode).toBe(404);
+    expect((await get(a, `/code/sessions/${s.chatId}/download?path=site`)).statusCode).toBe(400);
+    expect((await get(b, `/code/sessions/${s.chatId}/download?path=site/app.js`)).statusCode).toBe(404);
+    expect((await get(a, `/code/sessions/${s.chatId}/download`)).statusCode).toBe(400);
+  });
+
+  it('yükleme: .sixfinger/uploads altına yazılır, ad temizlenir, boş/aşırı büyük reddedilir, git dışında tutulur', async () => {
+    const { a, s } = await withSite();
+    const up = await post(a, `/code/sessions/${s.chatId}/upload`, { name: '../../evil/Logo Ö.png', dataBase64: Buffer.from([1, 2, 3, 4]).toString('base64') });
+    expect(up.statusCode).toBe(200);
+    expect(up.json()).toEqual({ path: '.sixfinger/uploads/Logo Ö.png', name: 'Logo Ö.png', bytes: 4 });
+    expect(fc.state.uploads).toEqual([{ path: '.sixfinger/uploads/Logo Ö.png', bytes: 4 }]);
+    expect(fc.state.execs.some((c) => c.includes('.git/info/exclude') && c.includes('.sixfinger/'))).toBe(true);
+    expect((await post(a, `/code/sessions/${s.chatId}/upload`, { name: '.gizli', dataBase64: 'AQ==' })).json().name).toBe('gizli');
+    expect((await post(a, `/code/sessions/${s.chatId}/upload`, { name: 'x', dataBase64: '' })).statusCode).toBe(400);
+    env.ctx.config.codeAllowed.emails.add('up-other@example.com');
+    const b = await member(env, { email: 'up-other@example.com' });
+    expect((await post(b, `/code/sessions/${s.chatId}/upload`, { name: 'x', dataBase64: 'AQ==' })).statusCode).toBe(404);
   });
 });

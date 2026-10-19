@@ -9,7 +9,8 @@ import type { Github } from './github.ts';
 import type { RunHub } from './runs.ts';
 import { ToolError } from './tools/errors.ts';
 import { getPath } from './chats.ts';
-import { FileNotFoundError, IsDirectoryError, NotPreparedError, type CodeSandboxClient, type CodeScope } from './tools/code-client.ts';
+import { FileNotFoundError, IsDirectoryError, NotPreparedError, type CodeSandboxClient, type CodeScope, type SandboxHttpRequest } from './tools/code-client.ts';
+import { mimeOf } from '../lib/mime.ts';
 
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const MAX_DIFF_CHARS = 300_000;
@@ -36,7 +37,7 @@ const PR_SYSTEM = [
 export function createCodeGit(deps: CodeGitDeps) {
   const { db, ai, code, github, runs, config } = deps;
 
-  async function load(user: AuthUser, chatId: string) {
+  async function load(user: Pick<AuthUser, 'id'>, chatId: string) {
     const session = await code.getSession(user.id, chatId);
     if (!session) throw notFound('Oturum bulunamadı.');
     if (!deps.sandbox) throw new HttpError(503, 'upstream_unavailable', 'Code sandbox bu sunucuda yapılandırılmamış.');
@@ -51,7 +52,7 @@ export function createCodeGit(deps: CodeGitDeps) {
   }
 
   /** sandboxd yeniden başlamışsa çalışma alanını hazırlayıp işi bir kez daha dener. */
-  async function withWorkspace<T>(user: AuthUser, chatId: string, fn: () => Promise<T>): Promise<T> {
+  async function withWorkspace<T>(user: Pick<AuthUser, 'id'>, chatId: string, fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
     } catch (err) {
@@ -282,6 +283,55 @@ export function createCodeGit(deps: CodeGitDeps) {
     return { sha: head };
   }
 
-  return { push, draft, publish, diff, commands, files, readFile, archive, rewind };
+
+  // ---- önizleme, indirme, yükleme (ham sandbox işlemleri; hata sınıfları çağırana geçer) ----
+  type Who = Pick<AuthUser, 'id'>;
+
+  /** Çalışma alanındaki dosyanın ham baytları. Hata: FileNotFoundError / IsDirectoryError / ToolError. */
+  async function sandboxFile(user: Who, chatId: string, path: string, maxMb: number): Promise<Buffer> {
+    const { scope, sandbox } = await load(user, chatId);
+    return withWorkspace(user, chatId, () => sandbox.raw(scope, path, maxMb, AbortSignal.timeout(90_000)));
+  }
+  async function sandboxPorts(user: Who, chatId: string): Promise<number[]> {
+    const { scope, sandbox } = await load(user, chatId);
+    return withWorkspace(user, chatId, () => sandbox.ports(scope, AbortSignal.timeout(20_000)));
+  }
+  async function sandboxHttp(user: Who, chatId: string, r: SandboxHttpRequest) {
+    const { scope, sandbox } = await load(user, chatId);
+    return withWorkspace(user, chatId, () => sandbox.http(scope, r, AbortSignal.timeout(45_000)));
+  }
+
+  /** İndirme (kullanıcıya dosya verme). Sınır: sandboxd'nin arşiv sınırı. */
+  async function download(user: AuthUser, chatId: string, path: string): Promise<{ name: string; type: string; data: Buffer }> {
+    try {
+      const data = await sandboxFile(user, chatId, path, 64);
+      const name = path.split('/').filter(Boolean).pop() ?? 'file';
+      return { name, type: mimeOf(name), data };
+    } catch (err) {
+      if (err instanceof FileNotFoundError) throw notFound('Dosya bulunamadı.');
+      if (err instanceof IsDirectoryError) throw new HttpError(400, 'bad_request', 'Bu bir klasör; dosya seç.');
+      if (err instanceof ToolError) throw new HttpError(400, 'bad_request', err.message);
+      throw err;
+    }
+  }
+
+  /** Kullanıcının yüklediği dosya: `.sixfinger/uploads/<ad>` (git'e girmez). */
+  async function upload(user: AuthUser, chatId: string, rawName: string, data: Buffer): Promise<{ path: string; name: string; bytes: number }> {
+    const name = rawName.split(/[\\/]/).pop()!.replace(/[^\p{L}\p{N}._ -]/gu, '_').replace(/^\.+/, '').trim().slice(0, 100) || 'dosya';
+    const path = `.sixfinger/uploads/${name}`;
+    const { scope, sandbox } = await load(user, chatId);
+    try {
+      await withWorkspace(user, chatId, async () => {
+        await sandbox.exec(scope, "mkdir -p .git/info && (grep -qxF '.sixfinger/' .git/info/exclude 2>/dev/null || echo '.sixfinger/' >> .git/info/exclude)", 15, AbortSignal.timeout(30_000));
+        return sandbox.upload(scope, path, data, AbortSignal.timeout(60_000));
+      });
+    } catch (err) {
+      if (err instanceof ToolError) throw new HttpError(400, 'bad_request', err.message);
+      throw err;
+    }
+    return { path, name, bytes: data.length };
+  }
+
+  return { push, draft, publish, diff, commands, files, readFile, archive, rewind, sandboxFile, sandboxPorts, sandboxHttp, download, upload };
 }
 export type CodeGit = ReturnType<typeof createCodeGit>;

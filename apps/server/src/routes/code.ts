@@ -7,6 +7,8 @@ import {
   diffQuery,
   filesQuery,
   rewindSchema,
+  previewSchema,
+  uploadSchema,
   githubCompleteSchema,
   githubStartSchema,
   listReposQuery,
@@ -19,6 +21,7 @@ import type { AppContext } from '../context.ts';
 import type { Guard } from '../guard.ts';
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
+import { mimeOf } from '../lib/mime.ts';
 
 const REPO_CACHE_MS = 60_000;
 
@@ -76,6 +79,52 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
         return bounce(reply, target, { gh_code: req.query.code, gh_state: state });
       },
     );
+
+    // --- Önizleme: iframe/WebView başlık gönderemez; yetki yoldaki imzalı token'dadır (oturum + kök/port, 3 saat) ---
+    await app.register(async (pv) => {
+      // Gövdeyi ayrıştırma: dev-server'a ham bayt olarak iletilir.
+      pv.removeAllContentTypeParsers();
+      pv.addContentTypeParser('*', { parseAs: 'buffer', bodyLimit: 3 * 1024 * 1024 }, (_req, body, done) => done(null, body));
+      const ancestors = ["'self'", webBase, ...config.corsOrigins].join(' ');
+      const handler = async (req: import('fastify').FastifyRequest<{ Params: { token: string; '*'?: string } }>, reply: FastifyReply) => {
+        const { token } = req.params;
+        const q = req.url.indexOf('?');
+        const path = req.url.slice(0, q < 0 ? undefined : q);
+        const prefix = path.slice(0, path.indexOf(token) + token.length);
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers[k] = v;
+        let rest = req.params['*'] ?? '';
+        try {
+          rest = decodeURIComponent(rest);
+        } catch {
+          /* çözülemeyen yüzde işaretleri olduğu gibi kalır */
+        }
+        const r = await ctx.codePreview.serve(token, {
+          method: req.method,
+          rest,
+          query: q < 0 ? '' : req.url.slice(q + 1),
+          headers,
+          body: Buffer.isBuffer(req.body) ? req.body : undefined,
+          prefix,
+        });
+        reply.removeHeader('x-frame-options');
+        reply
+          .code(r.status)
+          .headers({
+            ...r.headers,
+            // Yalıtım: kendi kaynağımızdan (API) ayrı, opak kaynaklı bir sayfa olarak çalışır; depolama, çerez ve API'ye erişim yok.
+            'content-security-policy': `sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock; frame-ancestors ${ancestors}`,
+            'cache-control': 'no-store',
+            'referrer-policy': 'no-referrer',
+            'x-content-type-options': 'nosniff',
+          });
+        return reply.send(req.method === 'HEAD' ? undefined : r.body);
+      };
+      const opts = { config: { rateLimit: { max: 3_000, timeWindow: '1 minute' } } };
+      const methods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+      pv.route({ method: [...methods], url: '/code/preview/:token/*', ...opts, handler });
+      pv.get<{ Params: { token: string } }>('/code/preview/:token', opts, async (req, reply) => reply.redirect(`${req.url.split('?')[0]}/`));
+    });
 
     await app.register(async (authed) => {
       authed.addHook('preHandler', guard.requireUser);
@@ -251,6 +300,40 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
           .header('cache-control', 'no-store')
           .type('application/gzip')
           .send(a.data);
+      });
+
+      /** Önizleme bağlantısı: çalışma alanındaki bir dosya (statik artifact) ya da çalışan bir dev-server portu. */
+      authed.post<{ Params: { id: string } }>('/code/sessions/:id/preview', async (req) => {
+        const body = parse(previewSchema, req.body);
+        return ctx.codePreview.mint(req.user!, req.params.id, body);
+      });
+
+      /** Konteynerde dinleyen portlar (dev-server önizlemesi için). */
+      authed.get<{ Params: { id: string } }>('/code/sessions/:id/ports', async (req) => {
+        if (!(await code.getSession(req.user!.id, req.params.id))) throw notFound('Oturum bulunamadı.');
+        return { ports: await ctx.codeGit.sandboxPorts(req.user!, req.params.id).catch(() => [] as number[]) };
+      });
+
+      /** Tek dosyayı indirir (ham bayt; ajanın `share_file` kartı ve dosya gezgini). */
+      authed.get<{ Params: { id: string }; Querystring: { path?: string } }>('/code/sessions/:id/download', async (req, reply) => {
+        const q = parse(diffQuery, req.query);
+        if (!q.path) throw badRequest('path gerekli.');
+        const f = await ctx.codeGit.download(req.user!, req.params.id, q.path);
+        return reply
+          .header('content-disposition', `attachment; filename="${f.name.replace(/[^\w.-]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(f.name)}`)
+          .header('cache-control', 'no-store')
+          .header('content-security-policy', 'sandbox')
+          .type(mimeOf(f.name))
+          .send(f.data);
+      });
+
+      /** Kullanıcının dosya yüklemesi: `.sixfinger/uploads/` altına yazılır (git'e girmez); ajan yolu mesajda görür. */
+      authed.post<{ Params: { id: string } }>('/code/sessions/:id/upload', { bodyLimit: 5 * 1024 * 1024 }, async (req) => {
+        const body = parse(uploadSchema, req.body);
+        if (!(await code.getSession(req.user!.id, req.params.id))) throw notFound('Oturum bulunamadı.');
+        const data = Buffer.from(body.dataBase64, 'base64');
+        if (!data.length) throw badRequest('Dosya boş.');
+        return ctx.codeGit.upload(req.user!, req.params.id, body.name, data);
       });
 
       /** Çalışma alanını ve sohbeti bu asistan mesajının sonuna geri sarar (checkpoint). */

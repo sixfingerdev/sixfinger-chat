@@ -275,7 +275,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     /** Alt ajan: taze bağlamla çalışır, yalnızca raporu döndürür. Aynı frenler: döngü kırıcı, kredi, bağlam doluluğu, kullanıcının Durdur'u. */
     runSubagent = async (a, ctx) => {
       const readOnly = a.agent === 'explore' || g.planMode;
-      const subDefs = defs.filter((d) => (readOnly ? ['read', 'glob', 'grep', 'web_search', 'web_fetch'].includes(d.name) : !['task', 'ask_user', 'exit_plan_mode', 'todo'].includes(d.name)));
+      const subDefs = defs.filter((d) => (readOnly ? ['read', 'glob', 'grep', 'web_search', 'web_fetch'].includes(d.name) : !['task', 'ask_user', 'exit_plan_mode', 'todo', 'preview', 'share_file'].includes(d.name)));
       const subSpecs = toolSpecs(subDefs);
       const subSpecTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(subSpecs)));
       const system = [

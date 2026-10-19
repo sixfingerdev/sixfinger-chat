@@ -19,7 +19,13 @@ export function fakeCode(initial: Record<string, string> = {}) {
     execImpl: (_c: string): Partial<ExecOutcome & { diskUsedMb: number }> => ({}),
     delayMs: 0,
     changesCalls: 0,
+    /** Sahte dev-server: port → istek işleyici (null: dinleyen yok). */
+    servers: new Map<number, (r: { method: string; path: string; headers: Record<string, string>; body?: Buffer }) => { status: number; headers?: Array<[string, string]>; body: Buffer | string }>(),
+    httpCalls: [] as Array<{ port: number; method: string; path: string; headers: Record<string, string> }>,
+    uploads: [] as Array<{ path: string; bytes: number }>,
   };
+  /** İkili dosyalar (ham okuma/indirme testleri için). */
+  const bin = new Map<string, Buffer>();
   const sleep = () => (state.delayMs ? new Promise((r) => setTimeout(r, state.delayMs)) : Promise.resolve());
   const lines = (t: string) => (t === '' ? 0 : t.split('\n').length - (t.endsWith('\n') ? 1 : 0));
   const diff = (from = base) => {
@@ -85,10 +91,36 @@ export function fakeCode(initial: Record<string, string> = {}) {
       state.pushes.push({ token, sha, force: Boolean(opts?.force) });
       return { sha, branch: 'sixfinger/test', output: '' };
     },
+    async raw(_s, path, maxMb) {
+      if (state.needPrepare) throw new NotPreparedError();
+      const data = bin.get(path) ?? (fs.has(path) ? Buffer.from(fs.get(path)!) : undefined);
+      if (!data) {
+        if ([...fs.keys()].some((k) => k.startsWith(`${path}/`))) throw new IsDirectoryError();
+        throw new FileNotFoundError();
+      }
+      if (data.length > maxMb * 1_048_576) throw new ToolError(`Dosya çok büyük (en fazla ${maxMb} MB).`);
+      return data;
+    },
+    async ports() {
+      return [...state.servers.keys()];
+    },
+    async http(_s, r) {
+      if (state.needPrepare) throw new NotPreparedError();
+      state.httpCalls.push({ port: r.port, method: r.method, path: r.path, headers: r.headers });
+      const h = state.servers.get(r.port);
+      if (!h) throw new FileNotFoundError(`Port ${r.port} üzerinde dinleyen bir sunucu yok.`);
+      const o = h({ method: r.method, path: r.path, headers: r.headers, body: r.body });
+      return { status: o.status, headers: o.headers ?? [], body: Buffer.isBuffer(o.body) ? o.body : Buffer.from(o.body) };
+    },
+    async upload(_s, path, data) {
+      state.uploads.push({ path, bytes: data.length });
+      bin.set(path, data);
+      return { bytes: data.length };
+    },
     async usage() {
       return { diskUsedMb: 3, diskMb: 512, running: true };
     },
     async destroy() {},
   };
-  return { client, fs, state };
+  return { client, fs, bin, state };
 }

@@ -316,6 +316,22 @@ export interface CodePrDraftDTO {
 }
 
 /** Birleşik fark (git diff). `stale`: ajan çalışırken ya da çalışma alanı okunamadığında boş döner. */
+/** Önizleme bağlantısı: `url` sunucu köküne göredir (`/api/code/preview/<token>/…`); token kısa ömürlüdür. */
+export interface CodePreviewDTO {
+  url: string;
+  expiresAt: string;
+  kind: 'file' | 'port';
+  /** Önizlenen giriş dosyası (statik) ya da port. */
+  entry: string | number;
+}
+
+export interface CodeUploadDTO {
+  /** Çalışma alanındaki yol (`.sixfinger/uploads/<ad>`); git'e girmez. */
+  path: string;
+  name: string;
+  bytes: number;
+}
+
 export interface CodeDiffDTO {
   diff: string;
   truncated: boolean;

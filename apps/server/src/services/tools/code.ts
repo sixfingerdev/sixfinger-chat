@@ -478,5 +478,95 @@ export function createCodeTools(client: CodeSandboxClient): ToolDef[] {
     },
   };
 
-  return [bash, jobOutput, jobKill, read, write, edit, glob, grep, todo];
+  // ---------------------------------------------------------------------------------------------------------------- preview
+  const previewArgs = z
+    .object({
+      path: z.string().trim().min(1).max(400).optional(),
+      port: z.number().int().min(1024, 'port must be 1024-65535').max(65535, 'port must be 1024-65535').optional(),
+      root: z.string().trim().max(400).optional(),
+      title: z.string().trim().max(80).optional(),
+    })
+    .refine((v) => Boolean(v.path) !== Boolean(v.port), { message: 'give exactly one of path (a file) or port (a running server)' });
+  const preview: ToolDef = {
+    name: 'preview',
+    description:
+      'Shows the user a live preview of something you built, right under your message. Two modes (give exactly one): ' +
+      '(1) path = an HTML file in the workspace (or a directory containing index.html). It is served statically with every file next to it, so a page with its own .js, .css, images and ES modules works: write index.html + app.js + style.css, then preview index.html. External libraries from CDNs (cdnjs, jsdelivr, unpkg) work. Use relative URLs or root-absolute ones ("/app.js" resolves inside the preview root, which defaults to the HTML file\'s folder; set root to serve from another folder, e.g. "dist"). ' +
+      '(2) port = a dev server you started with bash background=true (it may listen on localhost). The page is proxied through the platform under a path prefix, so the app must use relative URLs (for Vite set base: "./"); WebSocket/HMR does not work, the user refreshes to see changes. For frameworks prefer building (npm run build) and previewing the output folder statically. ' +
+      'The preview runs isolated: no cookies, localStorage may be unavailable, and fetch("/api/...") to your own server only works through a port preview with relative URLs. Call it once when the thing works; do not call it for non-visual changes.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'HTML file (or directory with index.html), relative to the repository root.' },
+        port: { type: 'integer', description: 'Port of a server already running in the sandbox (1024-65535).' },
+        root: { type: 'string', description: 'Static mode only: folder that "/"-absolute URLs resolve against (default: the HTML file\'s folder).' },
+        title: { type: 'string', description: 'Short title shown on the preview card.' },
+      },
+    },
+    aliases: { path: ['file', 'file_path', 'entry', 'html'], port: ['server_port'], title: ['name', 'label'] },
+    available,
+    async run(raw, ctx) {
+      const a = parseArgs('preview', previewArgs, raw);
+      const s = scope(ctx);
+      guard(ctx);
+      if (a.port) {
+        const ports = await withWorkspace(ctx, () => client.ports(s, ctx.signal));
+        if (!ports.includes(a.port)) {
+          throw new ToolError(`Nothing is listening on port ${a.port}${ports.length ? ` (listening: ${ports.join(', ')})` : ''}. Start the server with bash background=true, check job_output until it says it is ready, then call preview again.`);
+        }
+        return { output: `Preview of the server on port ${a.port} is ready; the user can open it from the card under your message. Mention how it can be used and that the user should refresh after changes.`, summary: `port ${a.port}`, meta: { port: a.port, title: a.title ?? `localhost:${a.port}` } };
+      }
+      let entry = a.path!.replace(/^\/work\//, '').replace(/^\.\//, '');
+      let root = a.root?.replace(/^\/work\//, '').replace(/^\.\//, '');
+      try {
+        await withWorkspace(ctx, () => client.raw(s, entry, 8, ctx.signal));
+      } catch (err) {
+        if (err instanceof IsDirectoryError) {
+          root ??= entry;
+          entry = `${entry.replace(/\/$/, '')}/index.html`;
+          await withWorkspace(ctx, () => client.raw(s, entry, 8, ctx.signal)).catch((e) => {
+            throw e instanceof FileNotFoundError ? new ToolError(`${entry} does not exist. Write an HTML file first.`) : e;
+          });
+        } else if (err instanceof FileNotFoundError) throw new ToolError(`File not found: ${entry}. Write it first, then call preview.`);
+        else throw err;
+      }
+      return { output: `Preview of ${entry} is ready; the user can open it from the card under your message. In your reply say what it shows and how to use it (controls, keys).`, summary: entry, meta: { path: entry, ...(root !== undefined ? { root } : {}), title: a.title ?? entry.split('/').pop() } };
+    },
+  };
+
+  // ---------------------------------------------------------------------------------------------------------------- share_file
+  const SHARE_MAX_MB = 64;
+  const shareFile: ToolDef = {
+    name: 'share_file',
+    description:
+      'Gives the user a file from the workspace as a download card under your message (a report, an export, a generated image or zip, a build artifact). ' +
+      `Use it when the user asked for a file as the result; code changes are delivered through the repository, not through this tool. Max ${SHARE_MAX_MB} MB.`,
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'File path relative to the repository root.' },
+        description: { type: 'string', description: 'One short line about what the file is.' },
+      },
+      required: ['path'],
+    },
+    aliases: { path: ['file', 'file_path', 'filename'], description: ['note', 'caption'] },
+    available,
+    async run(raw, ctx) {
+      const a = parseArgs('share_file', z.object({ path: filePath, description: z.string().trim().max(200).optional() }), raw);
+      const s = scope(ctx);
+      guard(ctx);
+      const path = a.path.replace(/^\/work\//, '').replace(/^\.\//, '');
+      const r = await withWorkspace(ctx, () => client.exec(s, `p=${shq(path)}; if [ -d "$p" ]; then echo DIR; elif [ -f "$p" ]; then stat -c %s -- "$p"; else echo NONE; fi`, 15, ctx.signal));
+      const out = r.stdout.trim();
+      if (out === 'NONE') throw new ToolError(`File not found: ${path}`);
+      if (out === 'DIR') throw new ToolError(`${path} is a directory. Create an archive first (for example: zip -r out.zip ${path}) and share that file.`);
+      const size = Number(out);
+      if (!Number.isFinite(size)) throw new ToolError(`Could not read the size of ${path}.`);
+      if (size > SHARE_MAX_MB * 1_048_576) throw new ToolError(`${path} is ${(size / 1_048_576).toFixed(1)} MB; the limit is ${SHARE_MAX_MB} MB. Compress it or share a smaller file.`);
+      const name = path.split('/').pop() ?? path;
+      return { output: `${name} (${size} bytes) is shared with the user as a download card under your message.`, summary: name, meta: { path, name, size, ...(a.description ? { description: a.description } : {}) } };
+    },
+  };
+
+  return [bash, jobOutput, jobKill, read, write, edit, glob, grep, todo, preview, shareFile];
 }
