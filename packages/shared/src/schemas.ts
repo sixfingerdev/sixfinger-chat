@@ -196,3 +196,38 @@ export const saveSkillSchema = z.object({
 export const importSkillSchema = z.object({ url: z.string().trim().min(3).max(500), overwrite: z.boolean().optional() });
 export const shareSkillSchema = z.object({ enabled: z.boolean() });
 export const importSharedSkillSchema = z.object({ overwrite: z.boolean().optional() });
+
+// ---------- MCP bağlayıcıları ----------
+const MCP_HEADER_NAME = /^[A-Za-z][A-Za-z0-9-]{0,63}$/;
+/** Sunucuya kimlik/yönlendirme bozacak başlıklar kullanıcı tarafından verilemez. */
+const MCP_BLOCKED_HEADERS = /^(host|content-length|content-type|accept|connection|transfer-encoding|upgrade|mcp-session-id|mcp-protocol-version|last-event-id)$/i;
+const mcpHeaders = z
+  .record(z.string().max(2_000))
+  .refine((o) => Object.keys(o).length <= 10, 'en fazla 10 başlık')
+  .refine((o) => Object.keys(o).every((k) => MCP_HEADER_NAME.test(k) && !MCP_BLOCKED_HEADERS.test(k)), 'geçersiz ya da yasak başlık adı')
+  .refine((o) => Object.values(o).every((v) => /^[\x20-\x7e]*$/.test(v)), 'başlık değeri yalnızca yazdırılabilir ASCII karakter içerebilir');
+const mcpScopes = z.array(z.enum(['chat', 'code'])).min(1).max(2).transform((a) => [...new Set(a)]);
+
+export const createMcpServerSchema = z.object({
+  label: z.string().trim().min(1).max(40),
+  url: z.string().trim().url().max(500),
+  preset: z.string().trim().max(40).optional(),
+  /** Anahtar/başlıklar (şifreli saklanır). Boşsa OAuth ya da kimlik doğrulamasız. */
+  headers: mcpHeaders.optional(),
+  scopes: mcpScopes.optional(),
+});
+export const updateMcpServerSchema = z
+  .object({
+    label: z.string().trim().min(1).max(40),
+    url: z.string().trim().url().max(500),
+    /** Verilirse mevcut başlıkların TAMAMININ yerine geçer ({} = hepsini sil). */
+    headers: mcpHeaders,
+    enabled: z.boolean(),
+    scopes: mcpScopes,
+    autoApprove: z.boolean(),
+    allowTools: z.array(z.string().trim().min(1).max(120)).max(200).transform((a) => [...new Set(a)]),
+  })
+  .partial();
+export const mcpConnectSchema = z.object({ target: z.enum(['web', 'app']).default('web') });
+export const mcpOAuthCompleteSchema = z.object({ code: z.string().min(1).max(2_000), state: z.string().min(1).max(4_000) });
+export const mcpApprovalDecisionSchema = z.object({ decision: z.enum(['once', 'always', 'deny']) });

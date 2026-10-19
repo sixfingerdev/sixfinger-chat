@@ -70,6 +70,15 @@ const schema = z.object({
    * SixFinger Code. GitHub OAuth uygulaması (Client ID/Secret) ve token'ları şifreleyen anahtar (en az 32 karakter,
    * JWT_SECRET'tan ayrı; değiştirilirse kayıtlı GitHub bağlantıları ve ortam değişkenleri çözülemez). Üçü de yoksa Code kapalıdır.
    */
+  /** MCP bağlayıcıları: istemci kaydı sunucu yöneticisinde olan OAuth sağlayıcıları (Google, Slack, HubSpot). Boşsa o kartlar pasif. */
+  MCP_GOOGLE_CLIENT_ID: z.string().optional().default(''),
+  MCP_GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+  MCP_SLACK_CLIENT_ID: z.string().optional().default(''),
+  MCP_SLACK_CLIENT_SECRET: z.string().optional().default(''),
+  MCP_HUBSPOT_CLIENT_ID: z.string().optional().default(''),
+  MCP_HUBSPOT_CLIENT_SECRET: z.string().optional().default(''),
+  /** MCP bağlayıcıları açık mı (CODE_SECRET_KEY de gerekir). */
+  MCP_ENABLED: z.string().optional().default('true'),
   GITHUB_CLIENT_ID: z.string().optional().default(''),
   GITHUB_CLIENT_SECRET: z.string().optional().default(''),
   /** OAuth geri dönüş adresi. Boşsa PUBLIC_WEB_URL + /api/code/github/callback. GitHub uygulamasındaki adresle birebir aynı olmalı. */
