@@ -476,6 +476,28 @@ describe('Code ajan döngüsü: hata, durdurma, kuyruk', () => {
   });
 });
 
+describe('Code: model seçimi (Hızlı/Derin)', () => {
+  it('mesajdaki mode ajan çağrısına gider (fast → hız öncelikli, aksi halde deep); sıradaki mesaj da kendi modunu taşır', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [text('bir'), text('iki'), text('üç')];
+    const r1 = await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/messages`, headers: auth(a), payload: { content: 'hızlı', mode: 'fast' } });
+    expect(r1.statusCode).toBe(200);
+    expect(agentCalls().at(-1)!.mode).toBe('fast');
+    const r2 = await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/messages`, headers: auth(a), payload: { content: 'derin' } });
+    expect(r2.statusCode).toBe(200);
+    expect(agentCalls().at(-1)!.mode).toBe('deep');
+    // sıraya eklenen mesaj: mode sunucuda saklanır ve tur başlayınca kullanılır
+    env.ai.delayMs = 120;
+    const first = send(a, s.chatId, 'uzun');
+    await new Promise((res) => setTimeout(res, 60));
+    await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/queue`, headers: auth(a), payload: { content: 'sıradaki', mode: 'fast' } });
+    await first;
+    const t0 = Date.now();
+    while (Date.now() - t0 < 4_000 && !(agentCalls().at(-1)!.messages.some((m) => String(m.content).includes('sıradaki')) && env.ai.calls.length)) await new Promise((res) => setTimeout(res, 40));
+    expect(agentCalls().at(-1)!.mode).toBe('fast');
+  });
+});
+
 describe('Code: sunucu tarafı mesaj kuyruğu', () => {
   const queue = (a: Awaited<ReturnType<typeof member>>, chatId: string, content: string, extra: object = {}) =>
     env.app.inject({ method: 'POST', url: `/api/chats/${chatId}/queue`, headers: auth(a), payload: { content, ...extra } });

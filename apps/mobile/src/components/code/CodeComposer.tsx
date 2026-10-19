@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { ScrollView, Text as RNText, TextInput, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowUp, FileText, GitBranch, ListChecks, Paperclip, Square, X } from 'lucide-react-native';
+import { ArrowUp, Brain, FileText, GitBranch, ListChecks, Paperclip, Square, X, Zap } from 'lucide-react-native';
 import { BUILTIN_COMMANDS, activeMention, expandTemplate, matchCommands, parseSlash, type CodeSessionDTO, type DictKey, type SlashCommand } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { api } from '../../lib/api.ts';
@@ -27,6 +27,7 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
   const chatId = session.chatId;
   const busy = useChats((s) => Boolean(s.generating[chatId]));
   const plan = useCode((s) => s.plan[chatId] ?? false);
+  const codeMode = useCode((s) => s.codeMode);
   const queue = useCode((s) => s.queue[chatId]) ?? [];
   const [value, setValue] = useState(() => drafts.get(chatId) ?? '');
   const [focused, setFocused] = useState(false);
@@ -218,6 +219,25 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
           <ListChecks size={13} color={plan ? c.onAccent : c.text2} />
           <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 12.5, color: plan ? c.onAccent : c.text2 }}>{t('code.plan.toggle')}</RNText>
         </Press>
+        {(['fast', 'deep'] as const).map((m) => {
+          const on = codeMode === m;
+          const Icon = m === 'fast' ? Zap : Brain;
+          return (
+            <Press
+              key={m}
+              haptics="select"
+              scale={0.95}
+              accessibilityLabel={t('code.model.hint')}
+              accessibilityState={{ selected: on }}
+              hitSlop={6}
+              onPress={() => useCode.getState().setCodeMode(m)}
+              style={{ height: 28, flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, borderRadius: 14, backgroundColor: on ? c.accent : 'transparent', borderWidth: 1, borderColor: on ? c.accent : c.lineStrong }}
+            >
+              <Icon size={13} color={on ? c.onAccent : c.text2} />
+              <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 12.5, color: on ? c.onAccent : c.text2 }}>{t(m === 'fast' ? 'code.model.fast' : 'code.model.deep')}</RNText>
+            </Press>
+          );
+        })}
       </View>
 
       {popup && (

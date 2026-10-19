@@ -346,7 +346,7 @@ export const api = {
   /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */
   /** Sunucu tarafı mesaj kuyruğu (Code): çalışırken eklenen mesajlar sunucuda bekler, tur bitince sunucu başlatır. */
   codeQueue: (id: string) => request<{ queue: CodeQueueItemDTO[] }>('GET', `/chats/${id}/queue`),
-  codeEnqueue: (id: string, body: { content: string; planMode?: boolean; attachments?: Array<{ name: string; mime: string; text: string }> }) =>
+  codeEnqueue: (id: string, body: { content: string; planMode?: boolean; mode?: 'fast' | 'deep'; attachments?: Array<{ name: string; mime: string; text: string }> }) =>
     request<{ queue: CodeQueueItemDTO[]; started: boolean }>('POST', `/chats/${id}/queue`, body),
   codeQueueRemove: (id: string, queueId: string) => request<void>('DELETE', `/chats/${id}/queue/${queueId}`),
   codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),

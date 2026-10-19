@@ -4,10 +4,13 @@ import type { CodeEnvironmentDTO, CodeQueueItemDTO, CodeSessionDTO, CodeStatusDT
 import { api, ApiError } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { translate } from '../lib/i18n/index.ts';
+import { kv } from '../lib/storage.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 import { useUi } from './ui.ts';
 
 /** Sıraya eklenecek mesaj (ekler sunucuya düz metin olarak gider). */
+export type CodeModel = 'fast' | 'deep';
+
 export interface QueuedMessage {
   text: string;
   plan: boolean;
@@ -29,6 +32,9 @@ interface CodeState {
   plan: Record<string, boolean>;
   /** Ajan çalışırken eklenen mesajlar: SUNUCUDA tutulur ve tur bitince sunucu başlatır; burada yalnızca görünümü. */
   queue: Record<string, CodeQueueItemDTO[]>;
+  /** Model tercihi: Hızlı = hız öncelikli, Derin = güç öncelikli (cihazda hatırlanır; sunucu sıralamayı bilir, istemci adı göstermez). */
+  codeMode: CodeModel;
+  setCodeMode: (m: CodeModel) => void;
   setPlan: (chatId: string, on: boolean) => void;
   loadQueue: (chatId: string) => Promise<void>;
   /** Sıraya ekler. Döner: sunucu hemen başlattıysa (çalışma yoktu) true. */
@@ -64,6 +70,11 @@ const initial = { status: null, sessions: null, archived: null, environments: nu
 export const useCode = create<CodeState>((set, get) => ({
   ...initial,
 
+  codeMode: kv.get('sf.code.mode') === 'fast' ? 'fast' : 'deep',
+  setCodeMode(m) {
+    set({ codeMode: m });
+    kv.set('sf.code.mode', m);
+  },
   setPlan: (chatId, on) => set((s) => ({ plan: { ...s.plan, [chatId]: on } })),
   async loadQueue(chatId) {
     try {
@@ -78,6 +89,7 @@ export const useCode = create<CodeState>((set, get) => ({
       const r = await api.codeEnqueue(chatId, {
         content: m.text,
         planMode: m.plan,
+        mode: get().codeMode,
         attachments: m.attachments?.map((a) => ({ name: a.name, mime: a.mime, text: a.text })),
       });
       set((s) => ({ queue: { ...s.queue, [chatId]: r.queue } }));

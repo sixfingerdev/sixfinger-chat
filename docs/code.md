@@ -259,3 +259,8 @@ Görünmesi için:
 3. Pi'de `.env`: `CODE_COAUTHOR=SixFinger Code <12345678+sixfinger-code@users.noreply.github.com>` ve `docker compose --profile sandbox up -d`.
 (Alternatif: hesaba doğrulanmış bir e-posta ekleyip onu yazmak.) Yalnızca bu değişiklikten **sonraki** commit'ler sayılır; eski commit'lerin satırı değiştirilemez (geçmişi yeniden yazmak gerekir).
 Ajan e-postayı istemden aynen kopyalar; `git config` ile yazar kimliğini kendisi değiştiremez (commit yazarı kullanıcıdır).
+
+## Model seçimi (Hızlı / Derin)
+Yazma alanındaki **Hızlı** ve **Derin** düğmeleri her mesajla `mode: fast|deep` gönderir (Code'da sohbetin modu değil, kendi seçimi; sıraya eklenen mesajda `code_queue.mode` sunucuda saklanır).
+Sunucu sırayı belirler (`ai.ts` `chain`): Hızlı → MiniMax, DeepSeek, GLM, Qwen, Claude; Derin → DeepSeek, GLM, Qwen, Claude. Biri yanıt vermeye başlamadan hata verirse sıradakine geçilir. Hesap/kredi hesabı
+Claude dışındakileri Qwen oranıyla sayar. `AI_FREE_FOR_CODE=false` ise iki seçenek de Qwen → Claude'dur. Alt ajan (`task`) üst turun seçimini kullanır.

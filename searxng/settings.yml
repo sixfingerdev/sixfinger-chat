@@ -1,0 +1,37 @@
+# SixFinger web_search için SearXNG: birçok arama motorunu (Google, Bing, DuckDuckGo, Brave…) tek sorguda birleştirir; API anahtarı gerekmez.
+# Yalnızca docker-compose ağı içinden (http://searxng:8080) erişilir, dışarıya açılmaz.
+use_default_settings:
+  engines:
+    keep_only:
+      - google
+      - bing
+      - duckduckgo
+      - brave
+      - startpage
+      - qwant
+      - mojeek
+      - wikipedia
+      - wikidata
+      - github
+      - stackoverflow
+general:
+  instance_name: SixFinger Search
+  enable_metrics: false
+search:
+  safe_search: 0
+  autocomplete: ''
+  default_lang: auto
+  formats:
+    - html
+    - json
+server:
+  # SEARXNG_SECRET ortam değişkeni bunun yerine geçer (docker-compose verir)
+  secret_key: change-me-searxng
+  limiter: false
+  image_proxy: false
+  public_instance: false
+outgoing:
+  request_timeout: 5.0
+  max_request_timeout: 9.0
+  pool_connections: 50
+  pool_maxsize: 10

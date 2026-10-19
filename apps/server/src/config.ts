@@ -39,14 +39,17 @@ const schema = z.object({
   /**
    * Ücretsiz sağlayıcılar (OpenAI uyumlu). LLM7: DeepSeek ana, GLM ikinci; anahtar isteğe bağlıdır (anahtar 401/402/403/kota verirse
    * anahtarsız denenir). Kilo: MiniMax, anahtarsız. Chat'te mod sırası `ai.ts`'tedir (DeepSeek her modda önde). `*_BASE_URL` boşsa o
-   * sağlayıcı kapalıdır. Code'da yalnızca `AI_FREE_FOR_CODE` açıksa Auto zinciri DeepSeek → GLM → Qwen → Claude olur (depo içeriği üçüncü taraf
-   * ücretsiz servislere gideceği için varsayılan kapalı).
+   * sağlayıcı kapalıdır. Code'da `AI_FREE_FOR_CODE` (varsayılan açık) ile Hızlı: MiniMax → DeepSeek → GLM → Qwen → Claude, Derin: DeepSeek → GLM → Qwen → Claude
+   * olur. Kapatılırsa her ikisi de Qwen → Claude'dur (depo içeriği üçüncü taraf ücretsiz servislere gitmez).
    */
   AI_FREE_ENABLED: z
     .enum(['true', 'false', '1', '0', ''])
     .optional()
     .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
-  AI_FREE_FOR_CODE: bool,
+  AI_FREE_FOR_CODE: z
+    .enum(['true', 'false', '1', '0', ''])
+    .optional()
+    .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
   LLM7_BASE_URL: z.string().default('https://api.llm7.io/v1/chat/completions'),
   LLM7_API_KEY: z.string().optional().default(''),
   LLM7_MODEL: z.string().default('DeepSeek-V4-Flash-0731'),
@@ -84,6 +87,9 @@ const schema = z.object({
     .enum(['true', 'false', '1', '0', ''])
     .optional()
     .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
+
+  /** Kendi sunucundaki SearXNG (web_search'ün ana motoru; docker-compose'taki `searxng` servisi). Boşsa DuckDuckGo + Bing birlikte kullanılır. */
+  SEARXNG_URL: z.string().optional().default(''),
 
   /** sandboxd adresi (ör. http://sandboxd:8791). Boşsa bash/read/write/edit araçları kapalıdır. */
   SANDBOXD_URL: z.string().optional().default(''),

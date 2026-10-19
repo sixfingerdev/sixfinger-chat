@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, FileText, ListChecks, Paperclip, Square, X } from 'lucide-react';
+import { ArrowUp, Brain, FileText, ListChecks, Paperclip, Square, X, Zap } from 'lucide-react';
 import {
   BUILTIN_COMMANDS,
   activeMention,
@@ -26,6 +26,7 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
   const t = useT();
   const chatId = session?.chatId;
   const plan = useCode((s) => (chatId ? s.plan[chatId] ?? false : false));
+  const codeMode = useCode((s) => s.codeMode);
   const queue = useCode((s) => (chatId ? s.queue[chatId] : undefined)) ?? [];
   const [text, setText] = useState('');
   const area = useRef<HTMLTextAreaElement>(null);
@@ -322,6 +323,14 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
           >
             <ListChecks size={14} /> {t('code.plan.toggle')}
           </button>
+          <span className="mode-seg" role="group" aria-label={t('code.model.hint')} title={t('code.model.hint')}>
+            <button className={clsx('plan-toggle', codeMode === 'fast' && 'on')} aria-pressed={codeMode === 'fast'} onClick={() => useCode.getState().setCodeMode('fast')}>
+              <Zap size={14} /> {t('code.model.fast')}
+            </button>
+            <button className={clsx('plan-toggle', codeMode === 'deep' && 'on')} aria-pressed={codeMode === 'deep'} onClick={() => useCode.getState().setCodeMode('deep')}>
+              <Brain size={14} /> {t('code.model.deep')}
+            </button>
+          </span>
           <span className="composer-note">{session ? `${session.repo.split('/')[1]}  ⎇ ${session.workBranch}` : ''}</span>
           <div className="composer-end">
             {generating && !text.trim() ? (

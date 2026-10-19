@@ -40,7 +40,7 @@ services:
       # Yedek model (Amazon Bedrock'ta Claude): diğer sağlayıcılar hata verirse devreye girer. Boşsa kapalı (bkz. docs/bedrock.md).
       AI_MAX_EFFORT: ${AI_MAX_EFFORT:-true}
       AI_FREE_ENABLED: ${AI_FREE_ENABLED:-true}
-      AI_FREE_FOR_CODE: ${AI_FREE_FOR_CODE:-false}
+      AI_FREE_FOR_CODE: ${AI_FREE_FOR_CODE:-true}
       LLM7_API_KEY: ${LLM7_API_KEY:-}
       LLM7_MODEL: ${LLM7_MODEL:-DeepSeek-V4-Flash-0731}
       LLM7_MODEL_2: ${LLM7_MODEL_2:-GLM-5.3-Flash}
@@ -61,6 +61,8 @@ services:
       SMTP_FROM: ${SMTP_FROM:-SixFinger <no-reply@localhost>}
       # Sandbox araçları (bash/read/write/edit): .env'de SANDBOXD_URL=http://sandboxd:8791 ve SANDBOXD_TOKEN ver,
       # sonra `docker compose --profile sandbox up -d --build` (bkz. docs/sandbox.md). Boşsa araçlar kapalıdır.
+      # Web arama: kendi sunucundaki SearXNG (aşağıdaki `searxng` servisi). Kapatmak için SEARXNG_URL= (boş): DuckDuckGo + Bing kullanılır.
+      SEARXNG_URL: ${SEARXNG_URL-http://searxng:8080}
       SANDBOXD_URL: ${SANDBOXD_URL:-}
       SANDBOXD_TOKEN: ${SANDBOXD_TOKEN:-}
       # SixFinger Code (docs/code.md): GitHub OAuth uygulaması + sır anahtarı + izin listesi. Üçü de boşsa Code kapalıdır.
@@ -88,6 +90,23 @@ services:
       CODE_COMPACT_AT: ${CODE_COMPACT_AT:-0.8}
 
   # Modelin komut çalıştırdığı yalıtılmış ortamın yöneticisi. Docker soketi YALNIZCA bu serviste bulunur.
+  # Meta arama motoru (web_search'ün ana kaynağı). Yalnızca iç ağdan erişilir; yanıt vermezse uygulama DuckDuckGo + Bing'e düşer.
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-sixfinger-searxng-internal-secret}
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    mem_limit: 512m
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8080/healthz >/dev/null 2>&1 || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
   sandboxd:
     profiles: ['sandbox']
     build:

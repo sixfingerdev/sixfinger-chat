@@ -25,3 +25,5 @@ dist-apk/
 
 __pycache__/
 *.pyc
+searxng/*
+!searxng/settings.yml

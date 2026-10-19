@@ -5,6 +5,16 @@ import { reportError } from '../lib/errors.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 
 const DRAFT_KEY = 'sf.code.draft';
+const MODE_KEY = 'sf.code.mode';
+
+export type CodeModel = 'fast' | 'deep';
+function readMode(): CodeModel {
+  try {
+    return localStorage.getItem(MODE_KEY) === 'fast' ? 'fast' : 'deep';
+  } catch {
+    return 'deep';
+  }
+}
 
 export interface CodeDraft {
   repo: string | null;
@@ -40,6 +50,9 @@ interface CodeState {
   plan: Record<string, boolean>;
   /** Ajan çalışırken eklenen mesajlar: SUNUCUDA tutulur ve tur bitince sunucu başlatır; burada yalnızca görünümü. */
   queue: Record<string, CodeQueueItemDTO[]>;
+  /** Model tercihi: Hızlı = hız öncelikli, Derin = güç öncelikli (cihazda hatırlanır; sunucu sıralamayı bilir, istemci adı göstermez). */
+  codeMode: CodeModel;
+  setCodeMode: (m: CodeModel) => void;
   setPlan: (chatId: string, on: boolean) => void;
   loadQueue: (chatId: string) => Promise<void>;
   /** Sıraya ekler. Döner: sunucu hemen başlattıysa (çalışma yoktu) true. */
@@ -74,7 +87,16 @@ export const useCode = create<CodeState>((set, get) => ({
   draft: readDraft(),
   plan: {},
   queue: {},
+  codeMode: readMode(),
 
+  setCodeMode(m) {
+    set({ codeMode: m });
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      /* depolama yok */
+    }
+  },
   setPlan: (chatId, on) => set((s) => ({ plan: { ...s.plan, [chatId]: on } })),
   async loadQueue(chatId) {
     try {
@@ -89,6 +111,7 @@ export const useCode = create<CodeState>((set, get) => ({
       const r = await api.codeEnqueue(chatId, {
         content: m.text,
         planMode: m.plan,
+        mode: get().codeMode,
         attachments: m.attachments?.map((a) => ({ name: a.name, mime: a.mime, text: a.text })),
       });
       set((s) => ({ queue: { ...s.queue, [chatId]: r.queue } }));

@@ -96,7 +96,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     ai: opts.ai ?? createAi(config, app.log),
     codeQueue: new CodeQueue({ maxRuns: config.CODE_MAX_RUNS, maxQueue: config.CODE_MAX_QUEUE }),
     codeSandbox,
-    tools: opts.tools ?? createTools([], { sandbox: sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : undefined, code: codeSandbox ?? undefined }),
+    tools: opts.tools ?? createTools([], { sandbox: sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : undefined, code: codeSandbox ?? undefined, searxngUrl: config.SEARXNG_URL || undefined }),
     codeGit: undefined as never,
     codePreview: undefined as never,
     skills: opts.skills ?? createSkills({ db, log: app.log }),
