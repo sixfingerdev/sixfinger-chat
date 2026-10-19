@@ -10,6 +10,7 @@ import './styles/chat.css';
 import './styles/markdown.css';
 import './styles/dialogs.css';
 import './styles/code.css';
+import './styles/connectors.css';
 import { App } from './App.tsx';
 
 createRoot(document.getElementById('root')!).render(

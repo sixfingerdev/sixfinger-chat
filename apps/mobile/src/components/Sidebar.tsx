@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { SectionList, Text as RNText, TextInput, View } from 'react-native';
 import { router, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Archive, ArchiveRestore, ChevronDown, ChevronUp, MessageSquare, Pencil, Pin, PinOff, Plus, Search, Settings, SquareCode, Trash2 } from 'lucide-react-native';
+import { Archive, ArchiveRestore, ChevronDown, ChevronUp, MessageSquare, Pencil, Pin, PinOff, Plug, Plus, Search, Settings, SquareCode, Trash2 } from 'lucide-react-native';
 import type { ChatDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
@@ -235,6 +235,19 @@ export function Sidebar() {
           ) : undefined
         }
       />
+
+      <Press
+        scale={0.985}
+        haptics="tap"
+        onPress={() => {
+          drawer.close();
+          router.push('/connectors' as never);
+        }}
+        style={{ height: 46, marginHorizontal: 8, marginBottom: 6, borderRadius: radius.sm, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+      >
+        <Plug size={18} color={c.text2} />
+        <RNText style={[type.body, { flex: 1, fontSize: 14.5, color: c.text2 }]}>{t('mcp.nav')}</RNText>
+      </Press>
 
       <Press
         scale={0.99}

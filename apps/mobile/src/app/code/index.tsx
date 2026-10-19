@@ -3,7 +3,7 @@ import { ActivityIndicator, AppState, FlatList, Image, RefreshControl, ScrollVie
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Archive, BookOpen, Lock, Pin, Plus, Search, Unplug } from 'lucide-react-native';
+import { Archive, BookOpen, Lock, Pin, Plug, Plus, Search, Unplug } from 'lucide-react-native';
 import type { CodeEnvironmentDTO, CodeSessionDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
@@ -371,9 +371,14 @@ export default function CodeHome() {
         onMenu={drawer.open}
         right={
           status?.allowed ? (
-            <Press accessibilityLabel={t('code.skills.title')} haptics="tap" scale={0.88} onPress={() => router.push('/code/skills' as never)} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}>
-              <BookOpen size={19} color={c.text} />
-            </Press>
+            <>
+              <Press accessibilityLabel={t('mcp.nav')} haptics="tap" scale={0.88} onPress={() => router.push('/connectors' as never)} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}>
+                <Plug size={19} color={c.text} />
+              </Press>
+              <Press accessibilityLabel={t('code.skills.title')} haptics="tap" scale={0.88} onPress={() => router.push('/code/skills' as never)} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}>
+                <BookOpen size={19} color={c.text} />
+              </Press>
+            </>
           ) : undefined
         }
       />

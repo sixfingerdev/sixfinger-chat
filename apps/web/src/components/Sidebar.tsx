@@ -12,6 +12,7 @@ import {
   Pin,
   PinOff,
   Search,
+  Plug,
   Settings,
   SquarePen,
   Trash2,
@@ -187,6 +188,7 @@ function UserCard({ code }: { code?: boolean }) {
   const config = useUi((s) => s.config);
   const openSettings = useUi((s) => s.openSettings);
   const openAuth = useUi((s) => s.openAuth);
+  const nav = useNavigate();
   if (!user) return null;
   const used = config?.usage.used ?? 0;
   const limit = config?.usage.limit ?? 1;
@@ -197,6 +199,11 @@ function UserCard({ code }: { code?: boolean }) {
       {user.isGuest && (
         <button className="btn btn-primary btn-block" onClick={() => openAuth('login')}>
           <LogIn size={16} /> {t('auth.signIn')}
+        </button>
+      )}
+      {!user.isGuest && (
+        <button className="btn btn-ghost btn-block sidebar-link" onClick={() => nav('/connectors')}>
+          <Plug size={15} /> {t('mcp.nav')}
         </button>
       )}
       <div className="user-row">

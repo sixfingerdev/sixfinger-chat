@@ -56,6 +56,14 @@ services:
       SANDBOXD_URL: ${SANDBOXD_URL:-}
       SANDBOXD_TOKEN: ${SANDBOXD_TOKEN:-}
       # SixFinger Code (docs/code.md): GitHub OAuth uygulaması + sır anahtarı + izin listesi. Üçü de boşsa Code kapalıdır.
+      # MCP bağlayıcıları (docs/mcp.md): istemci kaydı sunucu yöneticisinde olan OAuth sağlayıcıları. Boşsa o kartlar pasif kalır.
+      MCP_ENABLED: ${MCP_ENABLED:-true}
+      MCP_GOOGLE_CLIENT_ID: ${MCP_GOOGLE_CLIENT_ID:-}
+      MCP_GOOGLE_CLIENT_SECRET: ${MCP_GOOGLE_CLIENT_SECRET:-}
+      MCP_SLACK_CLIENT_ID: ${MCP_SLACK_CLIENT_ID:-}
+      MCP_SLACK_CLIENT_SECRET: ${MCP_SLACK_CLIENT_SECRET:-}
+      MCP_HUBSPOT_CLIENT_ID: ${MCP_HUBSPOT_CLIENT_ID:-}
+      MCP_HUBSPOT_CLIENT_SECRET: ${MCP_HUBSPOT_CLIENT_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GITHUB_REDIRECT_URL: ${GITHUB_REDIRECT_URL:-}

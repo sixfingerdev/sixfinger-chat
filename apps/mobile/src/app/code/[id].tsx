@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Text as RNText, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { BookOpen, Download, Ellipsis, FolderOpen, GitPullRequest } from 'lucide-react-native';
+import { BookOpen, Download, Ellipsis, FolderOpen, GitPullRequest, Plug } from 'lucide-react-native';
 import { Linking } from 'react-native';
 import { codeTranscriptMarkdown, type CodePullDTO } from '@sixfinger/shared';
 import { fonts, useTheme } from '../../theme/index.tsx';
@@ -296,6 +296,14 @@ export default function CodeSession() {
               onPress={() => {
                 close();
                 router.push('/code/skills' as never);
+              }}
+            />
+            <MenuItem
+              icon={<Plug size={19} color={c.text} />}
+              label={t('mcp.nav')}
+              onPress={() => {
+                close();
+                router.push('/connectors' as never);
               }}
             />
             <MenuItem
