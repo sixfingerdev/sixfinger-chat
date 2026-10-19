@@ -66,6 +66,7 @@ export function CodeComposer({ session, ready, onChanges }: { session: CodeSessi
           >
             <RNText style={{ fontFamily: fonts.mono, fontSize: 12, color: c.success }}>+{session.additions}</RNText>
             <RNText style={{ fontFamily: fonts.mono, fontSize: 12, color: c.text2 }}>−{session.deletions}</RNText>
+            {!!session.headSha && session.headSha !== session.pushedSha && <View accessibilityLabel={t('code.pr.unpushed')} style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: c.warning }} />}
           </Press>
         )}
       </View>

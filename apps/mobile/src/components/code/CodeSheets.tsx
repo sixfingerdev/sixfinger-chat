@@ -11,7 +11,7 @@ import { formatTokens, timeUntil } from '../../lib/format.ts';
 import { useLocale, useT } from '../../lib/i18n/index.ts';
 import { useCode } from '../../store/code.ts';
 import { Sheet } from '../Sheet.tsx';
-import { Press } from '../Ui.tsx';
+import { Button, Press } from '../Ui.tsx';
 import { SlashProgress } from './CodeUi.tsx';
 
 const SheetTitle = ({ children }: { children: string }) => {
@@ -115,7 +115,7 @@ function PullRow({ pr }: { pr: CodePullDTO }) {
 }
 
 /** Oturumun çalışma branch'indeki pull request'ler; satıra dokununca GitHub'da açılır. */
-export function PullsSheet({ visible, onClose, chatId }: { visible: boolean; onClose: () => void; chatId: string }) {
+export function PullsSheet({ visible, onClose, chatId, onCreatePr }: { visible: boolean; onClose: () => void; chatId: string; onCreatePr: () => void }) {
   const { c } = useTheme();
   const t = useT();
   const { height } = useWindowDimensions();
@@ -149,12 +149,17 @@ export function PullsSheet({ visible, onClose, chatId }: { visible: boolean; onC
         )}
         {pulls?.map((pr) => <PullRow key={pr.number} pr={pr} />)}
       </ScrollView>
+      {(pulls || failed) && (
+        <View style={{ paddingHorizontal: 18, paddingTop: 8, paddingBottom: 8 }}>
+          <Button label={t('code.pr.create')} icon={<GitPullRequest size={16} color={c.onAccent} />} onPress={onCreatePr} />
+        </View>
+      )}
     </Sheet>
   );
 }
 
 /** Değişen dosyalar (+N −M). Ajan çalışırken liste yenilenmez; toplam son bilinen değerdir. */
-export function ChangesSheet({ visible, onClose, chatId, additions, deletions, files }: { visible: boolean; onClose: () => void; chatId: string; additions: number; deletions: number; files: number }) {
+export function ChangesSheet({ visible, onClose, chatId, additions, deletions, files, onDiff, onCreatePr }: { visible: boolean; onClose: () => void; chatId: string; additions: number; deletions: number; files: number; onDiff: (path?: string) => void; onCreatePr: () => void }) {
   const { c } = useTheme();
   const t = useT();
   const { height } = useWindowDimensions();
@@ -193,7 +198,7 @@ export function ChangesSheet({ visible, onClose, chatId, additions, deletions, f
         {data?.files.map((f) => {
           const i = f.path.lastIndexOf('/');
           return (
-            <View key={f.path} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 42 }}>
+            <Press key={f.path} haptics="select" scale={0.985} onPress={() => onDiff(f.path)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 46 }}>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <RNText numberOfLines={1} style={{ fontFamily: fonts.mono, fontSize: 13, color: c.text }}>
                   {f.path.slice(i + 1)}
@@ -205,11 +210,17 @@ export function ChangesSheet({ visible, onClose, chatId, additions, deletions, f
               </View>
               <RNText style={{ fontFamily: fonts.mono, fontSize: 12, color: c.success }}>+{f.additions}</RNText>
               <RNText style={{ fontFamily: fonts.mono, fontSize: 12, color: c.text2 }}>−{f.deletions}</RNText>
-            </View>
+            </Press>
           );
         })}
         {data?.stale && <RNText style={[type.small, { color: c.text3, paddingTop: 10 }]}>{t('code.changes.stale')}</RNText>}
       </ScrollView>
+      {data && !data.stale && add + del > 0 && (
+        <View style={{ paddingHorizontal: 18, paddingTop: 8, paddingBottom: 8, gap: 6 }}>
+          <Button label={t('code.openPr')} icon={<GitPullRequest size={16} color={c.onAccent} />} onPress={onCreatePr} />
+          <Button variant="ghost" label={t('code.diff.all')} onPress={() => onDiff()} />
+        </View>
+      )}
     </Sheet>
   );
 }
