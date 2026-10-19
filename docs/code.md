@@ -135,7 +135,22 @@ Kullanıcı elle başlık/açıklama yazmaz.
 - **Bildirim (web)**: sekme arka plandayken tur bitince ya da ajan yanıt beklerken tarayıcı bildirimi (ilk mesajda izin istenir).
 
 Bilerek yapılmayanlar: MCP sunucuları, görsel girdi, sunucudan push bildirimi (FCM gerekir; mobilde yerel bildirim de yok — uygulama arka plandayken
-akış kesildiği için güvenilmez), GitHub webhook ile CI hatasını otomatik düzeltme, dev-server önizleme, notebook, zamanlanmış görevler.
+akış kesildiği için güvenilmez), GitHub webhook ile CI hatasını otomatik düzeltme, dev-server HMR (WebSocket), notebook, zamanlanmış görevler.
+
+## Önizleme, dosya paylaşma ve yükleme
+
+- **Önizleme (artifact)**: ajan çalışma alanına `index.html` + `app.js` + `style.css` gibi dosyalar yazıp `preview` aracını çağırır; mesajın altında **Önizleme** kartı çıkar.
+  Statik sunumda dosyalar birbirini göreli ya da köke göre (`/app.js`) çağırabilir, ES modülleri ve CDN kütüphaneleri çalışır. Kök, HTML'in klasörüdür (`root` ile değişir).
+- **Dev-server önizleme**: `bash background=true` ile başlatılan sunucu `preview {port}` ile açılır. İstekler sandboxd'de `docker exec curl 127.0.0.1:<port>` ile iletilir
+  (ağsız ortamlarda da çalışır; sunucu yalnızca localhost'u dinleyebilir). Sınırlar: WebSocket/HMR yok (değişiklikten sonra yenile), uygulama göreli URL kullanmalı
+  (ör. Vite `base: './'`; çerçeveleri derleyip statik önizlemek daha sağlam), yanıt ≤ `CODE_PREVIEW_MAX_MB` (8), eşzamanlı istek ≤ `CODE_PREVIEW_CONCURRENCY` (8).
+- **Güvenlik**: iframe/WebView başlık gönderemediği için adres, oturum + kök/port taşıyan **imzalı 3 saatlik token** içerir (`/api/code/preview/<token>/…`).
+  Her yanıt `Content-Security-Policy: sandbox allow-scripts …` ile **opak kaynaklı** çalışır (SixFinger'ın depolamasına, oturum belirtecine ve API'sine erişemez; çerez ve
+  `localStorage` yok), çerçeve ayrıca `sandbox` özniteliğiyle (allow-same-origin YOK) açılır. Köke göre bağlantılar (`src="/x.js"`, `url(/x.png)`, `import "/x.js"`, `Location`)
+  önizleme önekine yeniden yazılır; kodun içindeki rastgele `fetch('/api')` dizgeleri yazılamaz. CORS yalnızca bu yol için herkese açıktır (kimlik bilgisi taşımaz).
+- **Dosya paylaşma**: `share_file` kartı ya da dosya gezgininin **İndir** düğmesi tek dosyayı ham bayt olarak indirir (`GET /code/sessions/:id/download?path=`).
+- **Yükleme**: composer'daki ataç metin dosyalarını mesaja gömer; ikili ya da büyük (>60 bin karakter) dosyaları çalışma alanına yükler (`POST …/upload`, ≤ 2 MB,
+  `CODE_FILE_MAX_BYTES`) → `.sixfinger/uploads/<ad>` (`.git/info/exclude` ile git dışı); ajan yolu mesajda görür.
 
 ## Ortamlar
 
@@ -187,6 +202,11 @@ Hepsi `/api` altında, Bearer token ister. İzin yoksa `403`, GitHub bağlı de�
 | `GET /code/sessions/:id/file?path=` | Dosya ya da klasör içeriği (gezgin) |
 | `GET /code/sessions/:id/archive` | Çalışma alanı `.tar.gz` |
 | `POST /code/sessions/:id/rewind` `{messageId}` | Çalışma alanını ve konuşmayı o mesajın turuna geri sarar |
+| `POST /code/sessions/:id/preview` `{path\|port, root?}` | Önizleme bağlantısı `{url, expiresAt, kind, entry}` (3 saatlik token) |
+| `GET /code/preview/:token/*` | Önizleme içeriği (oturumsuz; yetki token'da). Statik dosya ya da dev-server proxy'si, CSP `sandbox` |
+| `GET /code/sessions/:id/ports` | Sandbox'ta dinleyen portlar |
+| `GET /code/sessions/:id/download?path=` | Tek dosyayı indirir (ham bayt, ≤ 64 MB) |
+| `POST /code/sessions/:id/upload` `{name, dataBase64}` | Dosyayı `.sixfinger/uploads/` altına yazar (≤ 2 MB) |
 | `POST /code/sessions/:id/push` | Branch'i GitHub'a gönderir (ajan çalışırken `409`) |
 | `POST /code/sessions/:id/pr` | PR'ı ajan açar (başlık/açıklamayı model yazar): push + PR; PR zaten varsa yalnızca push. Otomatik adım başarısız olduğunda ya da ortamda **Otomatik PR** kapalıyken yeniden deneme içindir |
 
