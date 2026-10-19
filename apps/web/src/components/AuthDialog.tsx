@@ -54,6 +54,26 @@ export function AuthDialog() {
     }
   }, [mode]);
 
+  // Doğrulama ekranı sonradan (afiş, ayarlar, uyarı) açılınca kimse kod göndermemiştir: kendiliğinden gönder. Az önce gönderildiyse (429) kalan beklemeyi göster.
+  useEffect(() => {
+    if (mode !== 'verify' || !user || user.isGuest || user.emailVerified) return;
+    let alive = true;
+    api
+      .resendVerify()
+      .then(() => alive && (setCooldown(45), setInfo(t('auth.resent'))))
+      .catch((err) => {
+        if (!alive) return;
+        if (err instanceof ApiError && err.status === 429) {
+          setCooldown((err.details as { retryAfter?: number } | undefined)?.retryAfter ?? 45);
+          setInfo(t('auth.resent'));
+        } else setError(err instanceof ApiError ? err.message : t('error.generic'));
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
   useEffect(() => {
     if (cooldown <= 0) return;
     const id = setTimeout(() => setCooldown((c) => c - 1), 1_000);
