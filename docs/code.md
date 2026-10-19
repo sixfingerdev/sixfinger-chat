@@ -55,7 +55,7 @@ varsayılan 2.000.000; `0` = yedek kapalı), `GITHUB_REDIRECT_URL`.
 git pull && docker compose up -d --build
 ```
 
-Code yalnızca **e-postası doğrulanmış** ve `CODE_ALLOWED_EMAILS` listesindeki üyeler içindir. Üçlü (GitHub Client ID/Secret +
+Code yalnızca `CODE_ALLOWED_EMAILS` içindeki üyeler içindir: listede adıyla geçen e-posta **doğrulama aramaz**; `*` (herkes) modunda ise **e-postası doğrulanmış** olmak şarttır. Misafirler hiçbir modda kullanamaz. Üçlü (GitHub Client ID/Secret +
 `CODE_SECRET_KEY`) eksikse Code kapalıdır ve menüde görünmez. E-posta doğrulaması için SMTP gerekir
 ([raspberry-pi.md](raspberry-pi.md)).
 

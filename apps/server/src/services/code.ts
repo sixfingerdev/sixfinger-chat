@@ -122,8 +122,10 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
   };
 
   const isAllowed = (user: { email: string | null; emailVerified: boolean }): boolean => {
-    if (!enabled || !user.email || !user.emailVerified) return false;
-    return config.codeAllowed.all || config.codeAllowed.emails.has(user.email.toLowerCase());
+    if (!enabled || !user.email) return false;
+    // Listede adıyla geçen e-posta doğrulama aramaz (SMTP'siz kurulumlar için); `*` ile herkese açıksa doğrulama şart.
+    if (config.codeAllowed.emails.has(user.email.toLowerCase())) return true;
+    return config.codeAllowed.all && user.emailVerified;
   };
 
   // ---- GitHub bağlantısı ----

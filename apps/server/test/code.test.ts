@@ -77,11 +77,20 @@ describe('erişim', () => {
     expect(r.statusCode).toBe(403);
   });
 
-  it('misafir ve doğrulanmamış hesap Code kullanamaz', async () => {
+  it('misafir Code kullanamaz; listedeki e-posta doğrulama aramaz, "*" modunda doğrulama şart', async () => {
     const g = await guest(env.app);
     expect((await env.app.inject({ method: 'GET', url: '/api/code/environments', headers: auth(g) })).statusCode).toBe(403);
     const u = await member(env, { email: 'coder@example.com', verify: false });
-    expect((await env.app.inject({ method: 'GET', url: '/api/code/environments', headers: auth(u) })).statusCode).toBe(403);
+    expect((await env.app.inject({ method: 'GET', url: '/api/code/environments', headers: auth(u) })).statusCode).toBe(200);
+    const o = await member(env, { email: 'acik@example.com', verify: false });
+    env.ctx.config.codeAllowed.all = true;
+    try {
+      expect((await env.app.inject({ method: 'GET', url: '/api/code/environments', headers: auth(o) })).statusCode).toBe(403);
+      await env.ctx.db.query(`update users set email_verified_at = now() where email = 'acik@example.com'`);
+      expect((await env.app.inject({ method: 'GET', url: '/api/code/environments', headers: auth(o) })).statusCode).toBe(200);
+    } finally {
+      env.ctx.config.codeAllowed.all = false;
+    }
   });
 
   it('oturum açmadan 401', async () => {
