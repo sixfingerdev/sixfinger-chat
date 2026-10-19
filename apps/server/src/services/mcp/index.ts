@@ -7,7 +7,7 @@ import type {
   McpServerDTO,
   McpToolDTO,
 } from '@sixfinger/shared';
-import { MCP_LIMITS, mcpPreset } from '@sixfinger/shared';
+import { MCP_LIMITS, MCP_LOOPBACK_REDIRECT, mcpPreset } from '@sixfinger/shared';
 import { auth as sdkAuth, UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from '../../config.ts';
@@ -207,7 +207,8 @@ export function createMcp(deps: McpDeps) {
   function providerFor(row: Row, extra: { state?: string } = {}): McpOAuthProvider {
     const preset = mcpPreset(row.preset);
     return createOAuthProvider({
-      redirectUrl,
+      // Yalnızca kendi onayladığı yönlendirme adreslerini kabul eden hizmetler masaüstü (loopback) adresiyle kaydolur; kullanıcı dönen adresi yapıştırır.
+      redirectUrl: preset?.redirect === 'loopback' ? MCP_LOOPBACK_REDIRECT : redirectUrl,
       state: extra.state,
       scopes: preset?.scopes,
       google: preset?.provider === 'google',
@@ -357,7 +358,7 @@ export function createMcp(deps: McpDeps) {
   }
 
   /** Yetkilendirmeyi başlatır: tarayıcıda açılacak adresi döndürür (zaten yetkiliyse null). */
-  async function startOAuth(userId: string, id: string, target: 'web' | 'app'): Promise<{ authorizeUrl: string | null; server: McpServerDTO }> {
+  async function startOAuth(userId: string, id: string, target: 'web' | 'app'): Promise<{ authorizeUrl: string | null; manual: boolean; server: McpServerDTO }> {
     const box = need();
     const row = await getRow(userId, id);
     const preset = mcpPreset(row.preset);
@@ -371,6 +372,12 @@ export function createMcp(deps: McpDeps) {
     const provider = providerFor(row, { state });
     // Önceki yarım kalmış akıştan kalan doğrulayıcıyı temizle.
     await provider.saveCodeVerifier('');
+    // Masaüstü akışına geçen kartta eski (https yönlendirmeli) kayıtlı istemci geçersizdir: yeniden kaydolunur.
+    if (preset?.redirect === 'loopback') {
+      const cur = await provider.clientInformation();
+      const uris = cur && 'redirect_uris' in cur ? (cur.redirect_uris as string[] | undefined) : undefined;
+      if (cur && !uris?.includes(MCP_LOOPBACK_REDIRECT)) await provider.invalidateCredentials?.('client');
+    }
     let result: 'AUTHORIZED' | 'REDIRECT';
     try {
       result = await sdkAuth(provider, { serverUrl: row.url, scope: preset?.scopes?.join(' '), fetchFn: fetchImpl });
@@ -379,11 +386,11 @@ export function createMcp(deps: McpDeps) {
       await db.query('update mcp_servers set last_error = $2 where id = $1', [id, msg]);
       throw badRequest(`Yetkilendirme başlatılamadı: ${msg}`);
     }
-    if (result === 'AUTHORIZED') return { authorizeUrl: null, server: await refresh(userId, id) };
+    if (result === 'AUTHORIZED') return { authorizeUrl: null, manual: false, server: await refresh(userId, id) };
     if (!provider.authorizationUrl) throw badRequest('Yetkilendirme adresi alınamadı.');
     // Yetkilendirme adresi sunucunun meta verisinden gelir: üretimde yalnızca https adreslerine yönlendirilir.
     if (!deps.fetchImpl && provider.authorizationUrl.protocol !== 'https:') throw badRequest('Yetkilendirme adresi güvenli (https) değil.');
-    return { authorizeUrl: provider.authorizationUrl.toString(), server: toDTO(await getRow(userId, id)) };
+    return { authorizeUrl: provider.authorizationUrl.toString(), manual: preset?.redirect === 'loopback', server: toDTO(await getRow(userId, id)) };
   }
 
   /** Geri dönüşün imzalı `state`'ini çözer (callback herkese açık olduğu için yalnızca hedefi öğrenmek için). */

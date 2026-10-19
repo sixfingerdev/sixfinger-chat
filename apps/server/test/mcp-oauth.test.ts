@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { auth, member, resetDb, setup, type TestEnv } from './helpers.ts';
+import { MCP_LOOPBACK_REDIRECT, parseOAuthCallback } from '@sixfinger/shared';
 import { startFakeMcp, type FakeMcp } from './fake-mcp.ts';
 
 let env: TestEnv;
@@ -75,6 +76,37 @@ describe('MCP OAuth (dinamik istemci kaydı)', () => {
     // araç çalışır (OAuth jetonuyla)
     const set = await env.ctx.mcp.toolsFor(a.user.id, 'chat');
     expect(set.defs.length).toBe(4);
+  });
+
+  it('masaüstü (loopback) akışı: kopyala-yapıştır adresiyle bağlanan kartlar 127.0.0.1 adresiyle kaydolur, manual=true döner; kod değişimi aynı adresle yapılır', async () => {
+    const a = await member(env);
+    const s = await addOauth(a, 'canva');
+    const c = await api(a, 'POST', `/mcp/servers/${s.id}/connect`, { target: 'web' });
+    expect(c.statusCode).toBe(200);
+    expect(c.json().manual).toBe(true);
+    const url = new URL(c.json().authorizeUrl);
+    expect(url.searchParams.get('redirect_uri')).toBe(MCP_LOOPBACK_REDIRECT);
+    expect(fake.registrations[0]).toMatchObject({ redirect_uris: [MCP_LOOPBACK_REDIRECT] });
+    // kullanıcı tarayıcının hata sayfasındaki adresi yapıştırır; istemci code + state'i çıkarıp complete'e gönderir
+    const pasted = `${MCP_LOOPBACK_REDIRECT}?code=abc&state=${encodeURIComponent(url.searchParams.get('state')!)}`;
+    const parsed = parseOAuthCallback(pasted);
+    expect(parsed).toEqual({ code: 'abc', state: url.searchParams.get('state') });
+    const done = await api(a, 'POST', '/mcp/oauth/complete', parsed as object);
+    expect(done.json().server).toMatchObject({ connected: true, lastError: null });
+    expect(fake.tokenRequests[0]).toMatchObject({ redirect_uri: MCP_LOOPBACK_REDIRECT });
+    // normal kart https geri dönüş adresini kullanmaya devam eder ve manual=false döner
+    const n = await addOauth(a, 'notion');
+    const c2 = await api(a, 'POST', `/mcp/servers/${n.id}/connect`, { target: 'web' });
+    expect(c2.json().manual).toBe(false);
+  });
+
+  it('parseOAuthCallback: tam adres, yalnızca sorgu dizesi, hata ve eksik durumlar', () => {
+    expect(parseOAuthCallback('http://127.0.0.1:8976/callback?code=a%20b&state=xyz')).toEqual({ code: 'a b', state: 'xyz' });
+    expect(parseOAuthCallback('  ?code=1&state=2 ')).toEqual({ code: '1', state: '2' });
+    expect(parseOAuthCallback('code=1&state=2')).toEqual({ code: '1', state: '2' });
+    expect(parseOAuthCallback('http://127.0.0.1:8976/callback?error=access_denied&error_description=Reddedildi')).toEqual({ error: 'Reddedildi' });
+    expect(parseOAuthCallback('http://127.0.0.1:8976/callback?code=1')).toBeNull();
+    expect(parseOAuthCallback('   ')).toBeNull();
   });
 
   it('süresi dolan/geçersiz erişim jetonu yenileme jetonuyla otomatik yenilenir', async () => {

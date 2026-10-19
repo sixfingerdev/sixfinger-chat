@@ -27,7 +27,7 @@ MCP yetkilendirme standardı (SDK `OAuthClientProvider`): kaynak meta verisi ke�
 2. Sağlayıcı `PUBLIC_WEB_URL/api/mcp/oauth/callback`'e döner → sunucu imzalı `state`'i doğrular, web'de `/connectors?mcp_code&mcp_state`'e, uygulamada `sixfinger://connectors?…`'e yönlendirir.
 3. Oturumlu istemci `POST /api/mcp/oauth/complete {code,state}` ile tamamlar; kod değişimi sunucuda yapılır, jetonlar şifreli saklanır.
 
-- **dcr** (dinamik istemci kaydı): kullanıcı tek tıkla bağlanır (Notion, Linear, Canva, Figma, Vercel, Supabase, Intercom, Box, monday, Miro, Granola, Gamma…).
+- **dcr** (dinamik istemci kaydı): kullanıcı tek tıkla bağlanır (Notion, Linear, Supabase, monday, Miro, Granola, Wispr Flow; Canva, Asana, Intercom, Vercel, Indeed masaüstü akışıyla).
 - **static**: istemci kaydı **sunucu yöneticisindedir** (aşağıda). `.env`'de tanımlı değilse kart "Yönetici kaydı gerekiyor" der ve pasif kalır.
 
 ### Yönetici kayıtları (.env)
@@ -70,11 +70,16 @@ kullanıcı girişi ve token değişimi insan gerektirdiği için denenemedi). S
 
 | Sonuç | Kartlar |
 |---|---|
-| **Yetkilendirme adresi alındı** (dinamik kayıt çalışıyor) | Canva, Notion, Linear, monday.com, Miro, Supabase, Wispr Flow, Granola |
+| **Normal akış**: yetkilendirme sayfasında giriş/onay ekranına ulaşıldı (kayıt + `https://…/api/mcp/oauth/callback` kabul) | Notion, Linear, monday.com, Miro, Supabase, Wispr Flow, Granola |
+| **Masaüstü (loopback) akışı**: https yönlendirmesini reddediyor, `http://127.0.0.1:8976/callback` kabul ediyor (kayıt + yetkilendirme) | Canva (yetkilendirmede `Invalid redirect URI`), Asana, Intercom, Vercel, Indeed |
 | **Kimlik doğrulamasız bağlandı** | Shopify (mağaza adı gerekir; araç listesi alındı) |
-| **Hizmet SixFinger'ı reddediyor** (`blocked`: yalnızca onayladığı istemcilerin yönlendirme adreslerini kabul ediyor ya da kaydı 403 ile geri çeviriyor) | Figma (403), Asana, Intercom, Adobe, Vercel, Gamma, Indeed (`redirect URI not allowed`), Spotify (pilot, dinamik kayıt yok) |
+| **Hizmet SixFinger'ı reddediyor** (`blocked`) | Gamma (her yönlendirmeyi reddediyor), Figma (kayıt 403), Spotify (pilot, dinamik kayıt yok), Adobe (denenmedi) |
 | **Dinamik kayıt yok → yönetici kaydı** (`.env`: `MCP_<ADI>_CLIENT_ID/SECRET`) | HubSpot, Box, Slack, Google ×6 (Drive, Gmail, Calendar, Docs, Sheets, Slides) |
 | Pasif | Microsoft 365 (herkese açık adres yok) |
+
+**Masaüstü (loopback) akışı**: `preset.redirect: 'loopback'` olan kartlar (`MCP_LOOPBACK_REDIRECT`) bağlanırken sunucu `manual: true` döner. Kullanıcı yetkilendirme sayfasını açıp onaylar; tarayıcı
+`127.0.0.1:8976`'ya yönlenip "bağlanılamadı" der. Kullanıcı adres çubuğundaki URL'yi kopyalayıp penceredeki kutuya yapıştırır; istemci `parseOAuthCallback` ile `code`/`state`'i ayıklayıp
+`POST /api/mcp/oauth/complete` çağırır (kod değişimi sunucuda). Sahte OAuth sunucusuyla uçtan uca test edildi; gerçek sağlayıcıda giriş sonrası kısmı Pi'de elle doğrulanmalı.
 
 `blocked` kartlar arayüzde "Şimdilik kullanılamıyor" der; erişim anahtarı (token) olan kullanıcı "Özel URL ekle" ile yine ekleyebilir. Hizmetler politikasını değiştirirse `packages/shared/src/mcp-presets.ts`
 içinde `status`'u güncelle. Ham OAuth hataları kullanıcıya anlaşılır Türkçe olarak gösterilir (`friendlyAuthError`).

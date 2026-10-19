@@ -8,7 +8,7 @@ import { useLocale, useT } from '../lib/i18n/index.ts';
 import { useAuth } from '../store/auth.ts';
 import { useUi } from '../store/ui.ts';
 import { CodeTopBar } from '../components/CodeTopBar.tsx';
-import { CustomDialog, PresetCard, PresetDialog, ServerDialog, ServerRow, startConnect } from '../components/Connectors.tsx';
+import { CustomDialog, ManualAuthDialog, PresetCard, PresetDialog, ServerDialog, ServerRow, startConnect } from '../components/Connectors.tsx';
 
 /** Bağlayıcılar (MCP): hazır katalog + özel URL; OAuth ile tek tıkla bağlan, araçları ve onay politikasını yönet. */
 export function ConnectorsPage() {
@@ -166,6 +166,13 @@ export function ConnectorsPage() {
           {body}
         </div>
       </div>
+      <ManualAuthDialog
+        onDone={(s) => {
+          upsert(s);
+          useUi.getState().toast({ kind: 'success', text: t('mcp.connected.toast', { name: s.label }) });
+          void load();
+        }}
+      />
       {picking && (
         <PresetDialog
           preset={picking}

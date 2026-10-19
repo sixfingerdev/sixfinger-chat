@@ -336,7 +336,7 @@ export const api = {
   mcpDelete: (id: string) => request<void>('DELETE', `/mcp/servers/${id}`),
   mcpRefresh: (id: string) => request<{ server: McpServerDTO }>('POST', `/mcp/servers/${id}/refresh`),
   /** OAuth: tarayıcıda açılacak adresi döndürür (zaten yetkiliyse authorizeUrl null). */
-  mcpConnect: (id: string, target: 'web' | 'app') => request<{ authorizeUrl: string | null; server: McpServerDTO }>('POST', `/mcp/servers/${id}/connect`, { target }),
+  mcpConnect: (id: string, target: 'web' | 'app') => request<{ authorizeUrl: string | null; manual?: boolean; server: McpServerDTO }>('POST', `/mcp/servers/${id}/connect`, { target }),
   mcpDisconnect: (id: string) => request<{ server: McpServerDTO }>('POST', `/mcp/servers/${id}/disconnect`),
   mcpComplete: (code: string, state: string) => request<{ server: McpServerDTO }>('POST', '/mcp/oauth/complete', { code, state }),
   mcpApproval: (id: string) => request<{ approval: McpApprovalDTO }>('GET', `/mcp/approvals/${id}`),
