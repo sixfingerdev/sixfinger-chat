@@ -23,6 +23,11 @@ Skill = ajanın **uzman kılavuzu**: `<ad>/SKILL.md` (YAML başlık + Markdown g
 
 Öncelik: yerleşik adlar rezerve; diğerlerinde repo > kullanıcı. Ortam ayarında skill başına aç/kapa vardır (`skillsOff`); kapatılanlar kataloğa girmez.
 
+## Ajanın skill yazması ve alt ajanlar
+- **`skill_create`**: kullanıcı açıkça isterse ("bunu skill yap") ajan `.sixfinger/skills/<ad>/SKILL.md` (+ `references/`, `scripts/`) yazar. Dosyalar repoda kalır; tur sonu commit/PR'a girer
+  ve ekip bu skill'i `[repo]` olarak görür. Yerleşik adlar rezervedir, kullanıcı isteği olmadan çağrılmaz; alt ajanlarda kapalıdır.
+- **Alt ajanlar** (`task`) skill kataloğunu görür ve `skill` aracıyla gövde okuyabilir; ancak `skill_create`, `preview` ve `share_file` kullanamaz.
+
 ## Güvenlik
 Skill metni istem enjeksiyonu kapısıdır (özellikle repo ve içe aktarılanlar): köken etiketlenir; `[repo]` skill'leri "proje kılavuzu" olarak sunulur ve platform kurallarını
 aşamaz; başlıktaki `allowed-tools` gibi alanlar **yok sayılır** (yetki vermez); ad `[a-z0-9-]`, dosya yolları klasör dışına çıkamaz, metin dışı dosya yok; boyut/sayı sınırları var.
