@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Archive, ArchiveRestore, ArrowDown, Download, Ellipsis, FolderOpen, GitPullRequest, Pencil, Pin, PinOff, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowDown, BookOpen, Download, Ellipsis, FolderOpen, GitPullRequest, Pencil, Pin, PinOff, Trash2 } from 'lucide-react';
 import { codeTranscriptMarkdown, type CodePullDTO, type CodeSessionDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
@@ -226,6 +226,9 @@ export function CodeSessionPage() {
                     }}
                   >
                     <FolderOpen size={16} /> {t('code.menu.files')}
+                  </button>
+                  <button className="menu-item" onClick={() => { close(); nav('/code/skills'); }}>
+                    <BookOpen size={16} /> {t('code.menu.skills')}
                   </button>
                   <button className="menu-item" onClick={() => { close(); rename(); }}>
                     <Pencil size={16} /> {t('code.session.rename')}

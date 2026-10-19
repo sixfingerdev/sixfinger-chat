@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import type { CodeEnvironmentDTO, CodeNetwork } from '@sixfinger/shared';
+import type { CodeEnvironmentDTO, CodeNetwork, SkillListItemDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { clsx } from '../lib/format.ts';
@@ -40,8 +40,14 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
   const [sessionLink, setSessionLink] = useState(env?.commitSessionLink ?? false);
   const [autoPr, setAutoPr] = useState(env?.autoPr ?? true);
   const [instructions, setInstructions] = useState(env?.instructions ?? '');
+  const [skillsOff, setSkillsOff] = useState<string[]>(env?.skillsOff ?? []);
+  const [allSkills, setAllSkills] = useState<SkillListItemDTO[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.codeSkills().then((r) => setAllSkills([...new Map(r.skills.map((s) => [s.name, s])).values()])).catch(() => {});
+  }, []);
 
   // Liste ortam değişkenlerini taşımaz; düzenlerken tek ortamı çekip doldur.
   useEffect(() => {
@@ -78,6 +84,7 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
       commitSessionLink: sessionLink,
       autoPr,
       instructions,
+      skillsOff,
       envVars: parsed,
     });
     setBusy(false);
@@ -189,6 +196,24 @@ export function CodeEnvDialog({ env, onClose }: { env: CodeEnvironmentDTO | null
             <button className="switch" role="switch" aria-checked={sessionLink} aria-label={t('code.env.sessionLink')} onClick={() => setSessionLink(!sessionLink)} />
           </div>
         </div>
+
+        {allSkills.length > 0 && (
+          <div className="field">
+            <span className="label">{t('code.skills.env')}</span>
+            <span className="hint">{t('code.skills.envHint')}</span>
+            <div className="skill-toggles">
+              {allSkills.map((s) => {
+                const on = !skillsOff.includes(s.name);
+                return (
+                  <label key={s.name} className="skill-toggle" title={s.description}>
+                    <input type="checkbox" checked={on} onChange={() => setSkillsOff((cur) => (on ? [...cur, s.name] : cur.filter((n) => n !== s.name)))} />
+                    <span>{s.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="field">
           <label htmlFor="env-instr">{t('code.env.instructions')}</label>

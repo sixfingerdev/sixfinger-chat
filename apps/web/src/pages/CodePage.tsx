@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Archive, Cloud, Code2, GitBranch, Github, Pin, Plus, Search } from 'lucide-react';
+import { Archive, BookOpen, Cloud, Code2, GitBranch, Github, Pin, Plus, Search } from 'lucide-react';
 import type { CodeEnvironmentDTO, CodeSessionDTO } from '@sixfinger/shared';
 import { clsx, timeAgo } from '../lib/format.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
@@ -133,7 +133,12 @@ export function CodePage() {
         )}
 
         <section className="code-section">
-          <h3>{t('code.environments')}</h3>
+          <div className="code-section-head">
+            <h3>{t('code.environments')}</h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => nav('/code/skills')}>
+              <BookOpen size={14} /> {t('code.skills.title')}
+            </button>
+          </div>
           <div className="code-env-row">
             {(envs ?? []).map((e) => (
               <button key={e.id} className="env-chip" onClick={() => setEditing(e)}>

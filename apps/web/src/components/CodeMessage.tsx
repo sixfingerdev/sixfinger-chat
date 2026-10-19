@@ -30,6 +30,7 @@ import { useLocale, useT } from '../lib/i18n/index.ts';
 import { diffLines, toBlocks, type ToolPart } from '../lib/code-blocks.ts';
 import { Delta, Sheet } from './CodeSheets.tsx';
 import { PreviewRow, ShareFileRow } from './CodePreview.tsx';
+import { SkillRow } from './CodeSkillRow.tsx';
 import { LogoMark } from './Logo.tsx';
 import { ReasoningBlock } from './ReasoningBlock.tsx';
 import { RichText } from './RichText.tsx';
@@ -586,6 +587,8 @@ export const CodeMessage = memo(function CodeMessage({ msg, streaming, actions, 
               return <PreviewRow key={b.part.id} part={b.part} chatId={msg.chatId} />;
             case 'share':
               return <ShareFileRow key={b.part.id} part={b.part} chatId={msg.chatId} />;
+            case 'skill':
+              return <SkillRow key={b.part.id} part={b.part} />;
             default:
               return <GenericTool key={b.part.id} part={b.part} />;
           }
