@@ -357,9 +357,8 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
 }
 
 /**
- * Çalışma moduna göre sağlayıcı seçer: fast → ücretsiz modeller (DeepSeek/GLM/MiniMax) + Pollinations, balanced → gpt-oss-120b, deep → Qwen3.8.
- * Seçilen sağlayıcı yanıt vermeye başlamadan başarısız olursa (200 dışı yanıt, hız sınırı, kesinti, boş yanıt) sırayla
- * Bedrock'taki Claude'a (yapılandırıldıysa), sonra Hızlı sağlayıcıya düşülür.
+ * Çalışma moduna göre sağlayıcı sırası seçer (güç ve hız sıralamasına göre; bkz. `chain`). Seçilen sağlayıcı yanıt vermeye başlamadan
+ * başarısız olursa (200 dışı yanıt, hız sınırı, kesinti, boş yanıt) sıradakine düşülür. Code'un zinciri ayrıdır: Qwen → Claude.
  */
 export function createAi(
   config: Config,
@@ -396,7 +395,7 @@ export function createAi(
   };
   const approxTokens = (req: AiRequest) => Math.ceil(req.messages.reduce((n, m) => n + m.content.length + (m.tool_calls ? JSON.stringify(m.tool_calls).length : 0), 0) / 3.5);
 
-  /** Bu mod için denenecek sağlayıcılar, sırayla: seçilen model → Bedrock (varsa) → Hızlı. */
+  /** Bu mod için denenecek sağlayıcılar, sırayla (yapılandırılmamış olanlar atlanır). */
   const chain = (mode: ChatMode | undefined, route?: 'code'): Array<{ name: string; ai: AiProvider }> => {
     // Code: önce Qwen (deep), olmazsa Claude. Hızlı (Pollinations) modeline ASLA düşülmez: kod ajanında sessizce zayıf modele geçmek kötü sonuç verir.
     if (route === 'code') {
@@ -404,14 +403,23 @@ export function createAi(
       const strong = config.AI_FREE_FOR_CODE ? free.filter((f) => f.name !== 'minimax') : [];
       return [deep && { name: 'qwen', ai: deep }, ...strong, backup && { name: 'claude', ai: backup }].filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
     }
-    const main = mode === 'deep' ? deep : mode === 'balanced' ? balanced : undefined;
-    const pollinations = { name: 'fast', ai: fast };
-    const paid = backup && { name: 'bedrock', ai: backup };
-    // Hızlı: ücretsiz güçlü modeller önde. Dengeli/Derin: seçilen model → ücretsizler → Bedrock → Hızlı (Pollinations).
-    const all = main
-      ? [{ name: mode ?? 'main', ai: main }, ...free, paid, pollinations]
-      : [...free, pollinations, paid];
-    return all.filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
+    // Güç: DeepSeek > GLM > Qwen > MiniMax = Claude > gpt-oss-120b > gpt-oss-20b (Pollinations). Hız: DeepSeek > MiniMax > diğerleri eşit.
+    // Hızlı mod hız sırasını, Dengeli ikisinin ortasını, Derin güç sırasını izler. Ücretsizler ücretli Claude'dan önce gelir.
+    const pool: Record<string, { name: string; ai: AiProvider } | undefined> = {
+      deepseek: free.find((f) => f.name === 'deepseek'),
+      glm: free.find((f) => f.name === 'glm'),
+      minimax: free.find((f) => f.name === 'minimax'),
+      qwen: deep && { name: 'deep', ai: deep },
+      claude: backup && { name: 'bedrock', ai: backup },
+      gptoss120: balanced && { name: 'balanced', ai: balanced },
+      gptoss20: { name: 'fast', ai: fast },
+    };
+    const ORDER: Record<ChatMode, string[]> = {
+      fast: ['deepseek', 'minimax', 'glm', 'qwen', 'gptoss120', 'gptoss20', 'claude'],
+      balanced: ['deepseek', 'glm', 'minimax', 'qwen', 'claude', 'gptoss120', 'gptoss20'],
+      deep: ['deepseek', 'glm', 'qwen', 'minimax', 'claude', 'gptoss120', 'gptoss20'],
+    };
+    return ORDER[mode ?? 'fast'].map((k) => pool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
   };
   const aborted = (req: AiRequest, err: unknown) => req.signal?.aborted || (err as Error)?.name === 'AbortError';
 
