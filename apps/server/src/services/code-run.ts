@@ -19,12 +19,12 @@ import { MESSAGE_COLUMNS, toMessageDTO, type ChatRow, type MessageRow } from './
 import type { Code } from './code.ts';
 import type { CodeGit } from './code-git.ts';
 import { applyCompaction, buildCodeHistory, messagesTokens, pruneToolResults, renderTranscript, splitForCompaction, SUMMARIZER_PROMPT } from './code-context.ts';
-import { buildCodeSystemPrompt, commitMessagePrompt, WORKSPACE_BRIEF_COMMAND } from './code-prompt.ts';
+import { buildCodeSystemPrompt, skillsSection, commitMessagePrompt, WORKSPACE_BRIEF_COMMAND } from './code-prompt.ts';
 import type { CodeQueue } from './code-queue.ts';
 import { cleanTitle, fallbackTitle, titlePrompt, type HistoryItem } from './prompt.ts';
 import type { Run } from './runs.ts';
 import { runToolCall, toolSpecs, type Tools } from './tools/index.ts';
-import { createSkillTool } from './tools/skills.ts';
+import { createSkillCreateTool, createSkillTool } from './tools/skills.ts';
 import { createSkillRuntime, discoverRepoSkills, hintsFor, type Skills } from './skills.ts';
 import { PLAN_TOOLS, TERMINAL_TOOLS, createAskUserTool, createExitPlanTool, createTaskTool, type SubagentReport } from './tools/agent.ts';
 import type { ToolContext, ToolDef } from './tools/types.ts';
@@ -290,7 +290,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     const isCompactCmd = g.userText.trim() === '/compact';
     // Araçlar: plan modunda yalnızca okuma/araştırma + soru/plan; normal modda hepsi + alt ajan + soru.
     let runSubagent: (a: { description: string; prompt: string; agent: 'explore' | 'general' }, ctx: ToolContext) => Promise<SubagentReport> = async () => ({ text: '', steps: 0, tools: {} });
-    const agentTools: ToolDef[] = [createTaskTool((a, c) => runSubagent(a, c)), createAskUserTool(), ...(catalog.list.length ? [createSkillTool(skillRt)] : []), ...(g.planMode ? [createExitPlanTool()] : [])];
+    const agentTools: ToolDef[] = [createTaskTool((a, c) => runSubagent(a, c)), createAskUserTool(), ...(catalog.list.length ? [createSkillTool(skillRt)] : []), createSkillCreateTool(sandbox, new Set(deps.skills.builtin.keys())), ...(g.planMode ? [createExitPlanTool()] : [])];
     const defs: ToolDef[] = g.planMode ? [...baseDefs, ...agentTools].filter((d) => PLAN_TOOLS.has(d.name)) : [...baseDefs, ...agentTools];
     const specs = toolSpecs(defs);
     const specTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(specs)));
@@ -301,13 +301,14 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     /** Alt ajan: taze bağlamla çalışır, yalnızca raporu döndürür. Aynı frenler: döngü kırıcı, kredi, bağlam doluluğu, kullanıcının Durdur'u. */
     runSubagent = async (a, ctx) => {
       const readOnly = a.agent === 'explore' || g.planMode;
-      const subDefs = defs.filter((d) => (readOnly ? ['read', 'glob', 'grep', 'skill', 'web_search', 'web_fetch'].includes(d.name) : !['task', 'ask_user', 'exit_plan_mode', 'todo', 'preview', 'share_file'].includes(d.name)));
+      const subDefs = defs.filter((d) => (readOnly ? ['read', 'glob', 'grep', 'skill', 'web_search', 'web_fetch'].includes(d.name) : !['task', 'ask_user', 'exit_plan_mode', 'todo', 'preview', 'share_file', 'skill_create'].includes(d.name)));
       const subSpecs = toolSpecs(subDefs);
       const subSpecTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(subSpecs)));
       const system = [
         'You are a sub-agent of SixFinger Code working inside the same repository workspace (/work). You have no memory of the conversation: everything you need is in the task below.',
         readOnly ? 'You are READ-ONLY: never modify, create or delete files and never run commands that change state.' : 'You may run commands and edit files; keep changes minimal and focused on the task. Never run git commit/push/rebase/merge/branch/switch.',
         'Use your tools until you can answer, calling independent tools together. Then reply with a concise report: the findings, with file paths and line numbers as `path:line`; no filler and no pasted whole files.',
+        ...(subDefs.some((d) => d.name === 'skill') ? skillsSection(catalog.list).filter((l) => !l.includes('skill_create')) : []),
       ].join('\n');
       const msgs: AiMessage[] = [{ role: 'system', content: system }, { role: 'user', content: a.prompt }];
       const report: SubagentReport = { text: '', steps: 0, tools: {} };

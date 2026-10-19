@@ -114,7 +114,7 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     fc.state.execImpl = (c) => (c.startsWith('ls -1Ap') ? { stdout: 'app.js\nREADME.md\n' } : {});
     const req = agentCalls()[0]!;
     expect(req.route).toBe('code');
-    expect(req.tools?.map((t) => t.function.name)).toEqual(['bash', 'job_output', 'job_kill', 'read', 'write', 'edit', 'glob', 'grep', 'todo', 'preview', 'share_file', 'web_search', 'web_fetch', 'task', 'ask_user']);
+    expect(req.tools?.map((t) => t.function.name)).toEqual(['bash', 'job_output', 'job_kill', 'read', 'write', 'edit', 'glob', 'grep', 'todo', 'preview', 'share_file', 'web_search', 'web_fetch', 'task', 'ask_user', 'skill_create']);
     const system = req.messages[0]!.content;
     expect(system).toContain('SixFinger Code');
     expect(system).toContain('octo/alpha');

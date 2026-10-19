@@ -310,6 +310,48 @@ describe('ajan döngüsünde skill\'ler', () => {
     expect(sysOf(0)).not.toContain('Kullanıcı sürümü');
   });
 
+  it('skill_create: repoya .sixfinger/skills/<ad>/ yazar (commit\'e girer); yerleşik ad, geçersiz ad/dosya reddedilir; plan modunda ve alt ajanda yok', async () => {
+    const { a, s } = await prepared();
+    const good = { name: 'release-checklist', description: 'Steps to cut a release of this repo. Use when preparing a release.', triggers: ['release', 'yayın'], body: '1. Run npm test.\n2. Bump the version in package.json.\n3. Update CHANGELOG.md.', files: { 'references/notes.md': 'notlar' } };
+    env.ai.steps = [
+      [call('c1', 'skill_create', good)],
+      [call('c2', 'skill_create', { ...good, name: 'static-web-app' })],
+      [call('c3', 'skill_create', { ...good, name: 'Kötü Ad' })],
+      [call('c4', 'skill_create', { ...good, name: 'ok-name', files: { '../kacis': 'x' } })],
+      [call('c5', 'skill_create', { name: 'kisa', description: 'x', body: 'y' })],
+      text('Kaydettim.'),
+    ];
+    await send(a, s.chatId, 'bu yayın sürecini skill olarak kaydet');
+    const d = (await env.app.inject({ method: 'GET', url: `/api/chats/${s.chatId}`, headers: auth(a) })).json();
+    const parts = ([...d.messages].reverse().find((m: { role: string }) => m.role === 'assistant').parts as Array<{ name?: string; status?: string; output?: string; meta?: Record<string, unknown> }>).filter((p) => p.name === 'skill_create');
+    expect(parts.map((p) => p.status)).toEqual(['done', 'error', 'error', 'error', 'error']);
+    expect(parts[0]!.meta).toMatchObject({ name: 'release-checklist', path: '.sixfinger/skills/release-checklist/SKILL.md', files: 1 });
+    expect(parts[1]!.output).toContain('reserved');
+    const md = fc.fs.get('.sixfinger/skills/release-checklist/SKILL.md')!;
+    expect(md).toContain('name: release-checklist');
+    expect(md).toContain('Bump the version');
+    expect(fc.fs.get('.sixfinger/skills/release-checklist/references/notes.md')).toBe('notlar');
+    expect(fc.fs.has('.sixfinger/skills/ok-name/SKILL.md')).toBe(false);
+    // plan modunda araç yok
+    env.ai.calls.length = 0;
+    env.ai.steps = [text('plan')];
+    await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/messages`, headers: auth(a), payload: { content: 'x', planMode: true } });
+    expect(toolNames(0)).not.toContain('skill_create');
+    expect(toolNames(0)).toContain('skill');
+  });
+
+  it('alt ajan skill kataloğunu ve skill aracını alır (salt okunur ajan skill_create almaz)', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [[call('t1', 'task', { description: 'incele', prompt: 'oyun yazılacak, hangi skill?', agent: 'explore' })], text('Rapor.'), text('Tamam.')];
+    await send(a, s.chatId, 'incele');
+    const sub = env.ai.calls.filter((c) => c.route === 'code' && c.effort !== 'low').find((c) => String(c.messages[0]!.content).startsWith('You are a sub-agent'))!;
+    expect(String(sub.messages[0]!.content)).toContain('## Skills');
+    expect(String(sub.messages[0]!.content)).toContain('- static-web-app:');
+    expect(sub.tools!.map((t) => t.function.name)).toContain('skill');
+    expect(sub.tools!.map((t) => t.function.name)).not.toContain('skill_create');
+    expect(String(sub.messages[0]!.content)).not.toContain('skill_create');
+  });
+
   it('komut listesi skill\'leri slash komutu olarak içerir (yerleşik adlar hariç)', async () => {
     const { a, s } = await prepared();
     await env.ctx.skills.store.save(a.user.id, { name: 'review', description: 'yerleşik komut adıyla çakışır', triggers: [], body: 'x', extra: {} }, {});
