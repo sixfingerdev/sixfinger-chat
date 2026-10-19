@@ -6,6 +6,11 @@ import { reportError } from '../lib/errors.ts';
 import { translate } from '../lib/i18n/index.ts';
 import { useUi } from './ui.ts';
 
+export interface QueuedMessage {
+  text: string;
+  plan: boolean;
+}
+
 interface CodeState {
   status: CodeStatusDTO | null;
   sessions: CodeSessionDTO[] | null;
@@ -15,6 +20,14 @@ interface CodeState {
   connecting: boolean;
   /** Yeni oturum ekranında yazılan ilk görev: oturum ekranı açılınca bir kez gönderilir. */
   pendingPrompt: Record<string, string>;
+  /** Oturum başına plan modu anahtarı. */
+  plan: Record<string, boolean>;
+  /** Ajan çalışırken yazılan, tur bitince sırayla gönderilecek mesajlar. */
+  queue: Record<string, QueuedMessage[]>;
+  setPlan: (chatId: string, on: boolean) => void;
+  enqueue: (chatId: string, m: QueuedMessage) => void;
+  takeQueued: (chatId: string) => QueuedMessage | undefined;
+  removeQueued: (chatId: string, index: number) => void;
 
   loadAll: () => Promise<void>;
   loadStatus: () => Promise<void>;
@@ -37,10 +50,19 @@ interface CodeState {
 
 const handledStates = new Set<string>();
 
-const initial = { status: null, sessions: null, environments: null, loading: false, connecting: false, pendingPrompt: {} };
+const initial = { status: null, sessions: null, environments: null, loading: false, connecting: false, pendingPrompt: {}, plan: {}, queue: {} };
 
 export const useCode = create<CodeState>((set, get) => ({
   ...initial,
+
+  setPlan: (chatId, on) => set((s) => ({ plan: { ...s.plan, [chatId]: on } })),
+  enqueue: (chatId, m) => set((s) => ({ queue: { ...s.queue, [chatId]: [...(s.queue[chatId] ?? []), m] } })),
+  takeQueued(chatId) {
+    const [first, ...rest] = get().queue[chatId] ?? [];
+    if (first) set((s) => ({ queue: { ...s.queue, [chatId]: rest } }));
+    return first;
+  },
+  removeQueued: (chatId, index) => set((s) => ({ queue: { ...s.queue, [chatId]: (s.queue[chatId] ?? []).filter((_, i) => i !== index) } })),
 
   async loadStatus() {
     try {

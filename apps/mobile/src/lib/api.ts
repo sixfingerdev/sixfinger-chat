@@ -4,6 +4,7 @@ import type {
   ChatDetailDTO,
   CodeChangesDTO,
   CodeDiffDTO,
+  SlashCommand,
   CodeEnvironmentDTO,
   CodePullDTO,
   CodeSessionDTO,
@@ -294,6 +295,8 @@ export const api = {
   codeSession: (id: string) => request<{ session: CodeSessionDTO }>('GET', `/code/sessions/${id}`),
   codeCreateSession: (p: { repo: string; baseBranch: string; environmentId?: string }) =>
     request<{ session: CodeSessionDTO }>('POST', '/code/sessions', p),
+  codeCommands: (id: string) => request<{ commands: SlashCommand[] }>('GET', `/code/sessions/${id}/commands`),
+  codeFiles: (id: string, q?: string) => request<{ files: string[]; truncated: boolean }>('GET', `/code/sessions/${id}/files${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   codePulls: (id: string) => request<{ pulls: CodePullDTO[] }>('GET', `/code/sessions/${id}/pulls`),
   codeDiff: (id: string, path?: string) => request<CodeDiffDTO>('GET', `/code/sessions/${id}/diff${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),

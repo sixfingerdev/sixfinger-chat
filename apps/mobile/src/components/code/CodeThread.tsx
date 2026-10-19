@@ -3,7 +3,7 @@ import { FlatList, Text as RNText, View, type LayoutChangeEvent, type NativeScro
 import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
 import { ArrowDown } from 'lucide-react-native';
 import { messageParts, type MessageDTO, type MessagePartDTO } from '@sixfinger/shared';
-import { fonts, radius, useTheme } from '../../theme/index.tsx';
+import { radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
 import { useT } from '../../lib/i18n/index.ts';
 import { activePath, indexMessages } from '../../lib/tree.ts';
@@ -15,13 +15,14 @@ import { WaitingLine } from '../WaitingLine.tsx';
 import { Press } from '../Ui.tsx';
 import { Mascot } from './Mascot.tsx';
 import { CodeSegment, lastTodoOf, type SheetTarget } from './CodeParts.tsx';
+import type { MessageActions } from './CodeCards.tsx';
 
 type Row =
   | { key: string; kind: 'user'; msg: MessageDTO }
   | { key: string; kind: 'head'; id: string; part: ReasoningPart; thinking: boolean }
   | { key: string; kind: 'body'; part: ReasoningPart }
   | { key: string; kind: 'end' }
-  | { key: string; kind: 'seg'; parts: MessagePartDTO[]; lastTodoId: string | null }
+  | { key: string; kind: 'seg'; parts: MessagePartDTO[]; lastTodoId: string | null; isLast: boolean }
   | { key: string; kind: 'foot'; msg: MessageDTO; live: boolean };
 
 function UserBubble({ msg }: { msg: MessageDTO }) {
@@ -37,28 +38,20 @@ function UserBubble({ msg }: { msg: MessageDTO }) {
   );
 }
 
-/** Mesajın altı: çalışırken evre satırı (sırada / hazırlanıyor / çalışıyor / commit), bitince durum notu. */
-const CodeFooter = memo(function CodeFooter({ chatId, msg, live }: { chatId: string; msg: MessageDTO; live: boolean }) {
+/** Mesajın altı: çalışırken logo animasyonu, bitince durum notu (evre ve süre alttaki durum çubuğunda). */
+const CodeFooter = memo(function CodeFooter({ msg, live }: { msg: MessageDTO; live: boolean }) {
   const { c } = useTheme();
   const t = useT();
-  const run = useChats((s) => s.codeRun[chatId]);
   const streaming = live || msg.status === 'streaming';
   const hasParts = (msg.parts ?? []).length > 0;
-  const phase = run?.phase;
-  const text = !phase
-    ? ''
-    : phase === 'queued'
-      ? run?.position ? t('code.phase.queuedPos', { n: run.position }) : t('code.phase.queued')
-      : t(`code.phase.${phase}`);
   return (
     <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
       {streaming && (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 6 }}>
           <LogoMark size={13} animate />
-          {!!text && <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text3 }}>{text}…</RNText>}
         </View>
       )}
-      {streaming && !hasParts && !msg.reasoning && !text && <WaitingLine />}
+      {streaming && !hasParts && !msg.reasoning && <WaitingLine />}
       {!streaming && msg.status === 'stopped' && <RNText style={[type.small, { color: c.text3, marginTop: 6 }]}>{t('code.session.stopped')}</RNText>}
       {!streaming && msg.status === 'error' && <RNText style={[type.small, { color: c.text2, marginTop: 6 }]}>{t('code.session.failed')}</RNText>}
     </View>
@@ -66,7 +59,7 @@ const CodeFooter = memo(function CodeFooter({ chatId, msg, live }: { chatId: str
 });
 
 /** Code oturumunun mesaj listesi: kullanıcı balonları, düşünce satırları (yapışkan) ve Code'a özgü araç satırları. */
-export function CodeThread({ chatId, onOpen }: { chatId: string; onOpen: (t: SheetTarget) => void }) {
+export function CodeThread({ chatId, onOpen, actions }: { chatId: string; onOpen: (t: SheetTarget) => void; actions?: MessageActions }) {
   const { c } = useTheme();
   const t = useT();
   const detail = useChats((s) => s.detail[chatId]);
@@ -92,7 +85,7 @@ export function CodeThread({ chatId, onOpen }: { chatId: string; onOpen: (t: She
       let run: MessagePartDTO[] = [];
       let runStart = 0;
       const flushRun = () => {
-        if (run.length) out.push({ key: `${m.id}:s${runStart}`, kind: 'seg', parts: run, lastTodoId });
+        if (run.length) out.push({ key: `${m.id}:s${runStart}`, kind: 'seg', parts: run, lastTodoId, isLast: m.id === path[path.length - 1]?.id });
         run = [];
       };
       parts.forEach((p, i) => {
@@ -176,12 +169,12 @@ export function CodeThread({ chatId, onOpen }: { chatId: string; onOpen: (t: She
         case 'end':
           return <View style={{ height: 1 }} />;
         case 'seg':
-          return <CodeSegment chatId={chatId} parts={item.parts} lastTodoId={item.lastTodoId} onOpen={onOpen} />;
+          return <CodeSegment chatId={chatId} parts={item.parts} lastTodoId={item.lastTodoId} onOpen={onOpen} actions={item.isLast ? actions : undefined} />;
         case 'foot':
-          return <CodeFooter chatId={chatId} msg={item.msg} live={item.live} />;
+          return <CodeFooter msg={item.msg} live={item.live} />;
       }
     },
-    [chatId, onOpen],
+    [chatId, onOpen, actions],
   );
 
   if (!detail) {

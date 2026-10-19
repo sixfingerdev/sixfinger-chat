@@ -58,6 +58,7 @@ export default function EnvEditor() {
   const [vars, setVars] = useState('');
   const [sessionLink, setSessionLink] = useState(false);
   const [autoPr, setAutoPr] = useState(true);
+  const [instructions, setInstructions] = useState('');
   const [busy, setBusy] = useState(false);
   const [varsBad, setVarsBad] = useState(false);
 
@@ -73,6 +74,7 @@ export default function EnvEditor() {
         setDisk(e.diskMb);
         setSessionLink(e.commitSessionLink ?? false);
         setAutoPr(e.autoPr ?? true);
+        setInstructions(e.instructions ?? '');
         setVars(Object.entries(e.envVars ?? {}).map(([k, v]) => `${k}=${v}`).join('\n'));
         setLoading(false);
       })
@@ -101,6 +103,7 @@ export default function EnvEditor() {
       diskMb: disk,
       commitSessionLink: sessionLink,
       autoPr,
+      instructions,
       envVars,
     };
     try {
@@ -216,6 +219,8 @@ export default function EnvEditor() {
             />
             <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, color: c.text3 }}>{t('code.env.diskHint')}</RNText>
           </View>
+
+          <Field label={t('code.env.instructions')} hint={t('code.env.instructionsHint')} value={instructions} onChangeText={setInstructions} multiline maxLength={8000} placeholder="pnpm kullan. Commit mesajları Türkçe olsun." />
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <View style={{ flex: 1, gap: 2 }}>
