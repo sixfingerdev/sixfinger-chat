@@ -34,9 +34,34 @@ const schema = z.object({
   EXEC_MAX_SECONDS: int(120, 1),
   OUTPUT_MAX_BYTES: int(65_536, 1024),
   FILE_MAX_BYTES: int(1_000_000, 1024),
+
+  // ---- SixFinger Code çalışma alanları (kalıcı, diskte; sohbet sandbox'larından ayrı havuz) ----
+  /** Çalışma alanlarının sandboxd içinden görünen dizini (içinde `workspaces/<kimlik>`). */
+  CODE_DATA_DIR: z.string().default('/var/lib/sixfinger-code'),
+  /** Aynı dizinin ana makinedeki yolu: `docker run --mount` kaynağı. Boşsa CODE_DATA_DIR ile aynı kabul edilir. */
+  CODE_DATA_DIR_HOST: z.string().default(''),
+  CODE_MAX_CONTAINERS: int(2),
+  CODE_MEM_MB: int(1024, 128),
+  CODE_CPUS: z.coerce.number().min(0.1).default(1),
+  CODE_PIDS: int(256, 16),
+  CODE_TMP_MB: int(256, 16),
+  CODE_EXEC_DEFAULT_SECONDS: int(120, 1),
+  CODE_EXEC_MAX_SECONDS: int(900, 1),
+  CODE_FILE_MAX_BYTES: int(2_000_000, 1024),
+  CODE_IDLE_SECONDS: int(600, 5),
+  CODE_CLONE_TIMEOUT_SECONDS: int(300, 10),
+  CODE_SETUP_TIMEOUT_SECONDS: int(900, 10),
+  /** Boşta kalan çalışma alanı bu kadar gün sonra silinir (itilmemiş çalışma kaybolur!). */
+  CODE_WORKSPACE_TTL_DAYS: int(30, 1),
+  /** Code konteynerlerinin bağlandığı Docker `--internal` ağı (doğrudan internet YOK). docker-compose'ta tanımlıdır. */
+  CODE_NETWORK_NAME: z.string().default('sixfinger-code'),
+  /** Code konteynerlerinin çıkış proxy'sine ulaştığı ad ve port (bu ağda sandboxd'nin adı). */
+  CODE_PROXY_HOST: z.string().default('sandboxd'),
+  CODE_PROXY_PORT: int(3128),
+  CODE_PROXY_BIND: z.string().default('0.0.0.0'),
 });
 
-export type Config = z.infer<typeof schema> & { dnsServers: string[] };
+export type Config = z.infer<typeof schema> & { dnsServers: string[]; codeHostDir: string };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = schema.safeParse(env);
@@ -47,5 +72,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (c.SANDBOX_RUNTIME === 'local-unsafe' && env.NODE_ENV === 'production') {
     throw new Error('SANDBOX_RUNTIME=local-unsafe üretimde kullanılamaz.');
   }
-  return { ...c, dnsServers: c.SANDBOX_DNS.split(',').map((s) => s.trim()).filter(Boolean) };
+  return { ...c, dnsServers: c.SANDBOX_DNS.split(',').map((s) => s.trim()).filter(Boolean), codeHostDir: c.CODE_DATA_DIR_HOST || c.CODE_DATA_DIR };
 }

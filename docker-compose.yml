@@ -82,10 +82,28 @@ services:
       CPUS: ${SANDBOX_CPUS:-0.5}
       WORK_MB: ${SANDBOX_WORK_MB:-64}
       IDLE_SECONDS: ${SANDBOX_IDLE_SECONDS:-300}
+      # SixFinger Code çalışma alanları (docs/code.md): kalıcı, diskte. CODE_DATA_DIR_HOST ana makinedeki yoldur (docker bind kaynağı).
+      CODE_DATA_DIR_HOST: ${CODE_WORKSPACES_HOST:-/var/lib/sixfinger-code}
+      CODE_MAX_CONTAINERS: ${CODE_MAX_CONTAINERS:-2}
+      CODE_MEM_MB: ${CODE_MEM_MB:-1024}
+      CODE_CPUS: ${CODE_CPUS:-1}
+      CODE_WORKSPACE_TTL_DAYS: ${CODE_WORKSPACE_TTL_DAYS:-30}
+    # Code konteynerleri `--internal` ağdadır (doğrudan internete ÇIKAMAZLAR); tek çıkış sandboxd'deki alan adı izin listeli proxy'dir.
+    networks:
+      default: {}
+      code-net:
+        aliases: [sandboxd]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${CODE_WORKSPACES_HOST:-/var/lib/sixfinger-code}:/var/lib/sixfinger-code
       # Boştaki sandbox'ların anlık görüntüleri. Harici diske geçince SANDBOX_DATA_DIR_HOST=/mnt/hdd/sandbox yap.
       - ${SANDBOX_DATA_DIR_HOST:-sandbox-data}:/var/lib/sixfinger-sandbox
+
+networks:
+  # İnternete çıkışı olmayan ağ: yalnızca sandboxd ile konuşabilir.
+  code-net:
+    name: sixfinger-code
+    internal: true
 
 volumes:
   pgdata:

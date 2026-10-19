@@ -4,9 +4,8 @@ GitHub reposu seçip kendi branch'inde çalışan bulut kodlama oturumları. Bir
 sohbettir; mesajlar, arka planda üretim ve akış sohbetle aynı altyapıyı paylaşır. Ajanın nasıl çalışacağı
 [code-agent.md](code-agent.md)'de.
 
-> **Durum (Faz 1):** GitHub hesabı bağlama, repo/branch seçimi, ortamlar (ağ modu, disk, değişkenler, kurulum betiği),
-> oturum oluşturma, kredi sayacı ve Code ekranları hazır. **Ajanın çalışması (Faz 2) henüz yok**: oturuma mesaj
-> gönderilemez.
+> **Durum:** Faz 1 (hesap bağlama, ortamlar, oturumlar, kredi, ekranlar) hazır. Faz 2'de ajanın çalışacağı altyapı
+> (kalıcı çalışma alanı, filtreli internet, sandboxd Code uçları) yazıldı; ajan döngüsü ve oturum ekranı sırada.
 
 ## Kurulum
 
@@ -47,6 +46,39 @@ Code yalnızca **e-postası doğrulanmış** ve `CODE_ALLOWED_EMAILS` listesinde
 `CODE_SECRET_KEY`) eksikse Code kapalıdır ve menüde görünmez. E-posta doğrulaması için SMTP gerekir
 ([raspberry-pi.md](raspberry-pi.md)).
 
+## Sandbox altyapısı (Code çalışma alanları)
+
+Code, sohbet sandbox'ından ayrı bir havuz kullanır (`sandboxd` içinde, `/v1/code/*`):
+
+| | Sohbet sandbox'ı | Code çalışma alanı |
+|---|---|---|
+| Dosyalar | RAM'de (tmpfs), 64 MB | **Diskte kalıcı** (bind-mount), ortam başına 128 MB – 1,5 GB |
+| Bellek / CPU | 320 MB / 0,5 | 1 GB / 1 çekirdek (`CODE_MEM_MB`, `CODE_CPUS`) |
+| Komut süresi | en çok 120 sn | varsayılan 120 sn, en çok 15 dk |
+| Aynı anda | 6 konteyner | **2 konteyner** (`CODE_MAX_CONTAINERS`; Pi 4 için) |
+| İnternet | iptables ile 80/443 | **Docker `--internal` ağı + alan adı izin listeli proxy** |
+
+**Ağ (Trusted/Custom/Full/None):** Code konteynerleri `sixfinger-code` adlı `--internal` Docker ağındadır; doğrudan internete **hiç**
+çıkamazlar. Tek çıkış `sandboxd` içindeki CONNECT proxy'sidir (`HTTPS_PROXY` otomatik ayarlanır). Proxy her istekte kimlik doğrular,
+alan adını izin listesine göre denetler, adı **kendisi çözer** ve yalnızca genel IP'lere bağlanır (özel/yerel/bulut meta veri
+adresleri, DNS rebinding dahil reddedilir); yalnızca 80 ve 443 portlarına izin verir. Dolayısıyla firewall betiği gerekmez. Trusted listesi:
+npm, PyPI, GitHub, crates.io, Go, Maven, RubyGems, jsDelivr/unpkg/cdnjs, Google Fonts, Playwright (`packages/…/egress.ts`).
+
+**Token güvenliği:** GitHub token'ı yalnızca ilk klonlamada, tek seferlik bir yardımcı konteynere **ortam değişkeni olarak** verilir
+(komut satırına yazılmaz); çalışma alanındaki `.git/config`'te token olmaz ve ajanın konteynerine hiç girmez. Push (Faz 4) da böyle yapılacak.
+
+### Pi'de kurulum
+
+```bash
+# Çalışma alanları için dizin (ileride harici diske taşımak için CODE_WORKSPACES_HOST=/mnt/hdd/code yap)
+sudo mkdir -p /var/lib/sixfinger-code && sudo chown 1000:1000 /var/lib/sixfinger-code
+docker build -t sixfinger-sandbox:latest sandbox/        # ripgrep eklendi: imajı yeniden derle
+git pull && docker compose --profile sandbox up -d --build
+```
+
+Sınama: `docker compose logs sandboxd` içinde `Code çıkış proxy'si dinliyor` satırı görünmeli. Boşta kalan konteyner 10 dk sonra kapanır,
+çalışma alanı diskte kalır; 30 gün dokunulmayan çalışma alanı silinir (**itilmemiş çalışma kaybolur**).
+
 ## Ortamlar
 
 Her kullanıcı kendi ortamlarını yönetir (en çok 10; ilk açılışta hazır bir `Default` gelir):
@@ -58,7 +90,7 @@ Her kullanıcı kendi ortamlarını yönetir (en çok 10; ilk açılışta hazı
 | Ortam değişkenleri | `ANAHTAR=değer`; şifreli saklanır. `PATH`, `LD_*`, `*_PROXY` gibi sandbox'ı bozacak adlar reddedilir |
 | Kurulum betiği | Çalışma alanı ilk hazırlanırken çalışır (ör. `npm ci`) |
 
-> Ağ modlarının uygulanması (egress proxy) ve çalışma alanı diski Faz 2–3'te gelecek; şu an ayarlar kaydedilir.
+> Ağ modları sandboxd'de uygulanır (yukarıdaki proxy). Disk tavanı `du` ile ölçülür: dolunca yazma/düzenleme reddedilir, `rm` gibi temizlik komutları çalışmaya devam eder.
 
 ## Kredi
 

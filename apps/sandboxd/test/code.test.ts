@@ -1,0 +1,313 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { CodeService, codeSessionId, globToRegExp, type PrepareRequest } from '../src/code.ts';
+import { loadConfig } from '../src/config.ts';
+import { LocalRuntime } from '../src/runtime/local.ts';
+import { buildServer } from '../src/server.ts';
+import { SandboxService } from '../src/service.ts';
+import { quiet } from './helpers.ts';
+
+const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' });
+
+let tmp: string;
+let origin: string;
+
+function makeCode(over: Record<string, string> = {}, now?: () => number) {
+  const cfg = loadConfig({
+    SANDBOXD_TOKEN: 'test-token-test-token-test-token',
+    SANDBOX_RUNTIME: 'local-unsafe',
+    SANDBOX_DATA_DIR: join(tmp, 'chat'),
+    CODE_DATA_DIR: join(tmp, 'code'),
+    ...over,
+  } as NodeJS.ProcessEnv);
+  const runtime = new LocalRuntime(join(tmp, 'local-chat'));
+  const code = new CodeService(cfg, runtime, null, quiet, now);
+  return { cfg, runtime, code };
+}
+
+const req = (over: Partial<PrepareRequest> = {}): PrepareRequest => ({
+  user: 'u1',
+  session: 'u1:chat1',
+  repo: 'octo/alpha',
+  baseBranch: 'main',
+  workBranch: 'sixfinger/alpha-abc123',
+  network: { mode: 'none', domains: [] },
+  diskMb: 64,
+  setupScript: '',
+  env: {},
+  cloneUrl: origin,
+  ...over,
+});
+
+beforeAll(() => {
+  tmp = mkdtempSync(join(tmpdir(), 'sf-code-test-'));
+  origin = join(tmp, 'origin');
+  mkdirSync(origin);
+  git(origin, 'init', '-q', '-b', 'main');
+  writeFileSync(join(origin, 'app.js'), "const a = 1;\nconsole.log('merhaba');\n");
+  mkdirSync(join(origin, 'src'));
+  writeFileSync(join(origin, 'src', 'util.ts'), 'export const topla = (a: number, b: number) => a + b;\n');
+  writeFileSync(join(origin, '.gitignore'), 'ignored.txt\n');
+  git(origin, 'add', '-A');
+  git(origin, 'commit', '-q', '-m', 'ilk');
+});
+afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+beforeEach(() => rmSync(join(tmp, 'code'), { recursive: true, force: true }));
+
+describe('glob kalıpları', () => {
+  const m = (g: string, p: string) => globToRegExp(g).test(p);
+  it('eşleştirir', () => {
+    expect(m('**/*.ts', 'src/a/b.ts')).toBe(true);
+    expect(m('**/*.ts', 'b.ts')).toBe(true);
+    expect(m('*.ts', 'src/b.ts')).toBe(true); // eğik çizgisiz kalıp her dizinde
+    expect(m('src/*.ts', 'src/b.ts')).toBe(true);
+    expect(m('src/*.ts', 'src/a/b.ts')).toBe(false);
+    expect(m('src/**', 'src/a/b.ts')).toBe(true);
+    expect(m('*.{ts,tsx}', 'x/y.tsx')).toBe(true);
+    expect(m('*.{ts,tsx}', 'x/y.js')).toBe(false);
+    expect(m('file?.txt', 'file1.txt')).toBe(true);
+    expect(m('[ab].js', 'a.js')).toBe(true);
+    expect(m('a.b', 'aXb')).toBe(false);
+    expect(m('package.json', 'apps/web/package.json')).toBe(true);
+    expect(m('(x).js', '(x).js')).toBe(true);
+  });
+});
+
+describe('çalışma alanı hazırlığı', () => {
+  it('klonlar, çalışma branch\'ini açar, kimliği ve başlangıç commit\'ini kaydeder', async () => {
+    const { code, cfg } = makeCode();
+    const r = await code.prepare(req());
+    expect(r.cloned).toBe(true);
+    expect(r.branch).toBe('sixfinger/alpha-abc123');
+    expect(r.baseSha).toMatch(/^[0-9a-f]{40}$/);
+    const dir = join(cfg.CODE_DATA_DIR, 'workspaces', codeSessionId('u1:chat1'));
+    expect(existsSync(join(dir, 'app.js'))).toBe(true);
+    expect(readFileSync(join(dir, '.git', 'sixfinger', 'base'), 'utf8').trim()).toBe(r.baseSha);
+    expect(execFileSync('git', ['config', 'user.email'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('code@sixfinger.live');
+    // remote adresine token yazılmaz
+    expect(git(dir, 'remote', 'get-url', 'origin')).not.toMatch(/x-access-token|gho_/);
+  });
+
+  it('ikinci hazırlıkta yeniden klonlamaz; kurulum betiği içeriği değişmedikçe bir kez çalışır', async () => {
+    const { code } = makeCode();
+    const a = await code.prepare(req({ setupScript: 'echo kuruldu > kurulum.txt' }));
+    expect(a).toMatchObject({ cloned: true, setupRan: true, setupOk: true });
+    const b = await code.prepare(req({ setupScript: 'echo kuruldu > kurulum.txt' }));
+    expect(b).toMatchObject({ cloned: false, setupRan: false, setupOk: null });
+    const c = await code.prepare(req({ setupScript: 'echo yeni > kurulum.txt' }));
+    expect(c.setupRan).toBe(true);
+  });
+
+  it('başarısız kurulum betiği bildirilir ve tekrar denenir', async () => {
+    const { code } = makeCode();
+    const a = await code.prepare(req({ setupScript: 'echo hata >&2; exit 3' }));
+    expect(a.setupOk).toBe(false);
+    expect(a.setupOutput).toContain('hata');
+    const b = await code.prepare(req({ setupScript: 'echo hata >&2; exit 3' }));
+    expect(b.setupRan).toBe(true);
+  });
+
+  it('token yoksa ve klon yoksa not_prepared; var olmayan repo temiz hata verir', async () => {
+    const { code } = makeCode();
+    await expect(code.prepare(req({ cloneUrl: undefined, token: undefined }))).rejects.toMatchObject({ code: 'not_prepared' });
+    await expect(code.prepare(req({ cloneUrl: join(tmp, 'yok') }))).rejects.toThrow(/klonlanamadı/);
+    // başarısız klondan sonra yarım .git kalmaz; doğru adresle yeniden denenebilir
+    await expect(code.prepare(req())).resolves.toMatchObject({ cloned: true });
+  });
+
+  it('geçersiz repo ve branch adları reddedilir', async () => {
+    const { code } = makeCode();
+    for (const bad of [{ repo: '../etc' }, { repo: 'a/b/c' }, { baseBranch: '--upload-pack=x' }, { baseBranch: 'a..b' }, { workBranch: '-x' }, { workBranch: 'a b' }])
+      await expect(code.prepare(req(bad as Partial<PrepareRequest>))).rejects.toThrow(/Geçersiz/);
+  });
+
+  it('cloneUrl yalnızca local-unsafe çalıştırıcıda kabul edilir', async () => {
+    const { code } = makeCode({ SANDBOX_RUNTIME: 'docker' });
+    await expect(code.prepare(req())).rejects.toThrow(/yalnızca testlerde/);
+  });
+
+  it('başka kullanıcının çalışma alanına erişilemez', async () => {
+    const { code } = makeCode();
+    await code.prepare(req());
+    await expect(code.prepare(req({ user: 'u2' }))).rejects.toThrow(/başka bir kullanıcıya/);
+    await expect(code.exec('u2', 'u1:chat1', 'ls')).rejects.toMatchObject({ code: 'not_prepared' });
+    await expect(code.destroy('u2', 'u1:chat1')).rejects.toThrow(/başka bir kullanıcıya/);
+  });
+});
+
+describe('işlemler', () => {
+  const ready = async (over: Record<string, string> = {}, r: Partial<PrepareRequest> = {}) => {
+    const m = makeCode(over);
+    await m.code.prepare(req(r));
+    return m;
+  };
+
+  it('hazırlanmadan işlem not_prepared döner', async () => {
+    const { code } = makeCode();
+    await expect(code.exec('u1', 'u1:yok', 'ls')).rejects.toMatchObject({ code: 'not_prepared' });
+  });
+
+  it('exec, read, write ve klasör açma', async () => {
+    const { code } = await ready();
+    const out = await code.exec('u1', 'u1:chat1', 'cat app.js && pwd');
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain("console.log('merhaba')");
+    const w = await code.writeFile('u1', 'u1:chat1', 'yeni/klasor/dosya.txt', 'merhaba dünya');
+    expect(w.bytes).toBe(Buffer.byteLength('merhaba dünya'));
+    expect((await code.readFile('u1', 'u1:chat1', 'yeni/klasor/dosya.txt')).content).toBe('merhaba dünya');
+    expect((await code.readFile('u1', 'u1:chat1', '/work/app.js')).content).toContain('const a = 1');
+    await expect(code.readFile('u1', 'u1:chat1', 'yok.txt')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(code.readFile('u1', 'u1:chat1', 'src')).rejects.toThrow(/klasör/);
+  });
+
+  it('yol kaçışı ve .git yazımı engellenir', async () => {
+    const { code } = await ready();
+    await expect(code.readFile('u1', 'u1:chat1', '../origin/app.js')).rejects.toThrow(/dışına/);
+    await expect(code.writeFile('u1', 'u1:chat1', '/etc/passwd', 'x')).rejects.toThrow(/\/work/);
+    await expect(code.writeFile('u1', 'u1:chat1', '.git/hooks/pre-commit', 'x')).rejects.toThrow(/\.git/);
+    await expect(code.writeFile('u1', 'u1:chat1', './.git/config', 'x')).rejects.toThrow(/\.git/);
+  });
+
+  it('büyük dosya reddedilir', async () => {
+    const { code } = await ready({ CODE_FILE_MAX_BYTES: '2048' });
+    await expect(code.writeFile('u1', 'u1:chat1', 'b.txt', 'x'.repeat(3000))).rejects.toMatchObject({ code: 'too_large' });
+  });
+
+  it('glob ve grep (ripgrep) .gitignore ve .git\'e uyar', async () => {
+    const { code } = await ready();
+    await code.writeFile('u1', 'u1:chat1', 'ignored.txt', 'gizli');
+    const g = await code.glob('u1', 'u1:chat1', '**/*.ts');
+    expect(g.files).toEqual(['src/util.ts']);
+    const all = await code.glob('u1', 'u1:chat1', '*');
+    expect(all.files).toContain('app.js');
+    expect(all.files).not.toContain('ignored.txt');
+    expect(all.files.some((f) => f.startsWith('.git/'))).toBe(false);
+    const hit = await code.grep('u1', 'u1:chat1', { pattern: 'topla', literal: true });
+    expect(hit.lines).toEqual(['src/util.ts:1:export const topla = (a: number, b: number) => a + b;']);
+    const none = await code.grep('u1', 'u1:chat1', { pattern: 'yoktur-böyle-bir-şey' });
+    expect(none.lines).toEqual([]);
+    await expect(code.grep('u1', 'u1:chat1', { pattern: '(' })).rejects.toThrow(/geçersiz/);
+    const limited = await code.grep('u1', 'u1:chat1', { pattern: 'a', limit: 1 });
+    expect(limited.lines).toHaveLength(1);
+    expect(limited.truncated).toBe(true);
+  });
+
+  it('değişiklikler (+N −M) ve commit', async () => {
+    const { code } = await ready();
+    expect((await code.changes('u1', 'u1:chat1')).files).toEqual([]);
+    await code.writeFile('u1', 'u1:chat1', 'app.js', "const a = 2;\nconsole.log('merhaba');\nconsole.log('yeni');\n");
+    await code.writeFile('u1', 'u1:chat1', 'notlar.md', '# not\nbir\niki\n');
+    await code.exec('u1', 'u1:chat1', 'rm src/util.ts');
+    const ch = await code.changes('u1', 'u1:chat1');
+    const by = Object.fromEntries(ch.files.map((f) => [f.path, f]));
+    expect(by['app.js']).toMatchObject({ status: 'modified', additions: 2, deletions: 1 });
+    expect(by['notlar.md']).toMatchObject({ status: 'added', additions: 3, deletions: 0 });
+    expect(by['src/util.ts']).toMatchObject({ status: 'deleted', additions: 0, deletions: 1 });
+    expect(ch).toMatchObject({ additions: 5, deletions: 2 });
+
+    const c = await code.commit('u1', 'u1:chat1', 'özellik: örnek');
+    expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
+    // commit sonrası da başlangıca göre fark sürer
+    expect((await code.changes('u1', 'u1:chat1')).additions).toBe(5);
+    // değişiklik yoksa commit atılmaz
+    expect((await code.commit('u1', 'u1:chat1', 'boş')).sha).toBeNull();
+  });
+
+  it('git hook\'ları çalışmaz (model .git/hooks yazamaz, commit hook\'u kapalı)', async () => {
+    const { code, cfg } = await ready();
+    const dir = join(cfg.CODE_DATA_DIR, 'workspaces', codeSessionId('u1:chat1'));
+    writeFileSync(join(dir, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\ntouch /tmp/hook-ran-sf-test\nexit 1\n', { mode: 0o755 });
+    await code.writeFile('u1', 'u1:chat1', 'x.txt', 'x');
+    const c = await code.commit('u1', 'u1:chat1', 'hook denemesi');
+    expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(existsSync('/tmp/hook-ran-sf-test')).toBe(false);
+  });
+});
+
+describe('disk kotası', () => {
+  it('kota dolunca yazma reddedilir; temizlik komutları yine çalışır', async () => {
+    const m = makeCode();
+    await m.code.prepare(req({ diskMb: 64 }));
+    // 100 MB'lık dosya oluştur (kotanın %156'sı): exec izinli, sonra ölçülür
+    const big = await m.code.exec('u1', 'u1:chat1', 'head -c 104857600 /dev/zero > buyuk.bin; echo tamam');
+    expect(big.diskUsedMb).toBeGreaterThan(64);
+    await expect(m.code.writeFile('u1', 'u1:chat1', 'a.txt', 'x')).rejects.toMatchObject({ code: 'disk_full' });
+    await expect(m.code.exec('u1', 'u1:chat1', 'npm install')).rejects.toMatchObject({ code: 'disk_full' });
+    // temizlik serbest
+    const rm = await m.code.exec('u1', 'u1:chat1', 'rm buyuk.bin');
+    expect(rm.exitCode).toBe(0);
+    const u = await m.code.usage('u1', 'u1:chat1');
+    expect(u.diskUsedMb).toBeLessThan(64);
+    await expect(m.code.writeFile('u1', 'u1:chat1', 'a.txt', 'x')).resolves.toBeTruthy();
+  }, 30_000);
+});
+
+describe('havuz ve temizlik', () => {
+  it('konteyner sınırı dolunca boşta olan eski oturum kapatılır', async () => {
+    const m = makeCode({ CODE_MAX_CONTAINERS: '1' });
+    await m.code.prepare(req({ session: 'u1:a' }));
+    expect(m.code.stats().running).toBe(1);
+    await m.code.prepare(req({ session: 'u1:b' }));
+    expect(m.code.stats()).toMatchObject({ running: 1, known: 2 });
+    // kapatılan oturum yeniden çalıştırılabilir (çalışma alanı diskte)
+    const r = await m.code.exec('u1', 'u1:a', 'echo hâlâ var; ls app.js');
+    expect(r.stdout).toContain('app.js');
+    expect(m.code.stats().running).toBe(1);
+  });
+
+  it('boşta kalan konteyner kapanır, çalışma alanı kalır; süresi dolan çalışma alanı silinir', async () => {
+    let t = Date.now();
+    const m = makeCode({ CODE_IDLE_SECONDS: '5', CODE_WORKSPACE_TTL_DAYS: '1' }, () => t);
+    await m.code.prepare(req());
+    t += 6_000;
+    expect(await m.code.reapIdle()).toBe(1);
+    expect(m.code.stats().running).toBe(0);
+    expect((await m.code.exec('u1', 'u1:chat1', 'ls')).exitCode).toBe(0); // yeniden başlar
+    // etkin oturumun çalışma alanı süpürülmez
+    t += 3 * 86_400_000;
+    expect(await m.code.sweepWorkspaces()).toBe(0);
+    // sandboxd yeniden başlamış gibi: durum kaybı, çalışma alanı eskimiş
+    const m2 = makeCode({ CODE_WORKSPACE_TTL_DAYS: '1' }, () => t);
+    expect(await m2.code.sweepWorkspaces()).toBe(1);
+  });
+
+  it('destroy çalışma alanını siler', async () => {
+    const { code, cfg } = makeCode();
+    await code.prepare(req());
+    const dir = join(cfg.CODE_DATA_DIR, 'workspaces', codeSessionId('u1:chat1'));
+    expect(existsSync(dir)).toBe(true);
+    await code.destroy('u1', 'u1:chat1');
+    expect(existsSync(dir)).toBe(false);
+    await expect(code.exec('u1', 'u1:chat1', 'ls')).rejects.toMatchObject({ code: 'not_prepared' });
+  });
+});
+
+describe('HTTP uçları', () => {
+  it('prepare → exec → write → changes → commit akışı ve hata kodları', async () => {
+    const { code, cfg, runtime } = makeCode();
+    const svc = new SandboxService(cfg, runtime, quiet);
+    const app = buildServer(svc, cfg, { logger: false, code });
+    const h = { authorization: 'Bearer test-token-test-token-test-token' };
+    const post = (url: string, payload: object) => app.inject({ method: 'POST', url, headers: h, payload });
+    const who = { user: 'u1', session: 'u1:http' };
+
+    expect((await post('/v1/code/exec', { ...who, command: 'ls' })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'POST', url: '/v1/code/exec', payload: { ...who, command: 'ls' } })).statusCode).toBe(401);
+    const prep = await post('/v1/code/prepare', { ...who, repo: 'octo/alpha', base_branch: 'main', work_branch: 'sixfinger/x-1', network: { mode: 'none', domains: [] }, disk_mb: 64, clone_url: origin });
+    expect(prep.statusCode).toBe(200);
+    expect(prep.json()).toMatchObject({ cloned: true, branch: 'sixfinger/x-1' });
+    const ex = await post('/v1/code/exec', { ...who, command: 'echo selam' });
+    expect(ex.json()).toMatchObject({ exitCode: 0, stdout: 'selam\n' });
+    expect((await post('/v1/code/write', { ...who, path: 'a.txt', content: 'x' })).statusCode).toBe(200);
+    expect((await post('/v1/code/write', { ...who, path: '.git/config', content: 'x' })).statusCode).toBe(400);
+    expect((await post('/v1/code/read', { ...who, path: 'yok' })).statusCode).toBe(404);
+    expect((await post('/v1/code/glob', { ...who, pattern: '*.txt' })).json().files).toEqual(['a.txt']);
+    expect((await post('/v1/code/changes', who)).json()).toMatchObject({ additions: 1, deletions: 0 });
+    expect((await post('/v1/code/commit', { ...who, message: 'deneme' })).json().sha).toMatch(/^[0-9a-f]{40}$/);
+    expect((await post('/v1/code/destroy', who)).statusCode).toBe(204);
+    await app.close();
+  });
+});

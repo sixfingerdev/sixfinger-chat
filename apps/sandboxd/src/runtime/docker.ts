@@ -2,12 +2,13 @@ import { mkdirSync, readFileSync, renameSync, rmSync, existsSync, writeFileSync 
 import { join } from 'node:path';
 import type { Config } from '../config.ts';
 import { capture } from './capture.ts';
-import { SandboxError, type ExecOptions, type ExecResult, type Runtime } from './types.ts';
+import { SandboxError, type CodeProfile, type ExecOptions, type ExecResult, type HelperOptions, type Runtime } from './types.ts';
 
 type Log = { info: (o: object, m: string) => void; warn: (o: object, m: string) => void; error: (o: object, m: string) => void };
 
 const UID = '1000:1000';
 const LABEL = 'sixfinger.sandbox=1';
+const CODE_LABEL = 'sixfinger.code=1';
 
 /** `docker run` argümanları. Saf fonksiyon: testlerde bayrakların yerinde olduğunu doğrularız. */
 export function buildRunArgs(cfg: Config, name: string, networkMode: 'none' | 'restricted'): string[] {
@@ -56,6 +57,75 @@ export function buildExecArgs(name: string, argv: string[], timeoutMs: number): 
   return ['exec', '-i', '-u', UID, '-w', '/work', name, 'timeout', '-k', '2', String(seconds), ...argv];
 }
 
+/** Ortak güvenlik bayrakları (Code konteyneri ve yardımcı konteynerler için). */
+const hardening = ['--user', UID, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--read-only', '--log-driver', 'none', '--ulimit', 'core=0'];
+
+const networkArgs = (p: CodeProfile): string[] => (p.network === 'proxy' && p.networkName ? ['--network', p.networkName] : ['--network', 'none']);
+
+/**
+ * Code konteyneri: çalışma alanı DİSKTEN bind-mount edilir (kalıcı), kök dosya sistemi salt okunur, internet yalnızca iç ağdaki
+ * kimlik doğrulamalı proxy üzerinden. Kullanıcı ortam değişkenlerinin değerleri argümanlara YAZILMAZ (`--env ANAHTAR`, değer süreç
+ * ortamından okunur); proxy adresi sır değildir ama kimlik bilgisi içerir, bu yüzden o da ortamdan verilir.
+ */
+export function buildCodeRunArgs(cfg: Config, name: string, p: CodeProfile): { args: string[]; env: Record<string, string> } {
+  const env: Record<string, string> = { ...p.env };
+  const args = [
+    'run', '-d',
+    '--name', name,
+    '--label', LABEL,
+    '--label', CODE_LABEL,
+    '--hostname', 'sandbox',
+    '--init',
+    ...hardening,
+    '--mount', `type=bind,src=${p.hostDir},dst=/work`,
+    '--tmpfs', `/tmp:rw,nosuid,nodev,size=${p.tmpMb}m,uid=1000,gid=1000,mode=1777`,
+    '--memory', `${p.memMb}m`,
+    '--memory-swap', `${p.memMb}m`,
+    '--cpus', String(p.cpus),
+    '--pids-limit', String(p.pids),
+    '--ulimit', 'nofile=4096:4096',
+    '--ulimit', `fsize=${p.fsizeBytes}`,
+    '--restart', 'no',
+    '--stop-timeout', '1',
+    '--workdir', '/work',
+    '--env', 'HOME=/work',
+    '--env', 'LANG=C.UTF-8',
+    // Önbellekler RAM'deki /tmp'ye: çalışma alanı diskini şişirmez.
+    '--env', 'npm_config_cache=/tmp/.npm',
+    '--env', 'PIP_CACHE_DIR=/tmp/.pip',
+    '--env', 'YARN_CACHE_FOLDER=/tmp/.yarn',
+    '--env', 'CI=1',
+    '--env', 'GIT_TERMINAL_PROMPT=0',
+    ...networkArgs(p),
+  ];
+  if (p.network === 'proxy' && p.proxyUrl) {
+    env.HTTP_PROXY = env.HTTPS_PROXY = env.http_proxy = env.https_proxy = p.proxyUrl;
+    args.push('--env', 'HTTP_PROXY', '--env', 'HTTPS_PROXY', '--env', 'http_proxy', '--env', 'https_proxy', '--env', 'NO_PROXY=localhost,127.0.0.1,::1', '--env', 'no_proxy=localhost,127.0.0.1,::1');
+  }
+  for (const k of Object.keys(p.env)) args.push('--env', k);
+  args.push(cfg.SANDBOX_IMAGE, 'sleep', 'infinity');
+  return { args, env };
+}
+
+/** Tek seferlik yardımcı (ör. token'lı `git clone`): çalışma alanı bağlı, iş bitince silinir; token yalnızca süreç ortamındadır. */
+export function buildHelperArgs(cfg: Config, p: CodeProfile, secretKeys: string[], argv: string[]): string[] {
+  const args = [
+    'run', '--rm', '-i',
+    '--label', LABEL,
+    ...hardening,
+    '--mount', `type=bind,src=${p.hostDir},dst=/work`,
+    '--tmpfs', `/tmp:rw,nosuid,nodev,size=${Math.min(p.tmpMb, 128)}m,uid=1000,gid=1000,mode=1777`,
+    '--memory', '512m', '--memory-swap', '512m', '--cpus', '1', '--pids-limit', '128',
+    '--workdir', '/work',
+    '--env', 'HOME=/tmp', '--env', 'GIT_TERMINAL_PROMPT=0',
+    ...networkArgs(p),
+  ];
+  if (p.network === 'proxy' && p.proxyUrl) args.push('--env', 'HTTP_PROXY', '--env', 'HTTPS_PROXY', '--env', 'http_proxy', '--env', 'https_proxy');
+  for (const k of secretKeys) args.push('--env', k);
+  args.push('--entrypoint', argv[0]!, cfg.SANDBOX_IMAGE, ...argv.slice(1));
+  return args;
+}
+
 export class DockerRuntime implements Runtime {
   readonly name = 'docker';
   /** Güvenlik duvarı doğrulaması başarısız olursa ağ kapatılır. */
@@ -72,8 +142,8 @@ export class DockerRuntime implements Runtime {
   private cname = (id: string) => `sf-${id}`;
   private snap = (id: string) => join(this.cfg.SANDBOX_DATA_DIR, `${id}.tgz`);
 
-  private docker(args: string[], timeoutMs = 20_000, stdin?: Buffer, maxOutput = 256 * 1024) {
-    return capture('docker', args, { timeoutMs, maxOutput, stdin });
+  private docker(args: string[], timeoutMs = 20_000, stdin?: Buffer, maxOutput = 256 * 1024, env?: Record<string, string>) {
+    return capture('docker', args, { timeoutMs, maxOutput, stdin, env: env ? { ...process.env, ...env } : undefined });
   }
 
   private async state(name: string): Promise<'running' | 'stopped' | 'missing'> {
@@ -92,11 +162,18 @@ export class DockerRuntime implements Runtime {
     if (r.exitCode !== 0) throw new SandboxError(`Sandbox ağı oluşturulamadı: ${r.stderr.slice(0, 200)}`, 'internal');
   }
 
-  async ensure(id: string): Promise<void> {
+  async ensure(id: string, profile?: CodeProfile): Promise<void> {
     const name = this.cname(id);
     const st = await this.state(name);
     if (st === 'running') return;
     if (st === 'stopped') await this.docker(['rm', '-f', name], 15_000);
+    if (profile) {
+      mkdirSync(profile.dir, { recursive: true, mode: 0o700 });
+      const { args, env } = buildCodeRunArgs(this.cfg, name, profile);
+      const run = await this.docker(args, 40_000, undefined, 256 * 1024, env);
+      if (run.exitCode !== 0) throw new SandboxError(`Code sandbox başlatılamadı: ${run.stderr.slice(0, 300)}`, 'internal');
+      return;
+    }
     if (this.networkMode === 'restricted') await this.ensureNetwork();
 
     const run = await this.docker(buildRunArgs(this.cfg, name, this.networkMode), 30_000);
@@ -124,6 +201,18 @@ export class DockerRuntime implements Runtime {
     return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, truncated: r.truncated, timedOut, durationMs: r.durationMs };
   }
 
+  async helper(opts: HelperOptions): Promise<ExecResult> {
+    const secretKeys = Object.keys(opts.secretEnv ?? {});
+    const env: Record<string, string> = { ...(opts.secretEnv ?? {}) };
+    if (opts.profile.network === 'proxy' && opts.profile.proxyUrl) env.HTTP_PROXY = env.HTTPS_PROXY = env.http_proxy = env.https_proxy = opts.profile.proxyUrl;
+    const r = await capture('docker', buildHelperArgs(this.cfg, opts.profile, secretKeys, opts.argv), {
+      timeoutMs: opts.timeoutMs,
+      maxOutput: opts.maxOutput,
+      env: { ...process.env, ...env },
+    });
+    return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, truncated: r.truncated, timedOut: r.timedOut, durationMs: r.durationMs };
+  }
+
   async release(id: string, { snapshot }: { snapshot: boolean }): Promise<void> {
     const name = this.cname(id);
     if (snapshot && (await this.state(name)) === 'running') {
@@ -148,7 +237,12 @@ export class DockerRuntime implements Runtime {
 
   async list(): Promise<string[]> {
     const r = await this.docker(['ps', '-a', '--filter', `label=${LABEL}`, '--format', '{{.Names}}'], 10_000);
-    return r.stdout.split('\n').map((s) => s.trim()).filter((n) => n.startsWith('sf-')).map((n) => n.slice(3));
+    return r.stdout.split('\n').map((s) => s.trim()).filter((n) => n.startsWith('sf-s')).map((n) => n.slice(3));
+  }
+
+  async listCode(): Promise<string[]> {
+    const r = await this.docker(['ps', '-a', '--filter', `label=${CODE_LABEL}`, '--format', '{{.Names}}'], 10_000);
+    return r.stdout.split('\n').map((s) => s.trim()).filter((n) => n.startsWith('sf-c')).map((n) => n.slice(3));
   }
 
   async health(): Promise<{ ok: boolean; details: Record<string, unknown> }> {
