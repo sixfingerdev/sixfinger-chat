@@ -32,6 +32,11 @@ export function describeTool(part: ToolPart, locale: 'tr' | 'en'): { label: stri
       return { label: running ? d['tool.running.write'] : d['tool.write'], detail: String(part.args.path ?? '') };
     case 'edit':
       return { label: running ? d['tool.running.edit'] : d['tool.edit'], detail: String(part.args.path ?? '') };
+    case 'schedule_create':
+    case 'schedule_list':
+    case 'schedule_update':
+    case 'schedule_delete':
+      return { label: d[`tool.${part.name}` as 'tool.schedule_create'], detail: String(part.args.title ?? part.args.id ?? '') };
     default: {
       const m = splitMcpToolName(part.name);
       if (m) return { label: `${String(part.meta?.server ?? m.server)} › ${String(part.meta?.tool ?? m.tool)}`, detail: '' };

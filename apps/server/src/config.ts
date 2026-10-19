@@ -129,6 +129,8 @@ const schema = z.object({
    * hesabın noreply adresi `<sayısal-id>+<kullanıcı>@users.noreply.github.com` ya da hesaba doğrulanmış e-posta. Boşsa `SixFinger Code <noreply@sixfinger.live>`.
    */
   CODE_COAUTHOR: z.string().optional().default(''),
+  /** Zamanlanmış görevleri çalıştıran arka plan döngüsü (testlerde kapalı). */
+  SCHEDULER_ENABLED: z.string().optional().default('true'),
   CODE_ALLOWED_EMAILS: z.string().optional().default(''),
   CODE_DAILY_CREDITS: z.coerce.number().min(1).default(100),
   /** Aynı anda çalışan Code oturumu (Pi 4 için 2) ve bekleme sırası uzunluğu. */

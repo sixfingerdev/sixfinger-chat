@@ -254,13 +254,13 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
   }
 
   /** Üretimi başlatır, istek sahibini ona bağlar ve beklemeden döner; üretim arka planda sürer. */
-  function generate(req: FastifyRequest, reply: FastifyReply, g: GenerationInput) {
+  function generate(req: FastifyRequest | null, reply: FastifyReply | null, g: GenerationInput): Promise<void> {
     const run = runs.start(g.chat.id, g.user.id, g.assistantId);
-    attach(reply, run, false);
-    const ip = req.ip;
+    if (reply) attach(reply, run, false);
+    const ip = req?.ip ?? '';
     // Tek bir yanıt için mutlak üst süre: takılı kalan bir üretim sonsuza dek yer tutmasın.
     const cap = setTimeout(() => run.stop(), config.AI_TOTAL_TIMEOUT_MS + 60_000);
-    void (async () => {
+    return (async () => {
       try {
         await runGeneration(ip, run, g);
       } catch (err) {
@@ -274,6 +274,38 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       }
     })();
   }
+
+  /** Zamanı gelen görevi çalıştırır: yeni bir sohbet açar, istemi kullanıcı mesajı olarak yazar ve yanıtı üretir (istemci gerekmez). */
+  ctx.runScheduled = async (task) => {
+    const user = await ctx.schedule.authUser(task.user_id);
+    if (!user || user.isGuest) return void (await ctx.schedule.recordRun(task.id, { chatId: null, status: 'skipped', error: 'Hesap bulunamadı.' }));
+    const created = await db.query<ChatRow>(
+      `insert into chats (user_id, title, title_generated, task_id) values ($1, $2, true, $3) returning *`,
+      [user.id, task.title, task.id],
+    );
+    const chat = created.rows[0]!;
+    try {
+      const turn = await beginTurn(chat, user, { content: task.prompt }, null);
+      await generate(null, null, {
+        chat,
+        user,
+        userMessage: toMessageDTO(turn.userRow),
+        assistantId: turn.assistantId,
+        history: turn.history,
+        mode: task.mode,
+        effort: DEFAULT_THINKING_LEVEL,
+        isFirstExchange: false,
+        userText: task.prompt,
+      });
+      const st = await db.query<{ status: string }>('select status from messages where id = $1', [turn.assistantId]);
+      const ok = st.rows[0]?.status === 'complete';
+      await ctx.schedule.recordRun(task.id, { chatId: chat.id, status: ok ? 'ok' : 'error', error: ok ? null : 'Yanıt tamamlanamadı.' });
+    } catch (err) {
+      // Günlük mesaj hakkı bitti vb.: boş sohbeti bırakma.
+      await db.query('delete from chats where id = $1', [chat.id]).catch(() => {});
+      await ctx.schedule.recordRun(task.id, { chatId: null, status: 'error', error: err instanceof HttpError ? err.message : 'Çalıştırılamadı.' });
+    }
+  };
 
   /** Code oturumunda üretimi başlatır (ajan döngüsü); arka planda sürer, istemci kopsa da bitmez. */
   function generateCode(reply: FastifyReply | null, g: CodeRunInput) {
@@ -372,7 +404,13 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     // Bağlayıcılar (MCP): araç listesi veritabanı önbelleğinden gelir; misafir kullanamaz.
     const mcpSet = user.isGuest ? null : await ctx.mcp.toolsFor(user.id, 'chat').catch(() => null);
     const connectors = mcpSet ? connectorsSection(mcpSet) : '';
-    const system = ((await loadPromptContext(user, chat.persona_id).catch(() => '')) + (connectors ? `\n\n${connectors}` : '')).trim();
+    // Zamanlanmış görev araçları: üyeler kullanır; görevin kendi çalıştırmasında (zincirleme zamanlamayı önlemek için) yok.
+    const scheduleDefs = user.isGuest || chat.task_id ? [] : ctx.schedule.tools().filter((t) => t.available(user));
+    const scheduleNote = scheduleDefs.length
+      ? 'Zamanlanmış görevler: Kullanıcı bir işin belirli zamanda ya da düzenli (her sabah, haftalık, yarın 9\'da…) yapılmasını isterse schedule_create ile görev oluştur; mevcutları schedule_list, değişiklik için schedule_update, silmek için schedule_delete kullan. Saatler İstanbul saatidir. İstem (prompt) kullanıcı olmadan çalışacağı için kendi başına eksiksiz olmalı. Oluşturduktan sonra ne zaman çalışacağını kısaca söyle; görev sonuçları "Zamanlanmış" bölümünde ve yeni bir sohbet olarak görünür.'
+      : '';
+    const runNote = chat.task_id ? 'Bu yanıt zamanlanmış bir görev olarak, kullanıcı başında olmadan otomatik üretiliyor: soru sorma, ek bilgi bekleme; istemi mevcut bilgi ve araçlarla doğrudan yerine getirip sonucu yaz.' : '';
+    const system = ((await loadPromptContext(user, chat.persona_id).catch(() => '')) + (connectors ? `\n\n${connectors}` : '') + (scheduleNote ? `\n\n${scheduleNote}` : '') + (runNote ? `\n\n${runNote}` : '')).trim();
     const assistantRow = await db.query<MessageRow>(`select ${MESSAGE_COLUMNS} from messages where id = $1`, [g.assistantId]);
     stream.send({ type: 'start', userMessage: g.userMessage, assistantMessage: toMessageDTO(assistantRow.rows[0]!) });
 
@@ -411,7 +449,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       ]).catch(() => {});
     };
 
-    const defs = [...toolsFor(user), ...(mcpSet?.defs ?? [])];
+    const defs = [...toolsFor(user), ...scheduleDefs, ...(mcpSet?.defs ?? [])];
     const specs = toolSpecs(defs);
     // Araç yoksa tek tur; varsa kullanıcı katmanının izin verdiği kadar tur. Son turda araç verilmez:
     // model elindekiyle cevabı yazmak zorunda kalır.

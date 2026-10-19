@@ -17,6 +17,7 @@ import type { CodeGit } from './services/code-git.ts';
 import type { CodePreview } from './services/code-preview.ts';
 import type { Skills } from './services/skills.ts';
 import type { CodeQueue } from './services/code-queue.ts';
+import type { Schedule, ScheduledTask } from './services/schedule.ts';
 import type { CodeSandboxClient } from './services/tools/code-client.ts';
 
 export interface AppContext {
@@ -46,6 +47,10 @@ export interface AppContext {
   skills: Skills;
   /** MCP bağlayıcıları: kullanıcının uzak MCP sunucuları, OAuth ve araç onayları. */
   mcp: Mcp;
+  /** Zamanlanmış görevler (kullanıcı ve ajan oluşturur; zamanlayıcı çalıştırır). */
+  schedule: Schedule;
+  /** Zamanı gelmiş bir görevi çalıştırır (mesaj rotaları tarafından bağlanır). */
+  runScheduled?: (task: ScheduledTask) => Promise<void>;
   /** Sır şifreleme; CODE_SECRET_KEY yoksa null (Code kapalı). */
   secrets: SecretBox | null;
 }

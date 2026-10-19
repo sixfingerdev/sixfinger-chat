@@ -33,6 +33,11 @@ import type {
   StreamEvent,
   UserDTO,
   UsageDTO,
+  ArtifactListItemDTO,
+  CreateScheduledTaskBody,
+  ScheduledRunDTO,
+  ScheduledTaskDTO,
+  UpdateScheduledTaskInput,
 } from '@sixfinger/shared';
 
 /** Derleme sırasında verilen varsayılan sunucu (VITE_API_URL). Web'de boş: aynı kaynak (/api). */
@@ -363,6 +368,14 @@ export const api = {
   codeShareSkill: (name: string, enabled: boolean) => request<{ shareToken: string | null }>('POST', `/code/skills/${encodeURIComponent(name)}/share`, { enabled }),
   codeSharedSkill: (token: string) => request<SkillDetailDTO>('GET', `/code/skills/shared/${encodeURIComponent(token)}`),
   codeImportShared: (token: string, overwrite = false) => request<SkillDetailDTO>('POST', `/code/skills/shared/${encodeURIComponent(token)}/import`, { overwrite }),
+  // ---- zamanlanmış görevler + artifacts ----
+  schedules: () => request<{ tasks: ScheduledTaskDTO[] }>('GET', '/schedule'),
+  scheduleCreate: (body: CreateScheduledTaskBody) => request<{ task: ScheduledTaskDTO }>('POST', '/schedule', body),
+  scheduleUpdate: (id: string, body: UpdateScheduledTaskInput) => request<{ task: ScheduledTaskDTO }>('PATCH', `/schedule/${id}`, body),
+  scheduleDelete: (id: string) => request<void>('DELETE', `/schedule/${id}`),
+  scheduleRun: (id: string) => request<{ ok: boolean }>('POST', `/schedule/${id}/run`),
+  scheduleRuns: (id: string) => request<{ runs: ScheduledRunDTO[] }>('GET', `/schedule/${id}/runs`),
+  artifacts: (q?: string) => request<{ artifacts: ArtifactListItemDTO[] }>('GET', '/artifacts', undefined, { query: { q } }),
   // ---- MCP bağlayıcıları ----
   mcpPresets: () => request<McpPresetsResponse>('GET', '/mcp/presets'),
   mcpServers: () => request<McpServersResponse>('GET', '/mcp/servers'),

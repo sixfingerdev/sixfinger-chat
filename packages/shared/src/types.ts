@@ -59,6 +59,8 @@ export interface ChatDTO {
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string | null;
+  /** Zamanlanmış görevin çalıştırması olarak oluşan sohbette görevin kimliği. */
+  taskId?: string | null;
   /** Arama sonuçlarında eşleşen mesajdan kesit. */
   snippet?: string;
 }

@@ -35,6 +35,8 @@ import { createGithub } from './services/github.ts';
 import { createSecretBox } from './lib/secretbox.ts';
 import { codeRoutes } from './routes/code.ts';
 import { mcpRoutes } from './routes/mcp.ts';
+import { scheduleRoutes } from './routes/schedule.ts';
+import { createSchedule, startScheduler } from './services/schedule.ts';
 import { createMcp } from './services/mcp/index.ts';
 import type { FetchLike } from './services/mcp/guarded-fetch.ts';
 
@@ -100,6 +102,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     codeGit: undefined as never,
     codePreview: undefined as never,
     skills: opts.skills ?? createSkills({ db, log: app.log }),
+    schedule: createSchedule(db),
     mcp: createMcp({ db, secrets, config, log: app.log, fetchImpl: opts.mcpFetch }),
   };
   ctx.codeGit = createCodeGit({ db, ai: ctx.ai, code: ctx.code, github: ctx.github, sandbox: codeSandbox, runs: ctx.runs, config, skills: ctx.skills });
@@ -181,9 +184,16 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
       await api.register(messageRoutes(ctx, guard));
       await api.register(codeRoutes(ctx, guard));
       await api.register(mcpRoutes(ctx, guard));
+      await api.register(scheduleRoutes(ctx, guard));
     },
     { prefix: '/api' },
   );
+
+  // Zamanlanmış görevler: sunucu açıkken her 30 sn'de zamanı gelenleri çalıştırır.
+  if (config.SCHEDULER_ENABLED !== 'false' && !config.isTest) {
+    const scheduler = startScheduler({ schedule: ctx.schedule, run: (t) => ctx.runScheduled!(t), log: app.log });
+    app.addHook('onClose', async () => scheduler.stop());
+  }
 
   app.addHook('onClose', async () => {
     if (!opts.db) await db.end();
