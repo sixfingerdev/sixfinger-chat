@@ -1,0 +1,162 @@
+/* starter.css: neutral palette + ONE accent, light and dark, spacing/type scale, core components.
+   Copy into the project (for example style.css or src/index.css), then change only the --accent-* tokens. */
+
+:root {
+  color-scheme: light dark;
+
+  /* Neutral + accent (light) */
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #efefec;
+  --border: #dcdcd6;
+  --text: #1b1c1f;
+  --text-muted: #5c5f66;          /* >= 4.5:1 on --bg and --surface */
+  --accent: #2f5bea;              /* the ONE accent */
+  --accent-hover: #2349c4;
+  --accent-contrast: #ffffff;     /* text on --accent */
+  --danger: #c0392b;
+  --success: #1f7a4d;
+  --focus: #2f5bea;
+
+  /* Spacing scale (4 px base): use ONLY these */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+
+  /* Type */
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: clamp(1.5rem, 1.2rem + 1.5vw, 2.25rem);
+  --fs-2xl: clamp(2rem, 1.4rem + 3vw, 3.5rem);
+  --lh: 1.5;
+
+  /* Shape + depth */
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.06);
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur: 160ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101114;
+    --surface: #17181c;
+    --surface-2: #1f2127;
+    --border: #2d3038;
+    --text: #ececef;
+    --text-muted: #a0a4ad;
+    --accent: #7c9bff;
+    --accent-hover: #9bb3ff;
+    --accent-contrast: #0b1020;
+    --danger: #ff7b6e;
+    --success: #5fcf98;
+    --focus: #9bb3ff;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.35);
+  }
+}
+/* Manual toggle: set <html data-theme="dark"> to force dark */
+:root[data-theme="dark"] {
+  --bg: #101114; --surface: #17181c; --surface-2: #1f2127; --border: #2d3038;
+  --text: #ececef; --text-muted: #a0a4ad; --accent: #7c9bff; --accent-hover: #9bb3ff;
+  --accent-contrast: #0b1020; --danger: #ff7b6e; --success: #5fcf98; --focus: #9bb3ff;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.35);
+}
+
+/* Base */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-md) / var(--lh) var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { line-height: 1.2; margin: 0 0 var(--s-3); letter-spacing: -0.01em; text-wrap: balance; }
+h1 { font-size: var(--fs-2xl); }
+h2 { font-size: var(--fs-xl); }
+h3 { font-size: var(--fs-lg); }
+p { margin: 0 0 var(--s-4); max-width: 65ch; text-wrap: pretty; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { color: var(--accent-hover); }
+img, svg, video, canvas { max-width: 100%; display: block; }
+.muted { color: var(--text-muted); }
+
+/* Focus: visible for keyboard, never removed */
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+/* Layout helpers (mobile first) */
+.container { width: min(100% - 2 * var(--s-4), 1080px); margin-inline: auto; }
+.stack > * + * { margin-top: var(--s-4); }
+.row { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center; }
+.grid { display: grid; gap: var(--s-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+section { padding-block: var(--s-7); }
+@media (min-width: 720px) { section { padding-block: var(--s-8); } }
+
+/* Button */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s-2);
+  min-height: 44px; padding: 0 var(--s-5);
+  border: 1px solid transparent; border-radius: var(--radius);
+  background: var(--accent); color: var(--accent-contrast);
+  font: inherit; font-weight: 600; text-decoration: none; cursor: pointer;
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.btn:hover { background: var(--accent-hover); color: var(--accent-contrast); }
+.btn:active { transform: translateY(1px); }
+.btn[disabled], .btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+.btn-secondary:hover { background: var(--surface-2); color: var(--text); }
+.btn-ghost { background: transparent; color: var(--accent); }
+.btn-ghost:hover { background: var(--surface-2); color: var(--accent-hover); }
+.btn-danger { background: var(--danger); color: var(--accent-contrast); }
+.btn-danger:hover { background: var(--danger); filter: brightness(0.92); color: var(--accent-contrast); }
+
+/* Card */
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--s-5); box-shadow: var(--shadow);
+}
+.card.interactive { transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.card.interactive:hover { transform: translateY(-2px); border-color: var(--accent); }
+
+/* Form: every control has a visible <label for> */
+label { display: block; font-size: var(--fs-sm); font-weight: 600; margin-bottom: var(--s-1); }
+input, select, textarea {
+  width: 100%; min-height: 44px; padding: var(--s-2) var(--s-3);
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font: inherit;               /* 16px+ keeps iOS from zooming on focus */
+}
+textarea { min-height: 96px; resize: vertical; }
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
+input:hover, select:hover, textarea:hover { border-color: var(--text-muted); }
+input:disabled, select:disabled, textarea:disabled { opacity: 0.55; cursor: not-allowed; }
+[aria-invalid="true"] { border-color: var(--danger); }
+.field-error { color: var(--danger); font-size: var(--fs-sm); margin-top: var(--s-1); }
+.field-hint { color: var(--text-muted); font-size: var(--fs-sm); margin-top: var(--s-1); }
+
+/* Badge + alert */
+.badge { display: inline-block; padding: 2px var(--s-2); border-radius: 999px; background: var(--surface-2); color: var(--text-muted); font-size: var(--fs-sm); font-weight: 600; }
+.alert { padding: var(--s-3) var(--s-4); border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); }
+.alert-error { border-color: var(--danger); color: var(--danger); }
+.alert-success { border-color: var(--success); color: var(--success); }
+
+/* States: empty, loading, skeleton */
+.empty { text-align: center; padding: var(--s-7) var(--s-4); color: var(--text-muted); }
+.empty h3 { color: var(--text); }
+.spinner { width: 20px; height: 20px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+.skeleton { background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%); background-size: 200% 100%; border-radius: var(--radius-sm); min-height: 1em; animation: shimmer 1.4s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+/* Screen-reader-only text */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* Motion: remove non-essential animation when the user asks */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
