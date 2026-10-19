@@ -640,6 +640,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
   if (errorMessage) send({ type: 'error', code: errorMessage.code, message: errorMessage.message });
   if (changesEvent) send(changesEvent);
   send({ type: 'done', assistantMessage: assistant });
+  run.settle(); // başlık üretilirken (ya da sıradaki mesaj için) sohbet yeni yanıta açılır
 
   // --- başlık (ilk mesajda) ---
   if (status === 'complete' && g.isFirstExchange && !chat.title_generated) {

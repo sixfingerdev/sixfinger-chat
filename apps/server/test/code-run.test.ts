@@ -133,6 +133,8 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     expect(base).toContain('site-packages');
     expect(base).toContain('Disk quota: 512 MB'); // df ana makinenin diskini gösterse de ajan kotayı bilir
     expect(base).toContain('$TMPDIR');
+    expect(base).toContain('COMMIT ATTRIBUTION (MANDATORY');
+    expect(base).toContain('-m "Co-Authored-By: SixFinger Code <noreply@sixfinger.live>"');
     expect(base).toContain('Co-Authored-By: SixFinger Code <noreply@sixfinger.live>');
     expect(base).not.toContain('SixFinger-Session:');
 

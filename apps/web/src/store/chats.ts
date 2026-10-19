@@ -25,6 +25,8 @@ export interface Generating {
 export interface CodeLive {
   phase?: 'queued' | 'preparing' | 'working' | 'committing' | 'publishing';
   position?: number;
+  /** Turun başlangıcı (istemci saatiyle): sunucunun bildirdiği geçen süreden hesaplanır, yeniden açılışta sıfırlanmaz. */
+  startedAt?: number;
   context?: { tokens: number; limit: number };
   changes?: { additions: number; deletions: number; files: number; sha: string | null };
 }
@@ -269,7 +271,7 @@ export const useChats = create<ChatsState>((set, get) => {
           }));
           break;
         case 'phase':
-          patchLive(chatId, { phase: e.phase, position: e.position });
+          patchLive(chatId, { phase: e.phase, position: e.position, ...(e.elapsedMs === undefined ? {} : { startedAt: Date.now() - e.elapsedMs }) });
           break;
         case 'changes':
           patchLive(chatId, { changes: { additions: e.additions, deletions: e.deletions, files: e.files, sha: e.sha } });
@@ -329,7 +331,7 @@ export const useChats = create<ChatsState>((set, get) => {
         patchMessage(chatId, assistantId, (m) => (m.status === 'streaming' ? { ...m, status: abort.signal.aborted ? 'stopped' : 'error' } : m));
       }
       clearGen(chatId, abort);
-      if (get().codeLive[chatId]?.phase && !dropped) patchLive(chatId, { phase: undefined, position: undefined });
+      if (get().codeLive[chatId]?.phase && !dropped) patchLive(chatId, { phase: undefined, position: undefined, startedAt: undefined });
       // Sunucu ile kesin eşitleme (gerçek kimlikler, durum). Kopma durumunda yeniden izleme bunu zaten yapar.
       if (!dropped) void get().openChat(chatId, true);
     }

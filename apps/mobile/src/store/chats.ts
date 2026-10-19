@@ -29,6 +29,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export interface CodeRun {
   phase: 'queued' | 'preparing' | 'working' | 'committing' | 'publishing';
   position?: number;
+  /** Turun başlangıcı (istemci saatiyle): sunucunun bildirdiği geçen süreden hesaplanır, yeniden açılışta sıfırlanmaz. */
+  startedAt?: number;
 }
 
 interface ChatsState {
@@ -140,6 +142,8 @@ export const useChats = create<ChatsState>((set, get) => {
     patchDetail(chat.id, (d) => ({ ...d, chat }));
   };
 
+  /** Yeniden açılışta doğru ekrana dönmek için Code oturumları `code:` önekiyle işaretlenir. */
+  const pendingKey = (chatId: string) => (get().detail[chatId]?.chat.kind === 'code' ? `code:${chatId}` : chatId);
   const setGen = (chatId: string, g: Generating) => set({ generating: { ...get().generating, [chatId]: g } });
   const clearGen = (chatId: string, abort: AbortController) => {
     if (get().generating[chatId]?.abort !== abort) return;
@@ -160,7 +164,7 @@ export const useChats = create<ChatsState>((set, get) => {
     const gen: Generating = { chatId, assistantId, abort };
     setGen(chatId, gen);
     // Uygulama üretim sürerken kapatılırsa, yeniden açılınca bu sohbete dönülür (sonuç ya da canlı akış gösterilir).
-    kv.set('sf.pending', chatId);
+    kv.set('sf.pending', pendingKey(chatId));
 
     // Delta'ları kare başına bir kez uygula (uzun yanıtlarda render maliyetini düşürür).
     let bufContent = '';
@@ -269,7 +273,7 @@ export const useChats = create<ChatsState>((set, get) => {
           }));
           break;
         case 'phase':
-          set({ codeRun: { ...get().codeRun, [chatId]: { phase: e.phase, position: e.position } } });
+          set({ codeRun: { ...get().codeRun, [chatId]: { phase: e.phase, position: e.position, startedAt: e.elapsedMs === undefined ? get().codeRun[chatId]?.startedAt : Date.now() - e.elapsedMs } } });
           break;
         case 'changes':
           useCode.getState().patchSession(chatId, { additions: e.additions, deletions: e.deletions, filesChanged: e.files, headSha: e.sha ?? undefined });
@@ -328,7 +332,7 @@ export const useChats = create<ChatsState>((set, get) => {
         patchMessage(chatId, assistantId, (m) => (m.status === 'streaming' ? { ...m, status: abort.signal.aborted ? 'stopped' : 'error' } : m));
       }
       clearGen(chatId, abort);
-      if (!dropped && kv.get('sf.pending') === chatId) kv.remove('sf.pending');
+      if (!dropped && kv.get('sf.pending') === pendingKey(chatId)) kv.remove('sf.pending');
       // Sunucu ile kesin eşitleme (gerçek kimlikler, durum). Kopma durumunda yeniden izleme bunu zaten yapar.
       if (!dropped) void get().openChat(chatId, true);
     }

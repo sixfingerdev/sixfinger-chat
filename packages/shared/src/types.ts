@@ -178,7 +178,8 @@ export type StreamEvent =
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
   | { type: 'tool_end'; id: string; status: ToolStatus; output: string; summary?: string; meta?: Record<string, unknown>; ms: number }
   /** Code: çalışmanın evresi (sırada, çalışma alanı hazırlanıyor, çalışıyor, commit ediliyor). */
-  | { type: 'phase'; phase: 'queued' | 'preparing' | 'working' | 'committing' | 'publishing'; position?: number }
+  /** `elapsedMs`: turun sunucuda başlamasından bu yana geçen süre (istemci saatinden bağımsız; geri bağlanan istemci sayacı doğru sürdürür). */
+  | { type: 'phase'; phase: 'queued' | 'preparing' | 'working' | 'committing' | 'publishing'; position?: number; elapsedMs?: number }
   /** Code: tur sonunda çalışma alanındaki toplam değişiklik (+N −M). */
   | { type: 'changes'; additions: number; deletions: number; files: number; sha: string | null }
   /** Code: modele giden bağlamın tahmini doluluğu (başlıktaki halka). */
