@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { CodeService, codeSessionId, globToRegExp, type PrepareRequest } from '../src/code.ts';
+import { CodeService, codeSessionId, globToRegExp, parseCurlResponse, parseListeningPorts, type PrepareRequest } from '../src/code.ts';
 import { loadConfig } from '../src/config.ts';
 import { LocalRuntime } from '../src/runtime/local.ts';
 import { buildServer } from '../src/server.ts';
@@ -386,5 +388,112 @@ describe('arşiv', () => {
     await code.prepare(req({ session: 'u1:arc2' }));
     await code.exec('u1', 'u1:arc2', 'head -c 3000000 /dev/urandom > big.bin');
     await expect(code.archive('u1', 'u1:arc2')).rejects.toMatchObject({ code: 'too_large' });
+  });
+});
+
+describe('önizleme: ham dosya, portlar ve dev-server proxy', () => {
+  it('raw: ikili dosyayı baytı baytına verir; yok/klasör/büyük hataları', async () => {
+    const { code } = makeCode();
+    await code.prepare(req({ session: 'u1:raw' }));
+    await code.exec('u1', 'u1:raw', "printf '\\x00\\x01\\xff\\xfe' > b.bin && mkdir -p d");
+    expect((await code.raw('u1', 'u1:raw', 'b.bin', 1024)).data.toString('hex')).toBe('0001fffe');
+    await expect(code.raw('u1', 'u1:raw', 'yok.txt', 1024)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(code.raw('u1', 'u1:raw', 'd', 1024)).rejects.toMatchObject({ code: 'is_directory' });
+    await expect(code.raw('u1', 'u1:raw', 'app.js', 8)).rejects.toMatchObject({ code: 'too_large' });
+    await expect(code.raw('u1', 'u1:raw', '../etc/passwd', 1024)).rejects.toThrow();
+  });
+
+  it('ports: dinleyen portları bulur', async () => {
+    const { code } = makeCode();
+    await code.prepare(req({ session: 'u1:ports' }));
+    const srv = createServer((_q, r) => r.end('x'));
+    await new Promise<void>((res) => srv.listen(0, '127.0.0.1', res));
+    const port = (srv.address() as AddressInfo).port;
+    try {
+      if (port >= 1024) expect(await code.ports('u1', 'u1:ports')).toContain(port);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('http: dev-server\'a istek yapar; durum, başlıklar, ikili gövde ve POST gövdesi geçer', async () => {
+    const { code } = makeCode();
+    await code.prepare(req({ session: 'u1:http' }));
+    const seen: Array<{ m?: string; url?: string; body: string; ct?: string; cookie?: string }> = [];
+    const srv = createServer((q, r) => {
+      const chunks: Buffer[] = [];
+      q.on('data', (c: Buffer) => chunks.push(c));
+      q.on('end', () => {
+        seen.push({ m: q.method, url: q.url, body: Buffer.concat(chunks).toString(), ct: q.headers['content-type'], cookie: q.headers.cookie });
+        if (q.url === '/bin') return void r.writeHead(200, { 'content-type': 'application/octet-stream', 'x-ozel': 'ok' }).end(Buffer.from([0, 1, 255, 254]));
+        if (q.url === '/yonlendir') return void r.writeHead(302, { location: '/bin' }).end();
+        r.writeHead(201, { 'content-type': 'text/plain', 'set-cookie': 'a=b' }).end('merhaba');
+      });
+    });
+    await new Promise<void>((res) => srv.listen(0, '127.0.0.1', res));
+    const port = (srv.address() as AddressInfo).port;
+    try {
+      const bin = await code.http('u1', 'u1:http', { port, method: 'GET', path: '/bin', headers: { cookie: 'gizli=1' } });
+      expect(bin.status).toBe(200);
+      expect(bin.body.toString('hex')).toBe('0001fffe');
+      expect(bin.headers).toContainEqual(['x-ozel', 'ok']);
+      expect(bin.headers.some(([k]) => k === 'content-length' || k === 'transfer-encoding')).toBe(false);
+      expect(seen[0]!.cookie).toBeUndefined(); // çerez iletilmez
+
+      const post = await code.http('u1', 'u1:http', { port, method: 'POST', path: '/api?x=1', headers: { 'content-type': 'application/json' }, body: Buffer.from('{"a":1}') });
+      expect(post.status).toBe(201);
+      expect(post.body.toString()).toBe('merhaba');
+      expect(seen[1]).toMatchObject({ m: 'POST', url: '/api?x=1', body: '{"a":1}', ct: 'application/json' });
+
+      const redir = await code.http('u1', 'u1:http', { port, method: 'GET', path: '/yonlendir', headers: {} });
+      expect(redir.status).toBe(302);
+      expect(redir.headers).toContainEqual(['location', '/bin']);
+
+      const head = await code.http('u1', 'u1:http', { port, method: 'HEAD', path: '/bin', headers: {} });
+      expect(head.status).toBe(200);
+      expect(head.body.length).toBe(0);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it('http: dinleyen yoksa anlaşılır hata; geçersiz port/yol/yöntem reddedilir', async () => {
+    const { code } = makeCode();
+    await code.prepare(req({ session: 'u1:http2' }));
+    const free = createServer();
+    await new Promise<void>((res) => free.listen(0, '127.0.0.1', res));
+    const port = (free.address() as AddressInfo).port;
+    await new Promise((res) => free.close(res));
+    await expect(code.http('u1', 'u1:http2', { port, method: 'GET', path: '/', headers: {} })).rejects.toMatchObject({ code: 'not_found' });
+    await expect(code.http('u1', 'u1:http2', { port: 80, method: 'GET', path: '/', headers: {} })).rejects.toThrow('Port');
+    await expect(code.http('u1', 'u1:http2', { port: 3000, method: 'GET', path: '/a b', headers: {} })).rejects.toThrow('yol');
+    await expect(code.http('u1', 'u1:http2', { port: 3000, method: 'CONNECT', path: '/', headers: {} })).rejects.toThrow('yöntem');
+  });
+
+  it('parseCurlResponse: 1xx ara yanıtını atlar, bozuk girdide null', () => {
+    const ok = parseCurlResponse(Buffer.from('HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\n\r\n<p>x</p>'));
+    expect(ok?.status).toBe(200);
+    expect(ok?.headers).toEqual([['content-type', 'text/html']]);
+    expect(ok?.body.toString()).toBe('<p>x</p>');
+    expect(parseCurlResponse(Buffer.from('bozuk'))).toBeNull();
+  });
+
+  it('parseListeningPorts: yalnızca LISTEN ve 1024+ portlar', () => {
+    const t = ['  sl  local_address rem_address   st', '   0: 0100007F:1F90 00000000:0000 0A 0 0', '   1: 0100007F:0050 00000000:0000 0A 0 0', '   2: 0100007F:1F91 0100007F:C350 01 0 0'].join('\n');
+    expect(parseListeningPorts(t)).toEqual([8080]);
+  });
+
+  it('HTTP uçları: /v1/code/raw ve /v1/code/http', async () => {
+    const { cfg, runtime, code } = makeCode();
+    const svc = new SandboxService(cfg, runtime, quiet);
+    const app = buildServer(svc, cfg, { logger: false, code });
+    const h = { authorization: 'Bearer test-token-test-token-test-token' };
+    await code.prepare(req({ session: 'u1:ep' }));
+    const raw = await app.inject({ method: 'POST', url: '/v1/code/raw', headers: h, payload: { user: 'u1', session: 'u1:ep', path: 'app.js' } });
+    expect(raw.statusCode).toBe(200);
+    expect(raw.body).toContain('merhaba');
+    const bad = await app.inject({ method: 'POST', url: '/v1/code/http', headers: h, payload: { user: 'u1', session: 'u1:ep', port: 80, method: 'GET', path: '/' } });
+    expect(bad.statusCode).toBe(400);
+    await app.close();
   });
 });

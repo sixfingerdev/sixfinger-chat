@@ -15,6 +15,8 @@ export interface ExecResult {
   truncated: boolean;
   timedOut: boolean;
   durationMs: number;
+  /** Ham stdout (ikili çıktılar için); çalıştırıcı doldurursa. */
+  stdoutBuf?: Buffer;
 }
 
 /** Code çalışma alanı sandbox'ı: kalıcı diskte, daha büyük kaynaklı, proxy üzerinden filtreli internetli. */

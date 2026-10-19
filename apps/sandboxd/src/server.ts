@@ -155,6 +155,23 @@ export function buildServer(service: SandboxService, cfg: Config, opts: { logger
       const tgz = await code.archive(b.user, b.session);
       return reply.type('application/gzip').send(tgz);
     });
+    app.post('/v1/code/raw', async (req, reply) => {
+      const b = z.object({ ...codeWho, path: z.string().min(1).max(400), max_mb: z.number().int().min(1).max(512).optional() }).parse(req.body);
+      const limit = Math.min(b.max_mb ?? cfg.CODE_PREVIEW_MAX_MB, cfg.CODE_ARCHIVE_MAX_MB) * 1_048_576;
+      const { data } = await code.raw(b.user, b.session, b.path, limit);
+      return reply.type('application/octet-stream').send(data);
+    });
+    app.post('/v1/code/ports', async (req) => {
+      const b = z.object(codeWho).parse(req.body);
+      return { ports: await code.ports(b.user, b.session) };
+    });
+    app.post('/v1/code/http', async (req) => {
+      const b = z
+        .object({ ...codeWho, port: z.number().int(), method: z.string().max(10), path: z.string().max(4_000), headers: z.record(z.string().max(2_000)).default({}), body_base64: z.string().max(4_000_000).optional() })
+        .parse(req.body);
+      const r = await code.http(b.user, b.session, { port: b.port, method: b.method, path: b.path, headers: b.headers, body: b.body_base64 ? Buffer.from(b.body_base64, 'base64') : undefined });
+      return { status: r.status, headers: r.headers, body_base64: r.body.toString('base64') };
+    });
     app.post('/v1/code/usage', async (req) => {
       const b = z.object(codeWho).parse(req.body);
       return code.usage(b.user, b.session);
