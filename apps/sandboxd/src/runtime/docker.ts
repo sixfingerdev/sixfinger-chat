@@ -108,12 +108,12 @@ export function buildCodeRunArgs(cfg: Config, name: string, p: CodeProfile): { a
 }
 
 /** Tek seferlik yardımcı (ör. token'lı `git clone`): çalışma alanı bağlı, iş bitince silinir; token yalnızca süreç ortamındadır. */
-export function buildHelperArgs(cfg: Config, p: CodeProfile, secretKeys: string[], argv: string[]): string[] {
+export function buildHelperArgs(cfg: Config, p: CodeProfile, secretKeys: string[], argv: string[], readOnly = false): string[] {
   const args = [
     'run', '--rm', '-i',
     '--label', LABEL,
     ...hardening,
-    '--mount', `type=bind,src=${p.hostDir},dst=/work`,
+    '--mount', `type=bind,src=${p.hostDir},dst=/work${readOnly ? ',readonly' : ''}`,
     '--tmpfs', `/tmp:rw,nosuid,nodev,size=${Math.min(p.tmpMb, 128)}m,uid=1000,gid=1000,mode=1777`,
     '--memory', '512m', '--memory-swap', '512m', '--cpus', '1', '--pids-limit', '128',
     '--workdir', '/work',
@@ -205,7 +205,7 @@ export class DockerRuntime implements Runtime {
     const secretKeys = Object.keys(opts.secretEnv ?? {});
     const env: Record<string, string> = { ...(opts.secretEnv ?? {}) };
     if (opts.profile.network === 'proxy' && opts.profile.proxyUrl) env.HTTP_PROXY = env.HTTPS_PROXY = env.http_proxy = env.https_proxy = opts.profile.proxyUrl;
-    const r = await capture('docker', buildHelperArgs(this.cfg, opts.profile, secretKeys, opts.argv), {
+    const r = await capture('docker', buildHelperArgs(this.cfg, opts.profile, secretKeys, opts.argv, opts.readOnly), {
       timeoutMs: opts.timeoutMs,
       maxOutput: opts.maxOutput,
       env: { ...process.env, ...env },

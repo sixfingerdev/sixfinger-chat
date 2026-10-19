@@ -131,5 +131,11 @@ describe('Code konteyneri bayrakları', () => {
     expect(has(a, '--entrypoint', 'git')).toBe(true);
     expect(a.filter((x) => x.startsWith('type=bind'))).toHaveLength(1);
     expect(a.join(' ')).not.toContain('gizli-parola'); // proxy kimliği de ortamdan
+    expect(a.some((x) => x.startsWith('type=bind') && x.endsWith(',readonly'))).toBe(false);
+  });
+
+  it('push için çalışma alanı SALT OKUNUR bağlanır', () => {
+    const a = buildHelperArgs(cfg, profile(), ['GH_TOKEN'], ['sh', '-c', 'x'], true);
+    expect(a.filter((x) => x.startsWith('type=bind') && x.endsWith(',readonly'))).toHaveLength(1);
   });
 });

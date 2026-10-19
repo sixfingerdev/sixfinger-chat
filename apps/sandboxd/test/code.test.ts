@@ -322,3 +322,40 @@ describe('HTTP uçları', () => {
     await app.close();
   });
 });
+
+describe('push', () => {
+  it('son commit\'i uzak depoya iter; ajanın yazdığı .git ayarları/hook\'ları token\'lı süreçte çalışmaz, token çıktıda sızmaz', async () => {
+    const { code } = makeCode();
+    const remote = join(tmp, 'remote.git');
+    rmSync(remote, { recursive: true, force: true });
+    execFileSync('git', ['init', '-q', '--bare', remote]);
+    await code.prepare(req({ session: 'u1:push' }));
+    await code.writeFile('u1', 'u1:push', 'yeni.txt', 'merhaba\n');
+    const c = await code.commit('u1', 'u1:push', 'deneme');
+    expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
+
+    // ajan .git/config ve hook'lara yazmaya çalışıyor (komut satırından; dosya aracı .git'e izin vermez)
+    const marker = join(tmp, 'pwned');
+    rmSync(marker, { force: true });
+    await code.exec('u1', 'u1:push', `printf '[core]\\n\\tfsmonitor = touch ${marker}\\n\\thooksPath = .git/hooks\\n[credential]\\n\\thelper = !touch ${marker}\\n' >> .git/config; printf '#!/bin/sh\\ntouch ${marker}\\n' > .git/hooks/pre-push; chmod +x .git/hooks/pre-push`);
+
+    const r = await code.push('u1', 'u1:push', 'gho_supersecrettoken', { pushUrl: remote });
+    expect(r).toMatchObject({ sha: c.sha, branch: 'sixfinger/alpha-abc123' });
+    expect(existsSync(marker)).toBe(false);
+    expect(JSON.stringify(r)).not.toContain('gho_supersecrettoken');
+    expect(git(remote, 'rev-parse', 'refs/heads/sixfinger/alpha-abc123').trim()).toBe(c.sha);
+
+    // ikinci commit: hızlı ileri sarma
+    await code.writeFile('u1', 'u1:push', 'iki.txt', 'x\n');
+    const c2 = await code.commit('u1', 'u1:push', 'ikinci');
+    await code.push('u1', 'u1:push', 'gho_supersecrettoken', { pushUrl: remote });
+    expect(git(remote, 'rev-parse', 'refs/heads/sixfinger/alpha-abc123').trim()).toBe(c2.sha);
+  });
+
+  it('pushUrl yalnızca local-unsafe\'te; token zorunlu; hazırlanmamış oturumda 409', async () => {
+    const { code } = makeCode();
+    await expect(code.push('u1', 'u1:yok', 'tok')).rejects.toMatchObject({ code: 'not_prepared' });
+    await code.prepare(req({ session: 'u1:push2' }));
+    await expect(code.push('u1', 'u1:push2', '')).rejects.toThrow(/GitHub erişimi/);
+  });
+});

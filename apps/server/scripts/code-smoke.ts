@@ -119,6 +119,9 @@ function localClient(dir: string): CodeSandboxClient {
     async commit() {
       return { sha: null };
     },
+    async push() {
+      throw new Error('push bu sınamada yok');
+    },
     async usage() {
       return { diskUsedMb: 1, diskMb: 512, running: true };
     },

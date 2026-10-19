@@ -501,6 +501,60 @@ export class CodeService {
     });
   }
 
+  /**
+   * Çalışma branch'indeki son commit'i GitHub'a iter. Token'lı git, ajanın yazabildiği `.git` dizinini ASLA kullanmaz:
+   * yardımcı konteynerde (çalışma alanı SALT OKUNUR bağlı) bizim kontrolümüzde boş bir git dizini açılır, nesneler yalnızca
+   * "alternates" ile (veri olarak) okunur; böylece ajanın yazdığı config/hook/helper ayarları token'lı süreçte çalışamaz.
+   */
+  async push(user: string, session: string, token: string, opts: { pushUrl?: string } = {}): Promise<{ sha: string; branch: string; output: string }> {
+    if (opts.pushUrl && this.cfg.SANDBOX_RUNTIME !== 'local-unsafe') throw new SandboxError('pushUrl yalnızca testlerde kullanılabilir.');
+    const s = this.state(user, session);
+    if (!token) throw new SandboxError('GitHub erişimi verilmedi.');
+    const { repo, workBranch } = s.req;
+    if (!REPO_RE.test(repo) || !BRANCH_RE.test(workBranch)) throw new SandboxError('Geçersiz repo ya da branch adı.');
+    return this.serial(s, async () => {
+      await this.ensureRunning(s);
+      const head = await this.container(s, ['sh', '-c', 'git rev-parse HEAD'], 20, 1024);
+      const sha = head.stdout.trim();
+      if (head.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(sha)) throw new SandboxError('Push edilecek commit bulunamadı.');
+      const gitId = `${s.id}-git`;
+      this.egress?.register(gitId, this.secretFor(gitId), { mode: 'custom', domains: ['github.com'] });
+      const profile: CodeProfile = { ...s.profile, network: this.egress ? 'proxy' : 'none', networkName: this.egress ? this.cfg.CODE_NETWORK_NAME : undefined, proxyUrl: this.egress ? this.proxyUrl(gitId) : undefined, env: {} };
+      const askpass = 'credential.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f';
+      const work = this.runtime.name === 'local-unsafe' ? s.dir : '/work';
+      const script = [
+        'set -e',
+        'export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0',
+        'T=$(mktemp -d)',
+        'git init -q --bare "$T/t.git"',
+        `if [ -f '${work}/.git/shallow' ]; then cp '${work}/.git/shallow' "$T/t.git/shallow"; fi`,
+        `echo '${work}/.git/objects' > "$T/t.git/objects/info/alternates"`,
+        'git --git-dir="$T/t.git" cat-file -e "$1^{commit}"',
+        `git --git-dir="$T/t.git" -c credential.helper= -c '${askpass}' ${opts.pushUrl ? '-c protocol.file.allow=always ' : ''}push --porcelain "$3" "$1:refs/heads/$2"`,
+      ].join('\n');
+      const url = opts.pushUrl ?? `https://github.com/${repo}.git`;
+      let r;
+      try {
+        r = await this.runtime.helper({
+          argv: ['sh', '-c', script, 'sh', sha, workBranch, url],
+          profile,
+          secretEnv: { GH_TOKEN: token },
+          readOnly: true,
+          timeoutMs: this.cfg.CODE_CLONE_TIMEOUT_SECONDS * 1000,
+          maxOutput: 32 * 1024,
+        });
+      } finally {
+        this.egress?.unregister(gitId);
+      }
+      const clean = (t: string) => t.split(token).join('***').replace(/x-access-token:[^@\s]+@/g, '').trim();
+      if (r.exitCode !== 0) {
+        const why = clean(r.stderr || r.stdout).slice(-500);
+        throw new SandboxError(`Push başarısız: ${r.timedOut ? 'zaman aşımı' : why || 'bilinmeyen hata'}`);
+      }
+      return { sha, branch: workBranch, output: clean(r.stdout).slice(-500) };
+    });
+  }
+
   async usage(user: string, session: string): Promise<{ diskUsedMb: number; diskMb: number; running: boolean }> {
     const s = this.state(user, session);
     return { diskUsedMb: await this.measureDisk(s, true), diskMb: s.req.diskMb, running: s.running };

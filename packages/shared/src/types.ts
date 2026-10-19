@@ -263,6 +263,8 @@ export interface CodeSessionDTO {
   deletions: number;
   filesChanged: number;
   headSha: string | null;
+  /** GitHub'a en son itilen commit (headSha farklıysa itilmemiş iş var). */
+  pushedSha: string | null;
   /** Modele giden son bağlamın tahmini token sayısı ve üst sınırı (başlıktaki halka). */
   contextTokens: number;
   contextLimit: number;
@@ -285,6 +287,27 @@ export interface CodeChangesDTO {
   files: CodeChangedFileDTO[];
   additions: number;
   deletions: number;
+  stale: boolean;
+}
+
+/** PR açmadan önce gösterilen model taslağı. */
+export interface CodePrDraftDTO {
+  title: string;
+  body: string;
+  base: string;
+  head: string;
+  commits: number;
+  additions: number;
+  deletions: number;
+  files: number;
+  /** headSha, GitHub'daki branch'ten ileride (itilecek iş var). */
+  needsPush: boolean;
+}
+
+/** Birleşik fark (git diff). `stale`: ajan çalışırken ya da çalışma alanı okunamadığında boş döner. */
+export interface CodeDiffDTO {
+  diff: string;
+  truncated: boolean;
   stale: boolean;
 }
 

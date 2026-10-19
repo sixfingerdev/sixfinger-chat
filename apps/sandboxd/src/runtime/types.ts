@@ -45,6 +45,8 @@ export interface HelperOptions {
   profile: CodeProfile;
   /** Yalnızca bu sürecin ortamına verilir (komut satırında ve `docker inspect`'te görünmez). */
   secretEnv?: Record<string, string>;
+  /** Çalışma alanını salt okunur bağla (ajanın yazdığı dosyalar token'lı konteynerde değiştirilemesin). */
+  readOnly?: boolean;
   timeoutMs: number;
   maxOutput: number;
 }

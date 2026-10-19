@@ -77,7 +77,10 @@ adresleri, DNS rebinding dahil reddedilir); yalnızca 80 ve 443 portlarına izin
 npm, PyPI, GitHub, crates.io, Go, Maven, RubyGems, jsDelivr/unpkg/cdnjs, Google Fonts, Playwright (`packages/…/egress.ts`).
 
 **Token güvenliği:** GitHub token'ı yalnızca ilk klonlamada, tek seferlik bir yardımcı konteynere **ortam değişkeni olarak** verilir
-(komut satırına yazılmaz); çalışma alanındaki `.git/config`'te token olmaz ve ajanın konteynerine hiç girmez. Push (Faz 4) da böyle yapılacak.
+(komut satırına yazılmaz); çalışma alanındaki `.git/config`'te token olmaz ve ajanın konteynerine hiç girmez. **Push da böyle yapılır** (`POST /code/sessions/:id/push|pr`, yalnızca kullanıcı onaylayınca): ajanın yazabildiği `.git` dizinine
+(config, hook, credential helper…) token'lı süreçte **hiç güvenilmez**. `sandboxd`, çalışma alanı **salt okunur** bağlı tek seferlik bir
+yardımcı konteynerde bizim kontrolümüzde boş bir bare git dizini açar; ajanın nesnelerini yalnızca *alternates* ile veri olarak okur ve
+son commit'i `sixfinger/…` branch'ine iter (zorla itme yok). Token yalnızca o konteynerin ortamındadır, çıktılardan temizlenir.
 
 ### Pi'de kurulum
 
@@ -144,6 +147,12 @@ Hepsi `/api` altında, Bearer token ister. İzin yoksa `403`, GitHub bağlı de�
 | `GET /code/repos?q=` · `GET /code/branches?repo=owner/name` | Repo ve branch listesi |
 | `GET/POST /code/environments` · `GET/PATCH/DELETE /code/environments/:id` | Ortamlar (değişkenler yalnızca tekil okumada döner) |
 | `GET/POST /code/sessions` · `GET/DELETE /code/sessions/:id` | Oturumlar |
+| `GET /code/sessions/:id/pulls` | Çalışma branch'indeki PR'lar |
+| `GET /code/sessions/:id/changes` | Değişen dosyalar (+N −M); ajan çalışırken `stale` |
+| `GET /code/sessions/:id/diff?path=` | Başlangıca göre birleşik fark (tüm dosyalar ya da tek dosya) |
+| `GET /code/sessions/:id/pr-draft` | Model yazımı PR başlığı/gövdesi (hiçbir şey itmez) |
+| `POST /code/sessions/:id/push` | Branch'i GitHub'a gönderir (ajan çalışırken `409`) |
+| `POST /code/sessions/:id/pr` `{title, body, draft}` | Önce push, sonra PR açar; zaten açıksa onu döndürür (`existed`) |
 
 ## Geliştirme
 

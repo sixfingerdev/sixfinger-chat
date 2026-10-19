@@ -2,7 +2,9 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import {
   branchesQuery,
   createCodeEnvSchema,
+  createPrSchema,
   createCodeSessionSchema,
+  diffQuery,
   githubCompleteSchema,
   githubStartSchema,
   listReposQuery,
@@ -209,6 +211,24 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
         } catch {
           return stale;
         }
+      });
+
+      /** PR taslağı (model yazar; kullanıcı düzenleyip onaylar). */
+      authed.get<{ Params: { id: string } }>('/code/sessions/:id/pr-draft', async (req) => ({ draft: await ctx.codeGit.draft(req.user!, req.params.id) }));
+
+      /** Yalnızca branch'i GitHub'a gönderir. Kullanıcının açık isteğidir (hiçbir şey kendiliğinden itilmez). */
+      authed.post<{ Params: { id: string } }>('/code/sessions/:id/push', async (req) => ctx.codeGit.push(req.user!, req.params.id));
+
+      /** Branch'i gönderir ve PR açar (zaten açıksa onu döndürür). */
+      authed.post<{ Params: { id: string } }>('/code/sessions/:id/pr', async (req) => {
+        const body = parse(createPrSchema, req.body);
+        return ctx.codeGit.createPr(req.user!, req.params.id, body);
+      });
+
+      /** Başlangıca göre birleşik fark (tüm dosyalar ya da tek `path`). */
+      authed.get<{ Params: { id: string }; Querystring: { path?: string } }>('/code/sessions/:id/diff', async (req) => {
+        const q = parse(diffQuery, req.query);
+        return ctx.codeGit.diff(req.user!, req.params.id, q.path);
       });
 
       authed.delete<{ Params: { id: string } }>('/code/sessions/:id', async (req, reply) => {

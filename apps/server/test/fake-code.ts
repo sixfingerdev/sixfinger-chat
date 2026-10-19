@@ -1,3 +1,4 @@
+import { ToolError } from '../src/services/tools/errors.ts';
 import { FileNotFoundError, IsDirectoryError, NotPreparedError, type CodeSandboxClient } from '../src/services/tools/code-client.ts';
 import type { ExecOutcome } from '../src/services/tools/sandbox.ts';
 
@@ -9,6 +10,8 @@ export function fakeCode(initial: Record<string, string> = {}) {
     prepares: [] as Array<Record<string, unknown>>,
     execs: [] as string[],
     commits: [] as string[],
+    pushes: [] as Array<{ token: string; sha: string }>,
+    failPush: null as string | null,
     failPrepare: null as string | null,
     needPrepare: false,
     execImpl: (_c: string): Partial<ExecOutcome & { diskUsedMb: number }> => ({}),
@@ -67,6 +70,13 @@ export function fakeCode(initial: Record<string, string> = {}) {
       if (!diff().length) return { sha: null };
       state.commits.push(message);
       return { sha: `${state.commits.length}`.padStart(40, 'c') };
+    },
+    async push(_s, token) {
+      if (state.needPrepare) throw new NotPreparedError();
+      if (state.failPush) throw new ToolError(state.failPush);
+      const sha = state.commits.length ? `${state.commits.length}`.padStart(40, 'c') : 'a'.repeat(40);
+      state.pushes.push({ token, sha });
+      return { sha, branch: 'sixfinger/test', output: '' };
     },
     async usage() {
       return { diskUsedMb: 3, diskMb: 512, running: true };

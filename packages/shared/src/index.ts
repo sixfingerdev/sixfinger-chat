@@ -14,3 +14,4 @@ export * from './code-mascot.ts';
 export * from './tools.ts';
 export * from './rich.ts';
 export { widgetKitCss, WIDGET_KIT_JS } from './widget-kit.ts';
+export * from './diff.ts';

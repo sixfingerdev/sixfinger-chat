@@ -146,6 +146,10 @@ export function buildServer(service: SandboxService, cfg: Config, opts: { logger
       const b = codeCommitBody.parse(req.body);
       return code.commit(b.user, b.session, b.message);
     });
+    app.post('/v1/code/push', async (req) => {
+      const b = z.object({ ...codeWho, token: z.string().min(1).max(500) }).parse(req.body);
+      return code.push(b.user, b.session, b.token);
+    });
     app.post('/v1/code/usage', async (req) => {
       const b = z.object(codeWho).parse(req.body);
       return code.usage(b.user, b.session);

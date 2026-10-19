@@ -53,6 +53,43 @@ export function createGithub(config: Config, fetchImpl: FetchLike = fetch) {
     }
   };
 
+  async function listPulls(token: string, repo: string, branch: string): Promise<CodePullDTO[]> {
+    return wrapNetwork(async () => {
+      const owner = repo.split('/')[0]!;
+      const list = await json<Array<{ number: number }>>(
+        await call(`${API}/repos/${repo}/pulls?state=all&per_page=5&head=${encodeURIComponent(`${owner}:${branch}`)}`, { token }),
+        'Pull request listesi',
+      );
+      const out: CodePullDTO[] = [];
+      for (const p of list.slice(0, 5)) {
+        const d = await json<{
+          number: number; title: string; state: string; merged?: boolean; draft?: boolean; html_url: string;
+          additions?: number; deletions?: number; changed_files?: number;
+        }>(await call(`${API}/repos/${repo}/pulls/${p.number}`, { token }), 'Pull request');
+        out.push({
+          number: d.number,
+          title: d.title,
+          state: d.merged ? 'merged' : d.state === 'open' ? 'open' : 'closed',
+          draft: Boolean(d.draft),
+          url: d.html_url,
+          additions: d.additions ?? 0,
+          deletions: d.deletions ?? 0,
+          changedFiles: d.changed_files ?? 0,
+        });
+      }
+      return out;
+    });
+  }
+
+  const parseGithubMessage = (text: string): string => {
+    try {
+      const j = JSON.parse(text) as { message?: string; errors?: Array<{ message?: string }> };
+      return [j.message, ...(j.errors ?? []).map((e) => e.message)].filter(Boolean).join('; ').slice(0, 300) || 'bilinmeyen hata';
+    } catch {
+      return 'bilinmeyen hata';
+    }
+  };
+
   return {
     configured,
 
@@ -138,31 +175,35 @@ export function createGithub(config: Config, fetchImpl: FetchLike = fetch) {
     },
 
     /** Bir branch'ten açılmış pull request'ler (en yeni 5; ekleme/silme sayıları için tek tek okunur). */
-    async pulls(token: string, repo: string, branch: string): Promise<CodePullDTO[]> {
+    pulls: listPulls,
+
+    /** Pull request açar. Aynı branch için zaten açıksa onu döndürür (`existed: true`). */
+    async createPull(
+      token: string,
+      repo: string,
+      a: { title: string; body: string; head: string; base: string; draft: boolean },
+    ): Promise<{ pull: CodePullDTO; existed: boolean }> {
       return wrapNetwork(async () => {
-        const owner = repo.split('/')[0]!;
-        const list = await json<Array<{ number: number }>>(
-          await call(`${API}/repos/${repo}/pulls?state=all&per_page=5&head=${encodeURIComponent(`${owner}:${branch}`)}`, { token }),
-          'Pull request listesi',
-        );
-        const out: CodePullDTO[] = [];
-        for (const p of list.slice(0, 5)) {
-          const d = await json<{
-            number: number; title: string; state: string; merged?: boolean; draft?: boolean; html_url: string;
-            additions?: number; deletions?: number; changed_files?: number;
-          }>(await call(`${API}/repos/${repo}/pulls/${p.number}`, { token }), 'Pull request');
-          out.push({
-            number: d.number,
-            title: d.title,
-            state: d.merged ? 'merged' : d.state === 'open' ? 'open' : 'closed',
-            draft: Boolean(d.draft),
-            url: d.html_url,
-            additions: d.additions ?? 0,
-            deletions: d.deletions ?? 0,
-            changedFiles: d.changed_files ?? 0,
-          });
+        const res = await call(`${API}/repos/${repo}/pulls`, {
+          method: 'POST',
+          token,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ title: a.title, body: a.body, head: a.head, base: a.base, draft: a.draft }),
+        });
+        if (res.status === 403) throw new HttpError(403, 'forbidden', 'GitHub bu repoda PR açmana izin vermedi.');
+        if (res.status === 422) {
+          const text = await res.text();
+          if (/already exists/i.test(text)) {
+            const open = (await listPulls(token, repo, a.head)).find((p) => p.state === 'open');
+            if (open) return { pull: open, existed: true };
+          }
+          throw new HttpError(400, 'bad_request', `GitHub PR'ı kabul etmedi: ${parseGithubMessage(text)}`);
         }
-        return out;
+        const d = await json<{ number: number; title: string; state: string; merged?: boolean; draft?: boolean; html_url: string; additions?: number; deletions?: number; changed_files?: number }>(res, 'Pull request');
+        return {
+          existed: false,
+          pull: { number: d.number, title: d.title, state: 'open', draft: Boolean(d.draft), url: d.html_url, additions: d.additions ?? 0, deletions: d.deletions ?? 0, changedFiles: d.changed_files ?? 0 },
+        };
       });
     },
 

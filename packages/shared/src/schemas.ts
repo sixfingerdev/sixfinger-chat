@@ -157,5 +157,11 @@ export const createCodeSessionSchema = z.object({
   baseBranch: z.string().trim().min(1).max(200),
   environmentId: z.string().uuid().optional(),
 });
+export const createPrSchema = z.object({
+  title: z.string().trim().min(1).max(256),
+  body: z.string().max(20_000).default(''),
+  draft: z.boolean().default(false),
+});
+export const diffQuery = z.object({ path: z.string().trim().min(1).max(500).optional() });
 export const listReposQuery = z.object({ q: z.string().trim().max(100).optional() });
 export const branchesQuery = z.object({ repo: createCodeSessionSchema.shape.repo });

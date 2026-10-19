@@ -50,6 +50,9 @@ function fake(initial: Record<string, string> = {}) {
     async commit() {
       return { sha: null };
     },
+    async push() {
+      return { sha: 'a'.repeat(40), branch: 'x', output: '' };
+    },
     async usage() {
       return { diskUsedMb: 1, diskMb: 512, running: true };
     },

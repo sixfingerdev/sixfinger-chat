@@ -80,6 +80,8 @@ export interface CodeSandboxClient {
   ): Promise<{ lines: string[]; truncated: boolean }>;
   changes(s: CodeScope, signal: AbortSignal): Promise<ChangesOutcome>;
   commit(s: CodeScope, message: string, signal: AbortSignal): Promise<{ sha: string | null }>;
+  /** Son commit'i GitHub'a iter (token yalnızca sandboxd'nin tek seferlik yardımcı konteynerinde kullanılır). */
+  push(s: CodeScope, token: string, signal: AbortSignal): Promise<{ sha: string; branch: string; output: string }>;
   usage(s: CodeScope, signal: AbortSignal): Promise<{ diskUsedMb: number; diskMb: number; running: boolean }>;
   destroy(s: CodeScope): Promise<void>;
 }
@@ -136,6 +138,7 @@ export function createCodeClient(baseUrl: string, token: string, fetchImpl: type
     grep: (s, a, signal) => call('grep', { ...who(s), pattern: a.pattern, path: a.path, include: a.include, literal: a.literal, case_sensitive: a.caseSensitive, limit: a.limit }, signal, 60_000),
     changes: (s, signal) => call('changes', who(s), signal, 90_000),
     commit: (s, message, signal) => call('commit', { ...who(s), message }, signal, 90_000),
+    push: (s, token, signal) => call('push', { ...who(s), token }, signal, 5 * 60_000),
     usage: (s, signal) => call('usage', who(s), signal, 120_000),
     destroy: (s) => call('destroy', who(s), new AbortController().signal, 60_000),
   };

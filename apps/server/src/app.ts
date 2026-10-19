@@ -27,6 +27,7 @@ import { CodeQueue } from './services/code-queue.ts';
 import { createCodes } from './services/codes.ts';
 import { createSessions } from './services/sessions.ts';
 import { createUsage } from './services/usage.ts';
+import { createCodeGit } from './services/code-git.ts';
 import { createCode } from './services/code.ts';
 import { createGithub } from './services/github.ts';
 import { createSecretBox } from './lib/secretbox.ts';
@@ -85,7 +86,9 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     codeQueue: new CodeQueue({ maxRuns: config.CODE_MAX_RUNS, maxQueue: config.CODE_MAX_QUEUE }),
     codeSandbox,
     tools: opts.tools ?? createTools([], { sandbox: sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : undefined, code: codeSandbox ?? undefined }),
+    codeGit: undefined as never,
   };
+  ctx.codeGit = createCodeGit({ db, ai: ctx.ai, code: ctx.code, github: ctx.github, sandbox: codeSandbox, runs: ctx.runs, config });
   const guard = createGuard(ctx);
   app.decorateRequest('user', null);
 

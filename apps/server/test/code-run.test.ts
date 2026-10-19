@@ -428,3 +428,119 @@ describe('Değişiklik listesi', () => {
     expect((await env.app.inject({ method: 'GET', url: `/api/code/sessions/${a.user.id}/changes`, headers: auth(a) })).statusCode).toBe(404);
   });
 });
+
+describe('GitHub: PR taslağı, push, PR açma, fark', () => {
+  const calls: Array<{ method: string; url: string; body: string }> = [];
+  let existing = false;
+  async function bootGit() {
+    calls.length = 0;
+    existing = false;
+    fc = fakeCode({ 'app.js': 'console.log(1);\n' });
+    const cfg = loadConfig();
+    const fetchMock = async (u: string, init?: RequestInit) => {
+      const url = String(u);
+      const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
+      calls.push({ method: init?.method ?? 'GET', url, body: String(init?.body ?? '') });
+      if (init?.method === 'POST' && url.endsWith('/pulls')) {
+        if (existing) return json({ message: 'Validation Failed', errors: [{ message: 'A pull request already exists for octo:x.' }] }, 422);
+        return json({ number: 7, title: JSON.parse(String(init.body)).title, state: 'open', draft: JSON.parse(String(init.body)).draft, html_url: 'https://github.com/octo/alpha/pull/7' }, 201);
+      }
+      if (url.includes('/pulls?')) return json([{ number: 3 }]);
+      if (url.endsWith('/pulls/3')) return json({ number: 3, title: 'Var olan', state: 'open', draft: false, html_url: 'https://github.com/octo/alpha/pull/3', additions: 5, deletions: 1, changed_files: 2 });
+      return json({});
+    };
+    await env.app.close();
+    env = await setup([], { code: fc.client }, { config: cfg, codeSandbox: fc.client, github: createGithub(cfg, fetchMock as unknown as typeof fetch) });
+    await resetDb(env.ctx);
+    fc.state.execImpl = (c) => {
+      if (c.includes('git log --reverse')) return { stdout: 'feat: a.js ekle\n---STAT---\n a.js | 2 ++\n 1 file changed, 2 insertions(+)\n' };
+      if (c.includes('git diff --cached --no-color')) return { stdout: 'diff --git a/a.js b/a.js\nnew file mode 100644\n--- /dev/null\n+++ b/a.js\n@@ -0,0 +1,2 @@\n+x\n+y\n' };
+      return {};
+    };
+    const { a, s } = await prepared();
+    env.ai.steps = [[call('c1', 'write', { path: 'a.js', content: 'x\ny\n' })], text('Tamam.')];
+    await send(a, s.chatId, 'a.js ekle');
+    return { a, s };
+  }
+  const get = (a: Awaited<ReturnType<typeof member>>, url: string) => env.app.inject({ method: 'GET', url: `/api${url}`, headers: auth(a) });
+  const post = (a: Awaited<ReturnType<typeof member>>, url: string, payload: object = {}) => env.app.inject({ method: 'POST', url: `/api${url}`, headers: auth(a), payload });
+
+  it('taslak: model başlık/gövde yazar, footer eklenir; PR açmak önce push eder; iş bitince needsPush kapanır', async () => {
+    const { a, s } = await bootGit();
+    env.ai.completeText = 'Boş şifreyi reddet\n\n## Summary\n- a.js eklendi';
+    const d = (await get(a, `/code/sessions/${s.chatId}/pr-draft`)).json().draft;
+    expect(d).toMatchObject({ title: 'Boş şifreyi reddet', commits: 1, needsPush: true, base: 'main', head: s.workBranch });
+    expect(d.body).toContain('## Summary');
+    expect(d.body).toContain('Created with SixFinger Code');
+    expect(d.body).not.toContain('/code/s/'); // oturum bağlantısı varsayılan kapalı
+
+    expect(fc.state.pushes).toHaveLength(0); // taslak hiçbir şey itmez
+    const r = await post(a, `/code/sessions/${s.chatId}/pr`, { title: 'Boş şifreyi reddet', body: d.body, draft: true });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ existed: false, pull: { number: 7, draft: true, url: 'https://github.com/octo/alpha/pull/7' } });
+    expect(fc.state.pushes).toEqual([{ token: 'gho_testtoken', sha: expect.stringMatching(/^c+1$/) }]);
+    const prCall = calls.find((c) => c.method === 'POST' && c.url.endsWith('/pulls'))!;
+    expect(JSON.parse(prCall.body)).toMatchObject({ head: s.workBranch, base: 'main', draft: true, title: 'Boş şifreyi reddet' });
+
+    const sess = (await get(a, `/code/sessions/${s.chatId}`)).json().session;
+    expect(sess.pushedSha).toBe(sess.headSha);
+    expect((await get(a, `/code/sessions/${s.chatId}/pr-draft`)).json().draft.needsPush).toBe(false);
+  });
+
+  it('PR zaten açıksa onu döndürür; model çalışmazsa commit başlığıyla taslak; yalnızca push', async () => {
+    const { a, s } = await bootGit();
+    existing = true;
+    const r = await post(a, `/code/sessions/${s.chatId}/pr`, { title: 'x', body: '' });
+    expect(r.json()).toMatchObject({ existed: true, pull: { number: 3, title: 'Var olan' } });
+
+    env.ai.complete = async () => {
+      throw new Error('model yok');
+    };
+    const d = (await get(a, `/code/sessions/${s.chatId}/pr-draft`)).json().draft;
+    expect(d.title).toBe('feat: a.js ekle');
+    expect(d.body).toContain('- feat: a.js ekle');
+
+    const before = fc.state.pushes.length;
+    const p = await post(a, `/code/sessions/${s.chatId}/push`);
+    expect(p.statusCode).toBe(200);
+    expect(fc.state.pushes).toHaveLength(before + 1);
+
+    // sandboxd yeniden başlamışsa çalışma alanı otomatik hazırlanıp push yeniden denenir
+    fc.state.needPrepare = true;
+    const prepares = fc.state.prepares.length;
+    expect((await post(a, `/code/sessions/${s.chatId}/push`)).statusCode).toBe(200);
+    expect(fc.state.prepares).toHaveLength(prepares + 1);
+  });
+
+  it('hatalar: push başarısızsa 502 ve neden; GitHub yoksa 409; başkasının oturumu 404; çalışırken 409', async () => {
+    const { a, s } = await bootGit();
+    fc.state.failPush = 'Push başarısız: non-fast-forward';
+    const bad = await post(a, `/code/sessions/${s.chatId}/push`);
+    expect(bad.statusCode).toBe(502);
+    expect(bad.json().error.message).toContain('non-fast-forward');
+    fc.state.failPush = null;
+
+    env.ctx.config.codeAllowed.emails.add('baska@example.com');
+    const other = await member(env, { email: 'baska@example.com' });
+    expect((await post(other, `/code/sessions/${s.chatId}/push`)).statusCode).toBe(404);
+    expect((await get(other, `/code/sessions/${s.chatId}/diff`)).statusCode).toBe(404);
+    expect((await post(a, `/code/sessions/${s.chatId}/pr`, { title: '' })).statusCode).toBe(400);
+
+    // ajan çalışırken itme reddedilir; fark ve taslak "stale" döner
+    fc.state.delayMs = 400;
+    env.ai.steps = [[call('d1', 'bash', { command: 'sleep 1' })], [call('d2', 'bash', { command: 'sleep 1' })], text('bitti')];
+    const running = send(a, s.chatId, 'uzun iş');
+    await new Promise((r) => setTimeout(r, 500));
+    expect((await post(a, `/code/sessions/${s.chatId}/push`)).statusCode).toBe(409);
+    expect((await get(a, `/code/sessions/${s.chatId}/diff`)).json()).toMatchObject({ stale: true, diff: '' });
+    await running;
+  });
+
+  it('fark ucu: tek dosya için yolu güvenli iletir, çıktıyı döndürür', async () => {
+    const { a, s } = await bootGit();
+    const r = (await get(a, `/code/sessions/${s.chatId}/diff?path=${encodeURIComponent("a b'.js")}`)).json();
+    expect(r).toMatchObject({ stale: false, truncated: false });
+    expect(r.diff).toContain('+++ b/a.js');
+    expect(fc.state.execs.some((c) => c.includes("-- 'a b'\\''.js'"))).toBe(true);
+  });
+});
