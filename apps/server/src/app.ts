@@ -94,7 +94,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     tools: opts.tools ?? createTools([], { sandbox: sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : undefined, code: codeSandbox ?? undefined }),
     codeGit: undefined as never,
     codePreview: undefined as never,
-    skills: opts.skills ?? createSkills({ db }),
+    skills: opts.skills ?? createSkills({ db, log: app.log }),
   };
   ctx.codeGit = createCodeGit({ db, ai: ctx.ai, code: ctx.code, github: ctx.github, sandbox: codeSandbox, runs: ctx.runs, config, skills: ctx.skills });
   ctx.codePreview = createCodePreview({ codeGit: ctx.codeGit, secrets: ctx.secrets, code: ctx.code });

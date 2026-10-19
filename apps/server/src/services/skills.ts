@@ -324,8 +324,9 @@ export type SkillRuntime = ReturnType<typeof createSkillRuntime>;
 
 // ------------------------------------------------------------------------------------------------ servis
 
-export function createSkills(deps: { db: Db; builtin?: Map<string, SkillBundle> }) {
-  const builtin = deps.builtin ?? loadBuiltinSkills();
+export function createSkills(deps: { db: Db; builtin?: Map<string, SkillBundle>; log?: { info: (o: object, m: string) => void; warn: (o: object, m: string) => void } }) {
+  const builtin = deps.builtin ?? loadBuiltinSkills(undefined, (name, error) => deps.log?.warn({ skill: name, error }, 'yerleşik skill atlandı'));
+  deps.log?.info({ count: builtin.size, skills: [...builtin.keys()] }, 'yerleşik skill\'ler yüklendi');
   const store = createSkillStore(deps.db);
 
   /** Bu kullanıcı ve ortam için katalog. `repo` verilmezse (sandbox yok) yalnızca yerleşik + kullanıcı. */
