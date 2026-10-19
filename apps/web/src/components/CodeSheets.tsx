@@ -82,7 +82,7 @@ export function UsageSheet({ tokens, limit, onClose }: { tokens: number; limit: 
 
 const PR_ICON = { open: GitPullRequest, merged: GitMerge, closed: GitPullRequestClosed } as const;
 
-export function PullsSheet({ chatId, onClose }: { chatId: string; onClose: () => void }) {
+export function PullsSheet({ chatId, onClose, onCreatePr }: { chatId: string; onClose: () => void; onCreatePr: () => void }) {
   const t = useT();
   const [pulls, setPulls] = useState<CodePullDTO[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -134,13 +134,18 @@ export function PullsSheet({ chatId, onClose }: { chatId: string; onClose: () =>
           </a>
         );
       })}
+      {(pulls || failed) && (
+        <button className="btn btn-primary pr-create" onClick={onCreatePr}>
+          <GitPullRequest size={15} /> {t('code.pr.create')}
+        </button>
+      )}
     </Sheet>
   );
 }
 
 const STATUS_KEY = { added: 'code.file.added', modified: 'code.file.modified', deleted: 'code.file.deleted', renamed: 'code.file.renamed' } as const;
 
-export function ChangesSheet({ chatId, running, onClose }: { chatId: string; running: boolean; onClose: () => void }) {
+export function ChangesSheet({ chatId, running, onClose, onDiff, onCreatePr }: { chatId: string; running: boolean; onClose: () => void; onDiff: (path?: string) => void; onCreatePr: () => void }) {
   const t = useT();
   const [data, setData] = useState<CodeChangesDTO | null>(null);
   const [failed, setFailed] = useState(false);
@@ -182,17 +187,27 @@ export function ChangesSheet({ chatId, running, onClose }: { chatId: string; run
             <ul className="change-list">
               {data.files.map((f) => (
                 <li key={f.path}>
-                  <span className="change-path" title={f.path}>
-                    {f.path}
-                  </span>
-                  <span className="change-status">{t(STATUS_KEY[f.status])}</span>
-                  <Delta add={f.additions} del={f.deletions} />
+                  <button className="change-row" onClick={() => onDiff(f.path)} title={f.path}>
+                    <span className="change-path">{f.path}</span>
+                    <span className="change-status">{t(STATUS_KEY[f.status])}</span>
+                    <Delta add={f.additions} del={f.deletions} />
+                  </button>
                 </li>
               ))}
             </ul>
           )}
           {data.stale && data.files.length > 0 && <p className="muted">{t('code.changes.stale')}</p>}
           {running && data.stale && data.files.length === 0 && <Loader size={14} className="spin" />}
+          {!running && data.additions + data.deletions > 0 && (
+            <div className="pr-actions">
+              <button className="btn btn-ghost" onClick={() => onDiff()}>
+                {t('code.diff.all')}
+              </button>
+              <button className="btn btn-primary" onClick={onCreatePr}>
+                <GitPullRequest size={15} /> {t('code.openPr')}
+              </button>
+            </div>
+          )}
         </>
       )}
     </Sheet>

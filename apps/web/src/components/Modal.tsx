@@ -4,6 +4,9 @@ import { X } from 'lucide-react';
 import { clsx } from '../lib/format.ts';
 import { useT } from '../lib/i18n/index.ts';
 
+/** Açık pencereler (üstteki en sonda): Esc ve Tab yalnızca en üsttekini etkiler. */
+const openModals: symbol[] = [];
+
 export function Modal({
   title,
   onClose,
@@ -26,7 +29,10 @@ export function Modal({
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
+    const me = Symbol('modal');
+    openModals.push(me);
     const onKey = (e: KeyboardEvent) => {
+      if (openModals[openModals.length - 1] !== me) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         onClose();
@@ -55,6 +61,7 @@ export function Modal({
     });
     return () => {
       document.removeEventListener('keydown', onKey, true);
+      openModals.splice(openModals.indexOf(me), 1);
       prev?.focus?.();
     };
   }, [onClose]);
