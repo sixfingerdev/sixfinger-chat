@@ -45,6 +45,9 @@ services:
       LLM7_MODEL: ${LLM7_MODEL:-DeepSeek-V4-Flash-0731}
       LLM7_MODEL_2: ${LLM7_MODEL_2:-GLM-5.3-Flash}
       KILO_API_KEY: ${KILO_API_KEY:-}
+      LLMTR_API_KEY: ${LLMTR_API_KEY:-}
+      LLMTR_QWEN_MODEL: ${LLMTR_QWEN_MODEL:-qwen/qwen3.8-27b-free}
+      LLMTR_NEMOTRON_MODEL: ${LLMTR_NEMOTRON_MODEL:-nvidia/nemotron-3.5-super-vl-free}
       KILO_MODEL: ${KILO_MODEL:-minimax/minimax-m3.1-flash:free}
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
       BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}

@@ -235,6 +235,45 @@ describe('Pollinations sağlayıcısı', () => {
       expect(await code({ ...cfg, AI_FREE_FOR_CODE: false }, 'deep')).toEqual(['Qwen3.8-27B']);
     });
 
+    it('LLMTR_API_KEY varsa: Qwen\'in yedeği llmtr\'deki Qwen 3.8, Nemotron 3.5 Hızlı\'da DeepSeek\'ten hemen sonra, güçte gpt-oss\'tan önce; anahtarsızken hiç yok', async () => {
+      const withKey = { ...cfg, LLMTR_API_KEY: 'llmtr-test' };
+      const failAll = (url: string) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 }));
+      const deep = await run('deep', failAll, withKey);
+      expect(deep.calls.map((c) => c.model)).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'qwen/qwen3.8-27b-free', 'minimax/minimax-m3.1-flash:free', 'nvidia/nemotron-3.5-super-vl-free', 'gpt-oss-120b', 'openai-fast']);
+      expect(deep.calls.find((c) => c.model === 'qwen/qwen3.8-27b-free')!.auth).toBe('Bearer llmtr-test');
+      const fast = await run('fast', failAll, withKey);
+      expect(fast.calls.map((c) => c.model)).toEqual(['minimax/minimax-m3.1-flash:free', 'DeepSeek-V4-Flash-0731', 'nvidia/nemotron-3.5-super-vl-free', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'qwen/qwen3.8-27b-free', 'gpt-oss-120b', 'openai-fast']);
+      const none = await run('deep', failAll);
+      expect(none.calls.some((c) => c.model.includes('llmtr') || c.model.includes('nemotron') || c.model === 'qwen/qwen3.8-27b-free')).toBe(false);
+    });
+
+    it('Code: llmtr Qwen yalnızca Qwen\'den sonra (AI_FREE_FOR_CODE açıkken); Nemotron Code\'a girmez; llmtr 429 verince atlanır', async () => {
+      const withKey = { ...cfg, LLMTR_API_KEY: 'llmtr-test' };
+      const code = async (c: typeof cfg, mode: 'fast' | 'deep', handler: (url: string, model: string) => Response = () => new Response('{}', { status: 400 })) => {
+        const models: string[] = [];
+        const fetchMock = async (u: string, init: RequestInit) => {
+          const m = JSON.parse(String(init.body)).model;
+          models.push(m);
+          return handler(u, m);
+        };
+        const ai = createAi(c, undefined, fetchMock as unknown as typeof fetch);
+        await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode, route: 'code' }).catch(() => '');
+        return models;
+      };
+      expect(await code(withKey, 'deep')).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'qwen/qwen3.8-27b-free']);
+      expect(await code(withKey, 'fast')).toEqual(['minimax/minimax-m3.1-flash:free', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'qwen/qwen3.8-27b-free']);
+      expect(await code({ ...withKey, AI_FREE_FOR_CODE: false }, 'deep')).toEqual(['Qwen3.8-27B']);
+      // llmtr günlük ücretsiz kotası doldu (429 + uzun retry-after): o uç 10 dk atlanır
+      let calls = 0;
+      const quota = (_u: string, m: string) => {
+        if (m === 'qwen/qwen3.8-27b-free') calls++;
+        return m === 'qwen/qwen3.8-27b-free' ? new Response('{"error":{"type":"rate_limit_error"}}', { status: 429, headers: { 'retry-after': '86000' } }) : new Response('{}', { status: 400 });
+      };
+      const ai = createAi(withKey, undefined, (async (u: string, init: RequestInit) => quota(u, JSON.parse(String(init.body)).model)) as unknown as typeof fetch);
+      for (let i = 0; i < 3; i++) await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'deep', route: 'code' }).catch(() => '');
+      expect(calls).toBe(1);
+    });
+
     it('AI_FREE_ENABLED kapalıyken zincire girmez', async () => {
       const r = await run('fast', (url) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 })), { ...cfg, AI_FREE_ENABLED: false });
       expect(r.calls.map((c) => c.model)).toEqual(['Qwen3.8-27B', 'gpt-oss-120b', 'openai-fast']);

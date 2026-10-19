@@ -128,17 +128,24 @@ describe('yedek zinciri', () => {
     expect(Date.now() - t0).toBeLessThan(3000);
   });
 
-  it('Derin 200 dışı verirse Bedrock, o da düşerse Hızlı denenir', async () => {
+  it('Claude (tek paralı sağlayıcı) HER ZAMAN en sonda: Derin\'de önce tüm ücretsizler (Qwen, gpt-oss…), hepsi düşerse Bedrock', async () => {
     const urls: string[] = [];
+    // Pollinations (Hızlı) dahil hepsi hata verir: yalnızca o zaman Bedrock denenir
     const fetchMock = async (url: string) => {
       urls.push(url);
-      return url === cfg.AI_DEEP_BASE_URL ? new Response('{}', { status: 400 }) : ok();
+      return new Response('{}', { status: 400 });
     };
     const calls: string[] = [];
-    const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch, fake('bedrock', calls, 'fail'));
-    expect(await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'deep' })).toBe('fast');
+    const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch, fake('bedrock', calls, 'ok'));
+    expect(await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'deep' })).toBe('bedrock');
+    expect(urls.at(-1)).toBe(cfg.AI_BASE_URL); // Pollinations'a kadar inildi
     expect(calls).toEqual(['bedrock']);
-    expect(urls.at(-1)).toBe(cfg.AI_BASE_URL);
+    // Ücretsizlerden biri yanıt verirse Bedrock'a hiç gidilmez
+    calls.length = 0;
+    const okFetch = async (url: string) => (url === cfg.AI_DEEP_BASE_URL ? new Response('{}', { status: 400 }) : ok());
+    const ai2 = createAi(cfg, undefined, okFetch as unknown as typeof fetch, fake('bedrock', calls, 'ok'));
+    expect(await ai2.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'deep' })).not.toBe('bedrock');
+    expect(calls).toEqual([]);
   });
 
   it('boş (200 ama içeriksiz) yanıt da yedeğe düşürür', async () => {
