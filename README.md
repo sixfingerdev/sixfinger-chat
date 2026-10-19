@@ -74,7 +74,7 @@ Güç sırası: DeepSeek > GLM > Qwen > MiniMax = Claude > gpt-oss-120b > gpt-os
 | Mod | Sıra |
 |---|---|
 | Hızlı | **MiniMax** → DeepSeek → GLM → Qwen → gpt-oss-120b → gpt-oss-20b → Claude |
-| Dengeli | **gpt-oss-120b** → DeepSeek → GLM → MiniMax → Qwen → Claude → gpt-oss-20b |
+| Dengeli | **gpt-oss-120b** → MiniMax → GLM → DeepSeek → Qwen → Claude → gpt-oss-20b |
 | Derin | DeepSeek → GLM → Qwen → MiniMax → Claude → gpt-oss-120b → gpt-oss-20b |
 
 Yapılandırılmamış sağlayıcılar (`*_BASE_URL` boş, Bedrock yok) atlanır; `AI_FREE_ENABLED=false` DeepSeek/GLM/MiniMax'i zincirden çıkarır. Başlık üretimi ve hafıza gibi arka plan işleri de aynı zinciri kullanır.

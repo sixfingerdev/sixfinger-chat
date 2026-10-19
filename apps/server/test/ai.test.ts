@@ -210,12 +210,12 @@ describe('Pollinations sağlayıcısı', () => {
       expect(calls.length - before).toBeLessThanOrEqual(2);
     });
 
-    it('Derin: DeepSeek → GLM → Qwen → MiniMax → gpt-oss-120b → gpt-oss-20b; Dengeli: gpt-oss-120b önde, sonra DeepSeek → GLM → MiniMax → Qwen …', async () => {
+    it('Derin: DeepSeek → GLM → Qwen → MiniMax → gpt-oss-120b → gpt-oss-20b; Dengeli: gpt-oss-120b → MiniMax → GLM → DeepSeek → Qwen …', async () => {
       const failAll = (url: string) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 }));
       const deep = await run('deep', failAll);
       expect(deep.calls.map((c) => c.model)).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'minimax/minimax-m3.1-flash:free', 'gpt-oss-120b', 'openai-fast']);
       const mid = await run('balanced', failAll);
-      expect(mid.calls.map((c) => c.model)).toEqual(['gpt-oss-120b', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'minimax/minimax-m3.1-flash:free', 'Qwen3.8-27B', 'openai-fast']);
+      expect(mid.calls.map((c) => c.model)).toEqual(['gpt-oss-120b', 'minimax/minimax-m3.1-flash:free', 'GLM-5.3-Flash', 'DeepSeek-V4-Flash-0731', 'Qwen3.8-27B', 'openai-fast']);
     });
 
     it('Code: varsayılan Qwen→(Claude); AI_FREE_FOR_CODE açıkken DeepSeek→GLM→Qwen (MiniMax yok)', async () => {
