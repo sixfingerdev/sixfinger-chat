@@ -81,13 +81,15 @@ export interface CodeSandboxClient {
   changes(s: CodeScope, signal: AbortSignal): Promise<ChangesOutcome>;
   commit(s: CodeScope, message: string, signal: AbortSignal): Promise<{ sha: string | null }>;
   /** Son commit'i GitHub'a iter (token yalnızca sandboxd'nin tek seferlik yardımcı konteynerinde kullanılır). */
-  push(s: CodeScope, token: string, signal: AbortSignal): Promise<{ sha: string; branch: string; output: string }>;
+  push(s: CodeScope, token: string, signal: AbortSignal, opts?: { force?: boolean }): Promise<{ sha: string; branch: string; output: string }>;
+  /** Çalışma alanının (node_modules ve .git hariç) tar.gz arşivi. */
+  archive(s: CodeScope, signal: AbortSignal): Promise<Buffer>;
   usage(s: CodeScope, signal: AbortSignal): Promise<{ diskUsedMb: number; diskMb: number; running: boolean }>;
   destroy(s: CodeScope): Promise<void>;
 }
 
 export function createCodeClient(baseUrl: string, token: string, fetchImpl: typeof fetch = fetch): CodeSandboxClient {
-  async function call<T>(path: string, body: object, signal: AbortSignal, timeoutMs: number): Promise<T> {
+  async function call<T>(path: string, body: object, signal: AbortSignal, timeoutMs: number, raw = false): Promise<T> {
     let res: Response;
     try {
       res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/v1/code/${path}`, {
@@ -101,7 +103,7 @@ export function createCodeClient(baseUrl: string, token: string, fetchImpl: type
       throw new ToolError('The sandbox service is unreachable.');
     }
     if (res.status === 204) return undefined as T;
-    if (res.ok) return (await res.json()) as T;
+    if (res.ok) return (raw ? Buffer.from(await res.arrayBuffer()) : await res.json()) as T;
     let message = '';
     let code = '';
     try {
@@ -138,7 +140,8 @@ export function createCodeClient(baseUrl: string, token: string, fetchImpl: type
     grep: (s, a, signal) => call('grep', { ...who(s), pattern: a.pattern, path: a.path, include: a.include, literal: a.literal, case_sensitive: a.caseSensitive, limit: a.limit }, signal, 60_000),
     changes: (s, signal) => call('changes', who(s), signal, 90_000),
     commit: (s, message, signal) => call('commit', { ...who(s), message }, signal, 90_000),
-    push: (s, token, signal) => call('push', { ...who(s), token }, signal, 5 * 60_000),
+    push: (s, token, signal, opts) => call('push', { ...who(s), token, force: opts?.force }, signal, 5 * 60_000),
+    archive: (s, signal) => call('archive', who(s), signal, 3 * 60_000, true),
     usage: (s, signal) => call('usage', who(s), signal, 120_000),
     destroy: (s) => call('destroy', who(s), new AbortController().signal, 60_000),
   };

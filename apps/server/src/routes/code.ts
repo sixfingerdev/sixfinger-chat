@@ -6,6 +6,7 @@ import {
   createCodeSessionSchema,
   diffQuery,
   filesQuery,
+  rewindSchema,
   githubCompleteSchema,
   githubStartSchema,
   listReposQuery,
@@ -233,6 +234,30 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
       authed.get<{ Params: { id: string }; Querystring: { q?: string } }>('/code/sessions/:id/files', async (req) => {
         const q = parse(filesQuery, req.query);
         return ctx.codeGit.files(req.user!, req.params.id, q.q);
+      });
+
+      /** Tek dosyanın içeriği (dosya gezgini). */
+      authed.get<{ Params: { id: string }; Querystring: { path?: string } }>('/code/sessions/:id/file', async (req) => {
+        const q = parse(diffQuery, req.query);
+        if (!q.path) throw badRequest('path gerekli.');
+        return ctx.codeGit.readFile(req.user!, req.params.id, q.path);
+      });
+
+      /** Çalışma alanını tar.gz olarak indirir. */
+      authed.get<{ Params: { id: string } }>('/code/sessions/:id/archive', async (req, reply) => {
+        const a = await ctx.codeGit.archive(req.user!, req.params.id);
+        return reply
+          .header('content-disposition', `attachment; filename="${a.filename.replace(/[^\w.-]/g, '_')}"`)
+          .header('cache-control', 'no-store')
+          .type('application/gzip')
+          .send(a.data);
+      });
+
+      /** Çalışma alanını ve sohbeti bu asistan mesajının sonuna geri sarar (checkpoint). */
+      authed.post<{ Params: { id: string } }>('/code/sessions/:id/rewind', async (req) => {
+        const body = parse(rewindSchema, req.body);
+        const r = await ctx.codeGit.rewind(req.user!, req.params.id, body.messageId);
+        return { ...r, session: await code.getSession(req.user!.id, req.params.id) };
       });
 
       /** Başlangıca göre birleşik fark (tüm dosyalar ya da tek `path`). */

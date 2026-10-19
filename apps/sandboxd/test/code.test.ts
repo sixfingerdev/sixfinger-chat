@@ -359,3 +359,32 @@ describe('push', () => {
     await expect(code.push('u1', 'u1:push2', '')).rejects.toThrow(/GitHub erişimi/);
   });
 });
+
+describe('arşiv', () => {
+  it('çalışma alanını node_modules ve .git olmadan tar.gz verir; sembolik bağlantı hedefi sızmaz', async () => {
+    const { code } = makeCode();
+    await code.prepare(req({ session: 'u1:arc' }));
+    await code.writeFile('u1', 'u1:arc', 'src/a.txt', 'merhaba\n');
+    await code.exec('u1', 'u1:arc', 'mkdir -p node_modules/x && echo big > node_modules/x/i.js && ln -s /etc/hostname link');
+    const tgz = await code.archive('u1', 'u1:arc');
+    expect(tgz.subarray(0, 2).toString('hex')).toBe('1f8b');
+    const dir = mkdtempSync(join(tmpdir(), 'sf-arc-'));
+    writeFileSync(join(dir, 'a.tgz'), tgz);
+    const list = execFileSync('tar', ['tzf', join(dir, 'a.tgz')], { encoding: 'utf8' });
+    expect(list).toContain('src/a.txt');
+    expect(list).toContain('app.js');
+    expect(list).not.toContain('node_modules');
+    expect(list).not.toMatch(/\.git\//);
+    // bağlantı bağlantı olarak arşivlenir (içeriği değil)
+    execFileSync('tar', ['xzf', join(dir, 'a.tgz'), '-C', dir]);
+    expect(execFileSync('readlink', [join(dir, 'link')], { encoding: 'utf8' }).trim()).toBe('/etc/hostname');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('sınırı aşan arşiv reddedilir', async () => {
+    const { code } = makeCode({ CODE_ARCHIVE_MAX_MB: '1' });
+    await code.prepare(req({ session: 'u1:arc2' }));
+    await code.exec('u1', 'u1:arc2', 'head -c 3000000 /dev/urandom > big.bin');
+    await expect(code.archive('u1', 'u1:arc2')).rejects.toMatchObject({ code: 'too_large' });
+  });
+});

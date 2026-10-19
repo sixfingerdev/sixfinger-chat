@@ -8,7 +8,8 @@ import type { Code } from './code.ts';
 import type { Github } from './github.ts';
 import type { RunHub } from './runs.ts';
 import { ToolError } from './tools/errors.ts';
-import { NotPreparedError, type CodeSandboxClient, type CodeScope } from './tools/code-client.ts';
+import { getPath } from './chats.ts';
+import { FileNotFoundError, IsDirectoryError, NotPreparedError, type CodeSandboxClient, type CodeScope } from './tools/code-client.ts';
 
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const MAX_DIFF_CHARS = 300_000;
@@ -80,12 +81,12 @@ export function createCodeGit(deps: CodeGitDeps) {
     const { session, scope, sandbox, running } = await load(user, chatId);
     if (!opts.internal) guardIdle(running);
     const gh = await connection(user.id);
-    const out = await withWorkspace(user, chatId, () => sandbox.push(scope, gh.token, AbortSignal.timeout(5 * 60_000))).catch((err) => {
+    const out = await withWorkspace(user, chatId, () => sandbox.push(scope, gh.token, AbortSignal.timeout(5 * 60_000), { force: session.forcePush })).catch((err) => {
       if (err instanceof ToolError) throw new HttpError(502, 'upstream_unavailable', err.message);
       throw err;
     });
     await code.setPushedSha(chatId, out.sha);
-    void session;
+    if (session.forcePush) await code.setForcePush(chatId, false);
     return { sha: out.sha, branch: out.branch };
   }
 
@@ -223,6 +224,64 @@ export function createCodeGit(deps: CodeGitDeps) {
     }
   }
 
-  return { push, draft, publish, diff, commands, files };
+  /** Tek dosyanın içeriği (dosya gezgini). İkili/çok büyük dosyalar sandboxd'de reddedilir. */
+  async function readFile(user: AuthUser, chatId: string, path: string): Promise<{ path: string; content: string; truncated: boolean }> {
+    const { scope, sandbox } = await load(user, chatId);
+    try {
+      const r = await withWorkspace(user, chatId, () => sandbox.read(scope, path, AbortSignal.timeout(40_000)));
+      return { path, content: r.content, truncated: r.truncated };
+    } catch (err) {
+      if (err instanceof FileNotFoundError) throw notFound('Dosya bulunamadı.');
+      if (err instanceof IsDirectoryError) throw new HttpError(400, 'bad_request', 'Bu bir klasör.');
+      if (err instanceof ToolError) throw new HttpError(400, 'bad_request', err.message);
+      throw err;
+    }
+  }
+
+  /** Çalışma alanını tar.gz olarak indirir (node_modules ve .git hariç). */
+  async function archive(user: AuthUser, chatId: string): Promise<{ filename: string; data: Buffer }> {
+    const { session, scope, sandbox, running } = await load(user, chatId);
+    if (running) throw new HttpError(409, 'conflict', 'Ajan çalışırken arşiv alınamaz; turun bitmesini bekle.');
+    try {
+      const data = await withWorkspace(user, chatId, () => sandbox.archive(scope, AbortSignal.timeout(3 * 60_000)));
+      return { filename: `${session.repo.split('/')[1] ?? 'workspace'}.tar.gz`, data };
+    } catch (err) {
+      if (err instanceof ToolError) throw new HttpError(400, 'bad_request', err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Çalışma alanını ve sohbeti seçilen asistan mesajının sonuna geri sarar (checkpoint): çalışma alanı o ana kadarki son commit'e
+   * sıfırlanır (izlenen/yeni dosyalar; .gitignore'daki node_modules korunur) ve sohbetin ucu o mesaja çekilir. Sonraki mesajlar
+   * ayrı bir dal olarak kalır. Uzak branch ileride kalırsa bir sonraki push zorla yapılır (branch Code'a aittir).
+   */
+  async function rewind(user: AuthUser, chatId: string, messageId: string): Promise<{ sha: string }> {
+    const { session, scope, sandbox, running } = await load(user, chatId);
+    guardIdle(running);
+    const own = await db.query<{ id: string; role: string }>('select id, role from messages where id = $1 and chat_id = $2', [messageId, chatId]);
+    if (!own.rows[0] || own.rows[0].role !== 'assistant') throw notFound('Mesaj bulunamadı.');
+    // Yoldaki son commit (yoksa oturumun başlangıç commit'i).
+    let sha = '';
+    for (const m of await getPath(db, messageId)) {
+      for (const p of m.parts ?? []) if (p.type === 'tool' && p.name === 'commit' && typeof p.meta?.sha === 'string') sha = p.meta.sha;
+    }
+    const target = /^[0-9a-f]{40}$/.test(sha) ? shq(sha) : BASE;
+    const out = await exec(user, chatId, `git reset -q --hard ${target} && git clean -qfd && git rev-parse HEAD`, 90);
+    const head = out.trim().split('\n').at(-1) ?? '';
+    if (!/^[0-9a-f]{40}$/.test(head)) throw new HttpError(502, 'upstream_unavailable', 'Çalışma alanı geri sarılamadı.');
+    await db.query('update chats set leaf_id = $2, updated_at = now() where id = $1', [chatId, messageId]);
+    if (session.pushedSha && session.pushedSha !== head) await code.setForcePush(chatId, true);
+    try {
+      const ch = await sandbox.changes(scope, AbortSignal.timeout(60_000));
+      await code.updateSessionStats(chatId, { additions: ch.additions, deletions: ch.deletions, filesChanged: ch.files.length, headSha: head });
+    } catch {
+      /* sayılar bir sonraki turda tazelenir */
+    }
+    await db.query('update code_sessions set head_sha = $2 where chat_id = $1', [chatId, head]);
+    return { sha: head };
+  }
+
+  return { push, draft, publish, diff, commands, files, readFile, archive, rewind };
 }
 export type CodeGit = ReturnType<typeof createCodeGit>;

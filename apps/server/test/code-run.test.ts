@@ -478,7 +478,7 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
     const r = await post(a, `/code/sessions/${s.chatId}/pr`);
     expect(r.statusCode).toBe(200);
     expect(r.json()).toMatchObject({ created: true, existed: false, pull: { number: 7, url: 'https://github.com/octo/alpha/pull/7' } });
-    expect(fc.state.pushes).toEqual([{ token: 'gho_testtoken', sha: expect.stringMatching(/^c+1$/) }]);
+    expect(fc.state.pushes).toEqual([{ token: 'gho_testtoken', sha: expect.stringMatching(/^c+1$/), force: false }]);
     const prCall = calls.find((c) => c.method === 'POST' && c.url.endsWith('/pulls'))!;
     const sent = JSON.parse(prCall.body);
     expect(sent).toMatchObject({ head: s.workBranch, base: 'main', draft: false, title: 'Boş şifreyi reddet' });
@@ -579,6 +579,63 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
     expect((await post(a, `/code/sessions/${s.chatId}/push`)).statusCode).toBe(409);
     expect((await get(a, `/code/sessions/${s.chatId}/diff`)).json()).toMatchObject({ stale: true, diff: '' });
     await running;
+  });
+
+  it('dosya gezgini: dosya içeriği, klasör/yok hataları; arşiv indirme başlıkları', async () => {
+    const { a, s } = await bootGit(); // a.js yazıldı
+    const f = await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/file?path=a.js`, headers: auth(a) });
+    expect(f.json()).toEqual({ path: 'a.js', content: 'x\ny\n', truncated: false });
+    expect((await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/file?path=yok.js`, headers: auth(a) })).statusCode).toBe(404);
+    expect((await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/file`, headers: auth(a) })).statusCode).toBe(400);
+    const z = await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/archive`, headers: auth(a) });
+    expect(z.statusCode).toBe(200);
+    expect(z.headers['content-type']).toContain('application/gzip');
+    expect(z.headers['content-disposition']).toBe('attachment; filename="alpha.tar.gz"');
+    expect(z.rawPayload.subarray(0, 2).toString('hex')).toBe('1f8b');
+  });
+
+  it('geri sarma (checkpoint): çalışma alanı o turun commit\'ine sıfırlanır, sohbet ucu çekilir, uzak ileride kalırsa sonraki push zorla', async () => {
+    const { a, s } = await bootGit(false, true); // otomatik PR açık
+    const resets: string[] = [];
+    fc.state.execImpl = (c) => {
+      if (c.includes('git reset')) {
+        resets.push(c);
+        const m = /--hard '([0-9a-f]{40})'/.exec(c);
+        return { stdout: `${m ? m[1] : 'b'.repeat(40)}\n` };
+      }
+      if (c.includes('git log --reverse')) return { stdout: 'x\n---STAT---\n' };
+      return {};
+    };
+    env.ai.steps = [[call('r1', 'write', { path: 'one.js', content: '1\n' })], text('birinci')];
+    await send(a, s.chatId, 'bir');
+    env.ai.steps = [[call('r2', 'write', { path: 'two.js', content: '2\n' })], text('ikinci')];
+    await send(a, s.chatId, 'iki');
+    const d = await detail(a, s.chatId);
+    const asst = d.messages.filter((m: { role: string }) => m.role === 'assistant');
+    expect(asst).toHaveLength(2);
+    const firstSha = (asst[0].parts as Array<Record<string, any>>).find((p) => p.name === 'commit')!.meta.sha;
+    const before = (await env.ctx.code.getSession(a.user.id, s.chatId))!;
+    expect(before.pushedSha).toBe(before.headSha); // ikinci turda itildi
+    expect(before.headSha).not.toBe(firstSha);
+
+    const r = await post(a, `/code/sessions/${s.chatId}/rewind`, { messageId: asst[0].id });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ sha: firstSha, session: { headSha: firstSha, forcePush: true } });
+    expect(resets[0]).toContain(`--hard '${firstSha}'`);
+    expect(resets[0]).toContain('git clean -qfd');
+    expect((await detail(a, s.chatId)).chat.leafId).toBe(asst[0].id);
+
+    // sonraki push zorla yapılır ve bayrak temizlenir
+    await post(a, `/code/sessions/${s.chatId}/push`);
+    expect(fc.state.pushes.at(-1)).toMatchObject({ force: true });
+    expect((await env.ctx.code.getSession(a.user.id, s.chatId))!.forcePush).toBe(false);
+    await post(a, `/code/sessions/${s.chatId}/push`);
+    expect(fc.state.pushes.at(-1)).toMatchObject({ force: false });
+
+    // kullanıcı mesajına ya da başkasının mesajına sarılamaz
+    const user = d.messages.find((m: { role: string }) => m.role === 'user');
+    expect((await post(a, `/code/sessions/${s.chatId}/rewind`, { messageId: user.id })).statusCode).toBe(404);
+    expect((await post(a, `/code/sessions/${s.chatId}/rewind`, { messageId: 'nope' })).statusCode).toBe(400);
   });
 
   it('fark ucu: tek dosya için yolu güvenli iletir, çıktıyı döndürür', async () => {

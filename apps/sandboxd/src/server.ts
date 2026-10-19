@@ -147,8 +147,13 @@ export function buildServer(service: SandboxService, cfg: Config, opts: { logger
       return code.commit(b.user, b.session, b.message);
     });
     app.post('/v1/code/push', async (req) => {
-      const b = z.object({ ...codeWho, token: z.string().min(1).max(500) }).parse(req.body);
-      return code.push(b.user, b.session, b.token);
+      const b = z.object({ ...codeWho, token: z.string().min(1).max(500), force: z.boolean().optional() }).parse(req.body);
+      return code.push(b.user, b.session, b.token, { force: b.force });
+    });
+    app.post('/v1/code/archive', async (req, reply) => {
+      const b = z.object(codeWho).parse(req.body);
+      const tgz = await code.archive(b.user, b.session);
+      return reply.type('application/gzip').send(tgz);
     });
     app.post('/v1/code/usage', async (req) => {
       const b = z.object(codeWho).parse(req.body);

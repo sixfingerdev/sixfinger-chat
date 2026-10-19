@@ -12,7 +12,7 @@ export function fakeCode(initial: Record<string, string> = {}) {
     prepares: [] as Array<Record<string, unknown>>,
     execs: [] as string[],
     commits: [] as string[],
-    pushes: [] as Array<{ token: string; sha: string }>,
+    pushes: [] as Array<{ token: string; sha: string; force: boolean }>,
     failPush: null as string | null,
     failPrepare: null as string | null,
     needPrepare: false,
@@ -75,11 +75,14 @@ export function fakeCode(initial: Record<string, string> = {}) {
       for (const [p, c] of fs) head.set(p, c);
       return { sha: `${state.commits.length}`.padStart(40, 'c') };
     },
-    async push(_s, token) {
+    async archive() {
+      return Buffer.from('1f8b0800', 'hex');
+    },
+    async push(_s, token, _signal, opts) {
       if (state.needPrepare) throw new NotPreparedError();
       if (state.failPush) throw new ToolError(state.failPush);
       const sha = state.commits.length ? `${state.commits.length}`.padStart(40, 'c') : 'a'.repeat(40);
-      state.pushes.push({ token, sha });
+      state.pushes.push({ token, sha, force: Boolean(opts?.force) });
       return { sha, branch: 'sixfinger/test', output: '' };
     },
     async usage() {

@@ -506,7 +506,7 @@ export class CodeService {
    * yardımcı konteynerde (çalışma alanı SALT OKUNUR bağlı) bizim kontrolümüzde boş bir git dizini açılır, nesneler yalnızca
    * "alternates" ile (veri olarak) okunur; böylece ajanın yazdığı config/hook/helper ayarları token'lı süreçte çalışamaz.
    */
-  async push(user: string, session: string, token: string, opts: { pushUrl?: string } = {}): Promise<{ sha: string; branch: string; output: string }> {
+  async push(user: string, session: string, token: string, opts: { pushUrl?: string; force?: boolean } = {}): Promise<{ sha: string; branch: string; output: string }> {
     if (opts.pushUrl && this.cfg.SANDBOX_RUNTIME !== 'local-unsafe') throw new SandboxError('pushUrl yalnızca testlerde kullanılabilir.');
     const s = this.state(user, session);
     if (!token) throw new SandboxError('GitHub erişimi verilmedi.');
@@ -530,7 +530,7 @@ export class CodeService {
         `if [ -f '${work}/.git/shallow' ]; then cp '${work}/.git/shallow' "$T/t.git/shallow"; fi`,
         `echo '${work}/.git/objects' > "$T/t.git/objects/info/alternates"`,
         'git --git-dir="$T/t.git" cat-file -e "$1^{commit}"',
-        `git --git-dir="$T/t.git" -c credential.helper= -c '${askpass}' ${opts.pushUrl ? '-c protocol.file.allow=always ' : ''}push --porcelain "$3" "$1:refs/heads/$2"`,
+        `git --git-dir="$T/t.git" -c credential.helper= -c '${askpass}' ${opts.pushUrl ? '-c protocol.file.allow=always ' : ''}push --porcelain ${opts.force ? '--force ' : ''} "$3" "$1:refs/heads/$2"`,
       ].join('\n');
       const url = opts.pushUrl ?? `https://github.com/${repo}.git`;
       let r;
@@ -553,6 +553,19 @@ export class CodeService {
       }
       return { sha, branch: workBranch, output: clean(r.stdout).slice(-500) };
     });
+  }
+
+  /**
+   * Çalışma alanını (node_modules ve .git hariç) tar.gz olarak döndürür. Dosyalar sandboxd'nin görebildiği diskte olduğu için konteyner
+   * gerekmez; tar sembolik bağlantıları izlemez (hedefi değil bağlantıyı arşivler), böylece ajanın bağlantıyla dışarıyı okutması mümkün olmaz.
+   */
+  async archive(user: string, session: string): Promise<Buffer> {
+    const s = this.state(user, session);
+    const max = this.cfg.CODE_ARCHIVE_MAX_MB * 1024 * 1024;
+    const r = await capture('tar', ['czf', '-', '--exclude=node_modules', '--exclude=./.git', '--exclude=.git', '-C', s.dir, '.'], { timeoutMs: 120_000, maxOutput: max });
+    if (r.truncated) throw new SandboxError(`Arşiv ${this.cfg.CODE_ARCHIVE_MAX_MB} MB sınırını aşıyor. Büyük dosyaları (build çıktısı, veri) silip tekrar dene.`, 'too_large');
+    if (r.exitCode !== 0) throw new SandboxError(`Arşiv oluşturulamadı: ${r.stderr.trim().slice(0, 200)}`);
+    return r.stdoutBuf;
   }
 
   async usage(user: string, session: string): Promise<{ diskUsedMb: number; diskMb: number; running: boolean }> {
