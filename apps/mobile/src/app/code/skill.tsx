@@ -47,7 +47,7 @@ export default function SkillEditor() {
         reportError(err);
         back();
       });
-  }, [name, readonly]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [name, readonly]);
 
   const save = async (asName: string | null) => {
     setBusy(true);
