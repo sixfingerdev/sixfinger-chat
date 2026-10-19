@@ -17,5 +17,5 @@ export function listDir(paths: string[], dir: string): { dirs: string[]; files: 
 /** "src/auth/login.ts" → ["", "src", "src/auth"] (üst klasör yolları). */
 export function parentDirs(path: string): string[] {
   const parts = path.split('/').filter(Boolean);
-  return parts.slice(0, -1).reduce<string[]>((acc, p) => [...acc, acc.length ? `${acc[acc.length - 1]}/${p}` : p], ['']);
+  return parts.slice(0, -1).reduce<string[]>((acc, p) => [...acc, acc.length > 1 ? `${acc[acc.length - 1]}/${p}` : p], ['']);
 }
