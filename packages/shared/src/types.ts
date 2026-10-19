@@ -272,6 +272,22 @@ export interface CodeSessionDTO {
   lastMessageAt: string | null;
 }
 
+/** Oturumdaki değişen bir dosya (başlangıç commit'ine göre). */
+export interface CodeChangedFileDTO {
+  path: string;
+  status: 'added' | 'modified' | 'deleted' | 'renamed';
+  additions: number;
+  deletions: number;
+}
+
+/** Oturumdaki toplam değişiklik. `stale`: çalışma alanı o an okunamadı (ajan çalışıyor / alan uykuda); sayılar son bilinen toplamdır. */
+export interface CodeChangesDTO {
+  files: CodeChangedFileDTO[];
+  additions: number;
+  deletions: number;
+  stale: boolean;
+}
+
 /** Oturumun çalışma branch'indeki bir pull request. */
 export interface CodePullDTO {
   number: number;

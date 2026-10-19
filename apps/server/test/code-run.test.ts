@@ -367,3 +367,21 @@ describe('PR listesi', () => {
     expect((await env.app.inject({ method: 'GET', url: `/api/code/sessions/${a.user.id}/pulls`, headers: auth(a) })).statusCode).toBe(404);
   });
 });
+
+describe('Değişiklik listesi', () => {
+  it('dosya listesini döndürür; ajan çalışırken ya da sandbox yokken son bilinen toplam (stale)', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [[call('c1', 'write', { path: 'a.js', content: 'x\ny\n' })], text('Bitti.')];
+    await send(a, s.chatId, 'a.js yaz');
+    const r = await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/changes`, headers: auth(a) });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ files: [{ path: 'a.js', status: 'added', additions: 2, deletions: 0 }], additions: 2, deletions: 0, stale: false });
+
+    fc.client.changes = async () => {
+      throw new Error('uykuda');
+    };
+    const st = (await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/changes`, headers: auth(a) })).json();
+    expect(st).toMatchObject({ files: [], additions: 2, deletions: 0, stale: true });
+    expect((await env.app.inject({ method: 'GET', url: `/api/code/sessions/${a.user.id}/changes`, headers: auth(a) })).statusCode).toBe(404);
+  });
+});

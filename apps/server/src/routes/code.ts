@@ -7,6 +7,7 @@ import {
   githubStartSchema,
   listReposQuery,
   updateCodeEnvSchema,
+  type CodeChangesDTO,
   type CodeStatusDTO,
   type GithubRepoDTO,
 } from '@sixfinger/shared';
@@ -193,6 +194,21 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
         const session = await code.getSession(user.id, req.params.id);
         if (!session) throw notFound('Oturum bulunamadı.');
         return { pulls: await github.pulls(await tokenOf(user.id), session.repo, session.workBranch) };
+      });
+
+      /** Değişen dosyalar (+N −M). Ajan çalışırken ya da çalışma alanı uykudayken son bilinen toplam (`stale`) döner. */
+      authed.get<{ Params: { id: string } }>('/code/sessions/:id/changes', async (req) => {
+        const user = req.user!;
+        const session = await code.getSession(user.id, req.params.id);
+        if (!session) throw notFound('Oturum bulunamadı.');
+        const stale: CodeChangesDTO = { files: [], additions: session.additions, deletions: session.deletions, stale: true };
+        if (!ctx.codeSandbox || ctx.runs.activeChatIds().includes(session.chatId)) return stale;
+        try {
+          const ch = await ctx.codeSandbox.changes({ user: user.id, session: `${user.id}:${session.chatId}` }, AbortSignal.timeout(20_000));
+          return { files: ch.files, additions: ch.additions, deletions: ch.deletions, stale: false } satisfies CodeChangesDTO;
+        } catch {
+          return stale;
+        }
       });
 
       authed.delete<{ Params: { id: string } }>('/code/sessions/:id', async (req, reply) => {
