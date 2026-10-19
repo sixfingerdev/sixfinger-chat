@@ -138,8 +138,6 @@ export const codeEnvFields = z.object({
   autoPr: z.boolean(),
   /** Her turun sistem istemine eklenen kalıcı talimatlar (CLAUDE.md gibi). */
   instructions: z.string().max(8_000),
-  /** Bu ortamda kapatılan skill adları (varsayılan: hepsi açık). */
-  skillsOff: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(64)).max(200).transform((a) => [...new Set(a)]),
   envVars: z
     .record(z.string().max(4_000))
     .refine((o) => Object.keys(o).length <= CODE_MAX_ENV_VARS, `en fazla ${CODE_MAX_ENV_VARS} değişken`)
@@ -154,7 +152,6 @@ export const createCodeEnvSchema = codeEnvFields.partial({
   commitSessionLink: true,
   autoPr: true,
   instructions: true,
-  skillsOff: true,
   envVars: true,
 });
 export const updateCodeEnvSchema = codeEnvFields.partial();

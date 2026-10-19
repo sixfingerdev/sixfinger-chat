@@ -218,12 +218,11 @@ export function createCodeGit(deps: CodeGitDeps) {
     }
   }
 
-  /** Oturumun skill kataloğu: yerleşik + kullanıcı (+ `repo` ise çalışma alanından keşfedilen) − ortamda kapatılanlar. */
+  /** Oturumun skill kataloğu: yerleşik + kullanıcı (+ `repo` ise çalışma alanından keşfedilen). */
   async function skillCatalog(user: Who, chatId: string, repo: boolean): Promise<Catalog> {
-    const { session, scope, sandbox } = await load(user, chatId);
-    const env = session.environmentId ? await code.getEnvironment(user.id, session.environmentId).catch(() => null) : null;
+    const { scope, sandbox } = await load(user, chatId);
     const found = repo ? await withWorkspace(user, chatId, () => discoverRepoSkills(sandbox, scope, AbortSignal.timeout(30_000))).catch(() => []) : [];
-    return deps.skills.catalog(user.id, env?.skillsOff ?? [], found);
+    return deps.skills.catalog(user.id, [], found);
   }
 
   /** Çalışma alanındaki dosyalar (izlenen + yeni, .gitignore hariç); `q` verilirse yola göre süzülür (@dosya ve dosya gezgini için). */

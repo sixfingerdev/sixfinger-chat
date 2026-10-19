@@ -21,7 +21,7 @@ Skill = ajanın **uzman kılavuzu**: `<ad>/SKILL.md` (YAML başlık + Markdown g
 | Kullanıcı | veritabanı `code_skills` (hesap başına en çok 50) | Web/mobil skill ekranı; GitHub'dan alma; bağlantıyla paylaşma |
 | Repo | `.sixfinger/skills/`, `.claude/skills/`, `.agents/skills/` (her turda keşfedilir, en çok 30) | Repoda commit'le; `[repo]` etiketiyle görünür |
 
-Öncelik: yerleşik adlar rezerve; diğerlerinde repo > kullanıcı. Ortam ayarında skill başına aç/kapa vardır (`skillsOff`); kapatılanlar kataloğa girmez.
+Öncelik: yerleşik adlar rezerve; diğerlerinde repo > kullanıcı. Skill'ler kapatılamaz: tüm yerleşik, kullanıcı ve repo skill'leri her turda kataloğa girer (ortamda aç/kapa seçeneği yoktur).
 
 ## Ajanın skill yazması ve alt ajanlar
 - **`skill_create`**: kullanıcı açıkça isterse ("bunu skill yap") ajan `.sixfinger/skills/<ad>/SKILL.md` (+ `references/`, `scripts/`) yazar. Dosyalar repoda kalır; tur sonu commit/PR'a girer

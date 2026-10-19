@@ -175,8 +175,8 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
   let diskUsedMb = 0;
   let contextTokens = 0;
   let branches = { work: '', base: '' };
-  let env: Pick<CodeEnvironmentDTO, 'network' | 'allowedDomains' | 'diskMb' | 'setupScript' | 'commitSessionLink' | 'autoPr' | 'instructions' | 'skillsOff'> & { envVars: Record<string, string> } = {
-    network: 'trusted', allowedDomains: [], diskMb: 512, setupScript: '', commitSessionLink: false, autoPr: true, instructions: '', skillsOff: [], envVars: {},
+  let env: Pick<CodeEnvironmentDTO, 'network' | 'allowedDomains' | 'diskMb' | 'setupScript' | 'commitSessionLink' | 'autoPr' | 'instructions'> & { envVars: Record<string, string> } = {
+    network: 'trusted', allowedDomains: [], diskMb: 512, setupScript: '', commitSessionLink: false, autoPr: true, instructions: '', envVars: {},
   };
 
   try {
@@ -197,7 +197,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     if (!gh) throw new HttpError(409, 'github_required', 'GitHub bağlantın yok ya da geçersiz. Hesabını yeniden bağla.');
     if (session.environmentId) {
       const e = await code.getEnvironment(user.id, session.environmentId).catch(() => null);
-      if (e) env = { network: e.network, allowedDomains: e.allowedDomains, diskMb: e.diskMb, setupScript: e.setupScript, commitSessionLink: e.commitSessionLink, autoPr: e.autoPr, instructions: e.instructions, skillsOff: e.skillsOff, envVars: e.envVars ?? {} };
+      if (e) env = { network: e.network, allowedDomains: e.allowedDomains, diskMb: e.diskMb, setupScript: e.setupScript, commitSessionLink: e.commitSessionLink, autoPr: e.autoPr, instructions: e.instructions, envVars: e.envVars ?? {} };
     }
 
     // --- sıra ---
@@ -256,7 +256,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     send({ type: 'phase', phase: 'working' });
     // --- skill'ler: katalog (yerleşik + kullanıcı + repo), sunucu tarafı eşleştirme ipucu, önceki turlarda yüklenenler ---
     const repoSkills = await discoverRepoSkills(sandbox, scope, signal);
-    const catalog = await deps.skills.catalog(user.id, env.skillsOff, repoSkills);
+    const catalog = await deps.skills.catalog(user.id, [], repoSkills);
     const skillRt = createSkillRuntime(catalog, sandbox, scope);
     const hints = g.userText.trim().startsWith('/') ? [] : hintsFor(catalog, g.userText).map((x) => x.name);
     const activeNames: string[] = [];
