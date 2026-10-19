@@ -94,6 +94,8 @@ export const sendMessageSchema = z.object({
   /** Yeni mesajın bağlanacağı mesaj. Verilmezse sohbetin aktif ucu. Düzenlemede, düzenlenen mesajın üstü. */
   parentId: z.string().uuid().nullable().optional(),
   attachments: z.array(attachmentSchema).max(8).optional(),
+  /** Code: plan modu (yalnızca okuma araçları; ajan değişiklik yapmaz, plan sunar). */
+  planMode: z.boolean().optional(),
 });
 export const regenerateSchema = z.object({
   /** Yeniden üretilecek asistan mesajı. */
@@ -134,6 +136,8 @@ export const codeEnvFields = z.object({
   commitSessionLink: z.boolean(),
   /** Ajan tur sonunda commit'i GitHub'a itip PR açsın mı. */
   autoPr: z.boolean(),
+  /** Her turun sistem istemine eklenen kalıcı talimatlar (CLAUDE.md gibi). */
+  instructions: z.string().max(8_000),
   envVars: z
     .record(z.string().max(4_000))
     .refine((o) => Object.keys(o).length <= CODE_MAX_ENV_VARS, `en fazla ${CODE_MAX_ENV_VARS} değişken`)
@@ -147,6 +151,7 @@ export const createCodeEnvSchema = codeEnvFields.partial({
   diskMb: true,
   commitSessionLink: true,
   autoPr: true,
+  instructions: true,
   envVars: true,
 });
 export const updateCodeEnvSchema = codeEnvFields.partial();

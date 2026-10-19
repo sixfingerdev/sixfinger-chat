@@ -123,7 +123,8 @@ export function applyCompaction(messages: AiMessage[], split: CompactionSplit, t
   const first = split.tail[0]!;
   const body = `${SUMMARY_HEADER}\n\n${summary.trim()}`;
   if (keepUser) {
-    const merged: AiMessage = { role: 'user', content: `${body}\n\n[Current request from the user]\n${first.content}` };
+    // "/compact" kendi başına bir istek değildir: yalnızca özet kalır.
+    const merged: AiMessage = { role: 'user', content: first.content.trim() === '/compact' ? body : `${body}\n\n[Current request from the user]\n${first.content}` };
     const out = [messages[0]!, merged, ...split.tail.slice(1)];
     return { messages: out, turnStart: 1, summaryMessage: body, keepFromId: split.tail.find((m) => m.tool_calls?.length)?.tool_calls?.[0]?.id ?? null, keepUser };
   }
@@ -154,7 +155,7 @@ export function buildCodeHistory(history: HistoryItem[], budget: number): AiMess
   const text = parts.filter((p) => p.type === 'text').map((p) => (p.type === 'text' ? p.text : '')).join('');
   const own: AiMessage[] = parts.length ? expandAssistant({ role: 'assistant', content: text, parts }) : [];
   const prevUser = history[i - 1];
-  const userMsgs: AiMessage[] = keepUser && prevUser?.role === 'user' ? [{ role: 'user', content: prevUser.content }] : [];
+  const userMsgs: AiMessage[] = keepUser && prevUser?.role === 'user' && prevUser.content.trim() !== '/compact' ? [{ role: 'user', content: prevUser.content }] : [];
   const rest = fitHistory(history.slice(i + 1), Math.max(2_000, budget - estimateTokens(summary) - messagesTokens(own)));
   const tailMsgs = [...userMsgs, ...own, ...rest];
   if (tailMsgs[0]?.role === 'user') return [{ role: 'user', content: `${summary}\n\n${userMsgs.length ? '[Current request from the user]' : '[New message from the user]'}\n${tailMsgs[0].content}` }, ...tailMsgs.slice(1)];

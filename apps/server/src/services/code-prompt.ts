@@ -16,6 +16,10 @@ export interface CodePromptInput {
   setupFailure?: string;
   /** Çalışma alanı özeti (kök dizin listesi, AGENTS.md/CLAUDE.md, son commit'ler). */
   brief?: string;
+  /** Plan modu: yalnızca okuma araçları; ajan değişiklik yapmaz, plan sunar. */
+  planMode?: boolean;
+  /** Kullanıcının ortamda tanımladığı kalıcı talimatlar. */
+  instructions?: string;
 }
 
 const networkText = (n: CodeNetwork, domains: string[]): string => {
@@ -51,7 +55,17 @@ export function buildCodeSystemPrompt(i: CodePromptInput): string {
     '6. For work with three or more steps keep the todo list updated: write the plan first, keep exactly one item in progress, mark items completed as soon as they are done.',
     '7. Run long-lived processes (dev servers, watchers) with background=true and never poll them in a loop. Never print, log or commit secrets.',
     '8. Only ask the user a question when the request is genuinely ambiguous or needs a decision you cannot make; otherwise choose a reasonable option, state it, and continue.',
-    '9. Long sessions are compacted automatically: older conversation may be replaced by a summary in the first user message. Treat the summary as accurate, but re-read a file before you edit it instead of relying on remembered contents.',
+    '9. For broad investigations (understanding an unfamiliar area, comparing several places, answering "where/how does X work") delegate to a sub-agent with the task tool: it explores with its own fresh context and returns only a short report, which keeps your context small. Give it a self-contained prompt. Do the actual editing yourself.',
+    '10. If you truly need a decision from the user (several valid approaches that change the result, missing information you cannot find in the repo), call ask_user with concrete options and stop; otherwise decide yourself.',
+    '11. Long sessions are compacted automatically: older conversation may be replaced by a summary in the first user message. Treat the summary as accurate, but re-read a file before you edit it instead of relying on remembered contents.',
+    ...(i.planMode
+      ? [
+          '',
+          '## PLAN MODE (active)',
+          'The user wants a plan first. Do NOT change anything: you only have read-only tools (read, glob, grep, web search/fetch, todo, task for research, ask_user). Explore the code until you understand it, ask the user about real ambiguities with ask_user, then call exit_plan_mode exactly once with a concrete Markdown plan (goal, files you will change and how, steps in order, how you will verify). The user will approve it before any change is made.',
+        ]
+      : []),
+    ...(i.instructions?.trim() ? ['', '## Instructions from the user (environment settings; follow them)', i.instructions.trim().slice(0, 8_000)] : []),
     '',
     '## Final answer',
     `When you are done, reply in the user's language (default ${lang}) with a short summary: what you changed (file paths), how you verified it, and anything the user should know or decide. Do not paste whole files; refer to code as \`path:line\`. If the request was a question, investigate and answer it directly. Keep the tone plain and concise.`,

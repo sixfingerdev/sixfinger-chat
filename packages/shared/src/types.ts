@@ -244,6 +244,8 @@ export interface CodeEnvironmentDTO {
   commitSessionLink: boolean;
   /** Ajan tur sonunda commit'i GitHub'a itip PR açsın mı? (varsayılan açık) */
   autoPr: boolean;
+  /** Her turun sistem istemine eklenen kalıcı talimatlar. */
+  instructions: string;
   createdAt: string;
   updatedAt: string;
 }

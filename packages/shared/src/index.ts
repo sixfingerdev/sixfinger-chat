@@ -15,3 +15,4 @@ export * from './tools.ts';
 export * from './rich.ts';
 export { widgetKitCss, WIDGET_KIT_JS } from './widget-kit.ts';
 export * from './diff.ts';
+export * from './code-status-words.ts';

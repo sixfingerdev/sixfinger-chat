@@ -112,7 +112,7 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     fc.state.execImpl = (c) => (c.startsWith('ls -1Ap') ? { stdout: 'app.js\nREADME.md\n' } : {});
     const req = agentCalls()[0]!;
     expect(req.route).toBe('code');
-    expect(req.tools?.map((t) => t.function.name)).toEqual(['bash', 'read', 'write', 'edit', 'glob', 'grep', 'todo', 'web_search', 'web_fetch']);
+    expect(req.tools?.map((t) => t.function.name)).toEqual(['bash', 'job_output', 'job_kill', 'read', 'write', 'edit', 'glob', 'grep', 'todo', 'web_search', 'web_fetch', 'task', 'ask_user']);
     const system = req.messages[0]!.content;
     expect(system).toContain('SixFinger Code');
     expect(system).toContain('octo/alpha');
@@ -227,7 +227,7 @@ describe('Code ajan döngüsü: güvenlik ve sınırlar', () => {
   });
 
   it('bağlam dolunca eski konuşma özetlenir; özet sonraki turun geçmişine girer, kırpma yetmeyince öylece kesilmez', async () => {
-    await boot({ CODE_CONTEXT_TOKENS: 8_000 });
+    await boot({ CODE_CONTEXT_TOKENS: 14_000 });
     const { a, s } = await prepared();
     fc.state.execImpl = (c) => (c.startsWith('gen') ? { stdout: 'x'.repeat(9_000) } : {});
     env.ai.completeText = 'GOAL: büyük çıktıları üret. DONE: gen 0..N çalıştırıldı.';
@@ -265,7 +265,7 @@ describe('Code ajan döngüsü: güvenlik ve sınırlar', () => {
   });
 
   it('özetleme başarısız olursa kırpmayla sürer (araç satırı hata gösterir)', async () => {
-    await boot({ CODE_CONTEXT_TOKENS: 8_000 });
+    await boot({ CODE_CONTEXT_TOKENS: 14_000 });
     const { a, s } = await prepared();
     fc.state.execImpl = (c) => (c.startsWith('gen') ? { stdout: 'x'.repeat(9_000) } : {});
     const complete = env.ai.complete.bind(env.ai);
@@ -587,5 +587,133 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
     expect(r).toMatchObject({ stale: false, truncated: false });
     expect(r.diff).toContain('+++ b/a.js');
     expect(fc.state.execs.some((c) => c.includes("-- 'a b'\\''.js'"))).toBe(true);
+  });
+});
+
+describe('Ajan yetenekleri: soru, plan, alt ajan, /compact, talimatlar, arka plan işleri', () => {
+  const sendPlan = async (a: Awaited<ReturnType<typeof member>>, chatId: string, content: string, planMode: boolean) => {
+    const r = await env.app.inject({ method: 'POST', url: `/api/chats/${chatId}/messages`, headers: auth(a), payload: { content, planMode } });
+    return { status: r.statusCode, events: parseSse(r.body) };
+  };
+
+  it('ask_user turu bitirir: soru kartı verisi (meta) ile, model bir daha çağrılmaz', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [[call('q1', 'ask_user', { questions: [{ question: 'Hangi veritabanı?', header: 'DB', options: [{ label: 'Postgres', description: 'önerilen' }, { label: 'SQLite' }] }] })], text('asla')];
+    const r = await send(a, s.chatId, 'veritabanı ekle');
+    const end = of(r.events, 'tool_end').find((e) => e.id === 'q1')!;
+    expect(end).toMatchObject({ status: 'done', meta: { terminal: true, questions: [{ question: 'Hangi veritabanı?', header: 'DB' }] } });
+    expect(agentCalls()).toHaveLength(1);
+    const d = lastAssistant(await detail(a, s.chatId));
+    expect(d.status).toBe('complete');
+    expect((d.parts as Array<Record<string, any>>).find((p) => p.name === 'ask_user')).toBeTruthy();
+    // geçersiz soru (tek seçenek) hata döner ve tur sürer
+    env.ai.steps = [[call('q2', 'ask_user', { questions: [{ question: 'Emin misin?', options: [{ label: 'Evet' }] }] })], text('tamam, kendim seçtim')];
+    const r2 = await send(a, s.chatId, 'devam');
+    expect(of(r2.events, 'tool_end').find((e) => e.id === 'q2')).toMatchObject({ status: 'error' });
+    expect(lastAssistant(await detail(a, s.chatId)).content).toContain('kendim seçtim');
+  });
+
+  it('plan modu: yalnızca okuma araçları + exit_plan_mode; plan sunulunca tur biter; istemde PLAN MODE var', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [[call('p1', 'read', { path: 'app.js' })], [call('p2', 'exit_plan_mode', { plan: '## Hedef\n- app.js içine log ekle\n## Adımlar\n1. edit\n2. test çalıştır' })], text('asla')];
+    const r = await sendPlan(a, s.chatId, 'log ekle', true);
+    const names = agentCalls()[0]!.tools!.map((t) => t.function.name);
+    expect(names).toEqual(expect.arrayContaining(['read', 'glob', 'grep', 'todo', 'task', 'ask_user', 'exit_plan_mode']));
+    expect(names).not.toContain('write');
+    expect(names).not.toContain('edit');
+    expect(names).not.toContain('bash');
+    expect(String(agentCalls()[0]!.messages[0]!.content)).toContain('PLAN MODE');
+    const end = of(r.events, 'tool_end').find((e) => e.id === 'p2')!;
+    expect(end.meta).toMatchObject({ terminal: true, plan: expect.stringContaining('app.js içine log ekle') });
+    expect(agentCalls()).toHaveLength(2);
+    expect(fc.state.commits).toHaveLength(0);
+    // normal modda exit_plan_mode yok
+    env.ai.steps = [text('tamam')];
+    await send(a, s.chatId, 'uygula');
+    expect(agentCalls().at(-1)!.tools!.map((t) => t.function.name)).not.toContain('exit_plan_mode');
+  });
+
+  it('alt ajan (task): taze bağlam, salt okunur araçlar, yalnızca rapor ana bağlama döner', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [
+      [call('t1', 'task', { description: 'Girişi bul', prompt: 'Giriş işlevinin nerede tanımlandığını bul ve dosya:satır olarak raporla.' })],
+      [call('s1', 'grep', { pattern: 'console' })], // alt ajan
+      text('Rapor: app.js:1 içinde console.log var.'), // alt ajan raporu
+      text('Alt ajan app.js:1 dedi.'), // ana ajan
+    ];
+    const r = await send(a, s.chatId, 'girişi bul');
+    const end = of(r.events, 'tool_end').find((e) => e.id === 't1')!;
+    expect(end).toMatchObject({ status: 'done', output: 'Rapor: app.js:1 içinde console.log var.', summary: '2 steps', meta: { agent: 'explore', steps: 2, tools: { grep: 1 } } });
+    const reqs = agentCalls();
+    expect(reqs).toHaveLength(4);
+    // alt ajan: kendi sistem istemi, yalnızca kullanıcı görevi, salt okunur araçlar
+    expect(String(reqs[1]!.messages[0]!.content)).toContain('sub-agent');
+    expect(reqs[1]!.messages).toHaveLength(2);
+    expect(reqs[1]!.tools!.map((t) => t.function.name).sort()).toEqual(['glob', 'grep', 'read', 'web_fetch', 'web_search']);
+    // ana ajanın ikinci isteğinde yalnızca rapor var (alt ajanın grep sonucu yok)
+    const mainSecond = reqs[3]!.messages.filter((m) => m.role === 'tool');
+    expect(mainSecond).toHaveLength(1);
+    expect(mainSecond[0]!.content).toContain('Rapor: app.js:1');
+    expect(lastAssistant(await detail(a, s.chatId)).content).toContain('Alt ajan app.js:1 dedi.');
+  });
+
+  it('/compact: modele sormadan bağlamı özetler; sonraki turun geçmişi özetle başlar ve "/compact" metni taşımaz', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [text('Merhaba, nasıl yardımcı olabilirim?')];
+    await send(a, s.chatId, 'selam, projeyi tanıtır mısın');
+    const before = agentCalls().length;
+    env.ai.completeText = 'OZET: kullanıcı projeyi sordu.';
+    const r = await send(a, s.chatId, '/compact');
+    expect(agentCalls()).toHaveLength(before); // ajan çağrılmadı
+    const d = lastAssistant(await detail(a, s.chatId));
+    expect((d.parts as Array<Record<string, any>>).find((p) => p.name === 'compaction')).toMatchObject({ status: 'done', meta: { keepUser: true } });
+    expect(d.content).toContain('özetlendi');
+    expect(of(r.events, 'error')).toHaveLength(0);
+
+    env.ai.steps = [text('devam ediyorum')];
+    await send(a, s.chatId, 'şimdi README yaz');
+    const next = agentCalls().at(-1)!;
+    expect(next.messages[1]!.content).toContain('OZET: kullanıcı projeyi sordu.');
+    expect(JSON.stringify(next.messages)).not.toContain('/compact');
+    expect(next.messages.at(-1)).toMatchObject({ role: 'user' });
+
+    // özetlenecek bir şey yoksa
+    const fresh = await env.ctx.code.createSession(a.user.id, { repo: 'octo/alpha', baseBranch: 'main' });
+    const none = await send(a, fresh.chatId, '/compact');
+    expect(lastAssistant(await detail(a, fresh.chatId)).content).toContain('Özetlenecek bir şey yok');
+    expect(of(none.events, 'error')).toHaveLength(0);
+  });
+
+  it('ortam talimatları her turun sistem istemine girer', async () => {
+    const { a, s } = await prepared();
+    await env.ctx.db.query(`update code_environments set instructions = $2 where user_id = $1`, [a.user.id, 'Her zaman pnpm kullan. Commit mesajları Türkçe olsun.']);
+    env.ai.steps = [text('tamam')];
+    await send(a, s.chatId, 'merhaba');
+    const sys = String(agentCalls()[0]!.messages[0]!.content);
+    expect(sys).toContain('Instructions from the user');
+    expect(sys).toContain('Her zaman pnpm kullan.');
+  });
+
+  it('arka plan işleri: job_output durumu ve çıktıyı gösterir; olmayan iş açıklayıcı hata verir; bash pid dosyası yazar', async () => {
+    const { a, s } = await prepared();
+    fc.state.execImpl = (c) => {
+      if (c.includes('sf-bg-abc123.log') && c.includes('STATE')) return { stdout: 'sunucu hazır :3000\n---STATE---\nrunning\n' };
+      if (c.includes('sf-bg-ffffff.log')) return { stdout: 'NOJOB\n' };
+      return {};
+    };
+    env.ai.steps = [
+      [call('b1', 'bash', { command: 'npm run dev', background: true })],
+      [call('j1', 'job_output', { id: 'abc123' })],
+      [call('j2', 'job_output', { id: 'ffffff' })],
+      [call('j3', 'job_kill', { id: 'zzz' })],
+      text('bitti'),
+    ];
+    const r = await send(a, s.chatId, 'sunucuyu başlat');
+    const ends = of(r.events, 'tool_end');
+    expect(fc.state.execs.some((c) => c.includes('echo $! > /tmp/sf-bg-') && c.includes('.pid'))).toBe(true);
+    expect(ends.find((e) => e.id === 'j1')).toMatchObject({ status: 'done', output: expect.stringContaining('[job abc123: running]') });
+    expect(ends.find((e) => e.id === 'j1')!.output).toContain('sunucu hazır :3000');
+    expect(ends.find((e) => e.id === 'j2')).toMatchObject({ status: 'error' });
+    expect(ends.find((e) => e.id === 'j3')).toMatchObject({ status: 'error' });
   });
 });

@@ -25,6 +25,7 @@ interface EnvRow {
   disk_mb: number;
   commit_session_link: boolean;
   auto_pr: boolean;
+  instructions: string;
   created_at: Date;
   updated_at: Date;
 }
@@ -60,6 +61,7 @@ export interface EnvInput {
   diskMb?: number;
   commitSessionLink?: boolean;
   autoPr?: boolean;
+  instructions?: string;
   envVars?: Record<string, string>;
 }
 
@@ -163,6 +165,7 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
       envVarCount: Object.keys(vars).length,
       commitSessionLink: r.commit_session_link,
       autoPr: r.auto_pr,
+      instructions: r.instructions,
       ...(withVars ? { envVars: vars } : {}),
       createdAt: r.created_at.toISOString(),
       updatedAt: r.updated_at.toISOString(),
@@ -202,8 +205,8 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
     const enc = input.envVars && Object.keys(input.envVars).length ? needBox().seal(JSON.stringify(input.envVars)) : '';
     try {
       const r = await db.query<EnvRow>(
-        `insert into code_environments (user_id, name, network, allowed_domains, env_vars_enc, setup_script, disk_mb, commit_session_link, auto_pr)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
+        `insert into code_environments (user_id, name, network, allowed_domains, env_vars_enc, setup_script, disk_mb, commit_session_link, auto_pr, instructions)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning *`,
         [
           userId,
           input.name ?? 'Ortam',
@@ -214,6 +217,7 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
           input.diskMb ?? CODE_DISK_DEFAULT_MB,
           input.commitSessionLink ?? false,
           input.autoPr ?? true,
+          input.instructions ?? '',
         ],
       );
       return toEnvDTO(r.rows[0]!, true);
@@ -235,9 +239,10 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
             disk_mb = coalesce($8, disk_mb),
             commit_session_link = coalesce($9, commit_session_link),
             auto_pr = coalesce($10, auto_pr),
+            instructions = coalesce($11, instructions),
             updated_at = now()
           where id = $1 and user_id = $2 returning *`,
-        [id, userId, input.name ?? null, input.network ?? null, input.allowedDomains ?? null, enc, input.setupScript ?? null, input.diskMb ?? null, input.commitSessionLink ?? null, input.autoPr ?? null],
+        [id, userId, input.name ?? null, input.network ?? null, input.allowedDomains ?? null, enc, input.setupScript ?? null, input.diskMb ?? null, input.commitSessionLink ?? null, input.autoPr ?? null, input.instructions ?? null],
       );
       if (!r.rows[0]) throw notFound('Ortam bulunamadı.');
       return toEnvDTO(r.rows[0], true);

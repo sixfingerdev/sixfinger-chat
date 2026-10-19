@@ -511,7 +511,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           parts: m.role === 'assistant' ? m.parts : undefined,
         }));
         if (isCode) {
-          return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange });
+          return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange, planMode: body.planMode === true });
         }
         generate(req, reply, {
           chat,
