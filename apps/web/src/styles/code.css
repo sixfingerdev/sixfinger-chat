@@ -777,3 +777,440 @@
   font-size: 14px;
   font-weight: 550;
 }
+
+/* ---------- Oturum ekranı ---------- */
+.code-thread {
+  width: min(var(--content-w), 100%);
+  margin: 0 auto;
+  padding: 8px 16px 36px;
+  display: grid;
+  gap: 22px;
+  align-content: start;
+}
+.code-thread .session-soon h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+.code-msg .msg-main {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+.ctx-btn {
+  width: 36px;
+}
+.ctx-ring-track {
+  stroke: var(--line-strong);
+}
+.ctx-ring-fill {
+  stroke: var(--accent);
+  transition: stroke-dasharray var(--t-med) var(--ease);
+}
+.ctx-ring.hot .ctx-ring-fill {
+  stroke: var(--warning);
+}
+.topbar-right {
+  gap: 2px;
+}
+
+/* Satırlar: komut grubu, dosya, commit… */
+.code-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.code-row:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+.code-row:disabled {
+  cursor: default;
+}
+.code-row.quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+  padding-inline: 4px;
+}
+.code-row.quiet:hover:not(:disabled) {
+  background: var(--surface);
+}
+.code-row.failed .code-row-icon {
+  color: var(--danger);
+}
+.code-row-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+}
+.code-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.code-row-label small {
+  color: var(--text-3);
+  font-size: inherit;
+}
+.code-row-label code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  margin-right: 4px;
+}
+.code-row-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  direction: rtl; /* uzun yolda baş kısım kısalsın, dosya adı görünsün */
+  text-align: left;
+}
+.code-row-go {
+  flex: none;
+  color: var(--text-3);
+}
+.code-row.running .code-row-label {
+  color: var(--text-2);
+}
+.delta {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 550;
+}
+.delta-add {
+  color: var(--success);
+}
+.delta-del {
+  color: var(--danger);
+}
+
+/* Evre satırı */
+.phase-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.phase-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-2);
+  animation: code-pulse 1.4s ease-in-out infinite;
+}
+
+/* Yapılacaklar */
+.todo-card {
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 10px 14px 12px;
+}
+.todo-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+.todo-head strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.todo-card ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 5px;
+}
+.todo-card li {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.todo-card li svg {
+  flex: none;
+  margin-top: 2px;
+}
+.todo-card li.completed {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+.todo-card li.in_progress {
+  color: var(--text);
+}
+
+/* Alt sayfa (sheet) */
+.modal.sheet {
+  width: min(520px, 100%);
+}
+.sheet-body {
+  gap: 14px;
+}
+.sheet-empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 22px 8px;
+  text-align: center;
+  color: var(--text-2);
+}
+.sheet-empty p {
+  margin: 0;
+  max-width: 36ch;
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+@media (max-width: 640px) {
+  .overlay:has(> .modal.sheet) {
+    align-items: end;
+    padding: 0;
+  }
+  .modal.sheet {
+    width: 100%;
+    max-height: 82dvh;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    padding-bottom: var(--safe-b);
+    animation: sheet-in var(--t-med) var(--ease);
+  }
+}
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+.usage-block {
+  display: grid;
+  gap: 8px;
+}
+.usage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.usage-bar.big {
+  height: 8px;
+  width: 100%;
+}
+.muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* PR satırları */
+.pr-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  color: var(--text);
+  text-decoration: none;
+}
+.pr-row:hover {
+  background: var(--surface-2);
+}
+.pr-row > svg:first-child {
+  flex: none;
+  color: var(--text-2);
+}
+.pr-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.pr-main strong {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pr-main small {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.pr-go {
+  flex: none;
+  color: var(--text-3);
+}
+
+/* Değişen dosyalar */
+.change-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.change-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+.change-list li + li {
+  border-top: 1px solid var(--line);
+}
+.change-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  direction: rtl;
+  text-align: left;
+}
+.change-status {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.changes-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  cursor: pointer;
+}
+.changes-chip:hover {
+  background: var(--surface-2);
+}
+.code-composer .composer-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+/* Komut adımları ve fark görünümü */
+.step {
+  display: grid;
+  gap: 6px;
+}
+.step + .step {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+  min-width: 0;
+}
+.step-head strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.step-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.step-flags {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-flags em {
+  font-style: normal;
+  font-size: 11.5px;
+  color: var(--danger);
+}
+.step.failed .step-head svg:last-child {
+  color: var(--danger);
+}
+.step-cmd,
+.step-out,
+.diff {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+}
+.step-cmd {
+  color: var(--text);
+}
+.step-out {
+  color: var(--text-2);
+}
+.diff {
+  display: block;
+  white-space: pre;
+  overflow-wrap: normal;
+  max-height: 420px;
+}
+.diff-line {
+  display: block;
+  padding: 0 6px;
+  margin: 0 -6px;
+}
+.diff-line.add {
+  background: rgba(60, 207, 126, 0.12);
+  color: var(--text);
+}
+.diff-line.del {
+  background: var(--danger-soft);
+  color: var(--text-2);
+}
+.diff-line.ctx {
+  color: var(--text-3);
+}

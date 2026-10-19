@@ -9,7 +9,8 @@ export interface CommitAttribution {
   sessionUrl?: string | null;
 }
 
-const oneLine = (s: string) => s.replace(/[\r\n\u0000]+/g, ' ').replace(/\s+/g, ' ').trim();
+const noNul = (s: string) => s.split(String.fromCharCode(0)).join('');
+const oneLine = (s: string) => noNul(s).replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** Commit başlığı: tek satır, en çok 72 karakter, sonda nokta yok. */
 export function commitSubject(raw: string, fallback = 'SixFinger Code değişiklikleri'): string {
@@ -23,8 +24,7 @@ export function commitSubject(raw: string, fallback = 'SixFinger Code değişikl
 export function buildCommitMessage(subject: string, body: string | undefined, attr: CommitAttribution = {}): string {
   const trailers: string[] = [`Co-Authored-By: ${CODE_COAUTHOR}`];
   if (attr.sessionUrl) trailers.push(`SixFinger-Session: ${oneLine(attr.sessionUrl)}`);
-  const cleanBody = (body ?? '')
-    .replace(/\u0000/g, '')
+  const cleanBody = noNul(body ?? '')
     .split('\n')
     .filter((l) => !/^(co-authored-by|sixfinger-session):/i.test(l.trim()))
     .join('\n')

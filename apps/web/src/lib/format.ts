@@ -112,3 +112,11 @@ export const slugify = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 50) || 'sohbet';
+
+/** 60 300 → "60,3k"; yerel ondalık ayracı kullanılmaz (kısa, sabit). */
+export function compactNumber(n: number): string {
+  if (n < 1_000) return String(Math.round(n));
+  if (n < 100_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1_000)}k`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+}
