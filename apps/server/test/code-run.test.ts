@@ -716,4 +716,24 @@ describe('Ajan yetenekleri: soru, plan, alt ajan, /compact, talimatlar, arka pla
     expect(ends.find((e) => e.id === 'j2')).toMatchObject({ status: 'error' });
     expect(ends.find((e) => e.id === 'j3')).toMatchObject({ status: 'error' });
   });
+
+  it('repo slash komutları ve @dosya önerisi/dosya listesi uçları', async () => {
+    const { a, s } = await prepared();
+    fc.state.execImpl = (c) => {
+      if (c.includes('.claude/commands')) return { stdout: '@@FILE .claude/commands/lint.md\n---\ndescription: Lint düzelt\n---\nLint çalıştır. $ARGUMENTS\n\n@@FILE .sixfinger/commands/lint.md\nçakışan ad atlanır\n@@FILE .sixfinger/commands/deploy.md\n# Yayınla\nAdımlar\n' };
+      if (c.includes('git ls-files') && c.includes("grep -i -F -- 'auth'")) return { stdout: 'src/auth/login.ts\nsrc/auth/login.test.ts\n' };
+      if (c.includes('git ls-files')) return { stdout: 'README.md\nsrc/app.ts\n' };
+      return {};
+    };
+    const cmds = (await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/commands`, headers: auth(a) })).json().commands;
+    expect(cmds.map((c: { name: string }) => c.name)).toEqual(['lint', 'deploy']);
+    expect(cmds[0]).toMatchObject({ description: 'Lint düzelt', template: 'Lint çalıştır. $ARGUMENTS', source: 'repo' });
+    const f = (await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/files?q=auth`, headers: auth(a) })).json();
+    expect(f).toEqual({ files: ['src/auth/login.ts', 'src/auth/login.test.ts'], truncated: false });
+    expect((await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/files`, headers: auth(a) })).json().files).toEqual(['README.md', 'src/app.ts']);
+    // başkasının oturumu
+    env.ctx.config.codeAllowed.emails.add('baska@example.com');
+    const other = await member(env, { email: 'baska@example.com' });
+    expect((await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}/files`, headers: auth(other) })).statusCode).toBe(404);
+  });
 });

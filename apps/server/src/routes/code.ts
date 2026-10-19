@@ -5,6 +5,7 @@ import {
   createPrSchema,
   createCodeSessionSchema,
   diffQuery,
+  filesQuery,
   githubCompleteSchema,
   githubStartSchema,
   listReposQuery,
@@ -223,6 +224,15 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
       authed.post<{ Params: { id: string } }>('/code/sessions/:id/pr', async (req) => {
         const body = parse(createPrSchema, req.body ?? {});
         return ctx.codeGit.publish(req.user!, req.params.id, body);
+      });
+
+      /** Repodaki slash komutları (`.claude/commands`, `.sixfinger/commands`). */
+      authed.get<{ Params: { id: string } }>('/code/sessions/:id/commands', async (req) => ({ commands: await ctx.codeGit.commands(req.user!, req.params.id) }));
+
+      /** Çalışma alanındaki dosyalar (`q` ile süzülür): @dosya önerisi ve dosya gezgini. */
+      authed.get<{ Params: { id: string }; Querystring: { q?: string } }>('/code/sessions/:id/files', async (req) => {
+        const q = parse(filesQuery, req.query);
+        return ctx.codeGit.files(req.user!, req.params.id, q.q);
       });
 
       /** Başlangıca göre birleşik fark (tüm dosyalar ya da tek `path`). */

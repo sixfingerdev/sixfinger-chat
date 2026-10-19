@@ -1,4 +1,4 @@
-import { githubNoreply, type CodeDiffDTO, type CodePrDraftDTO, type CodePullDTO } from '@sixfinger/shared';
+import { githubNoreply, parseRepoCommand, type CodeDiffDTO, type CodePrDraftDTO, type CodePullDTO, type SlashCommand } from '@sixfinger/shared';
 import type { Config } from '../config.ts';
 import type { Db } from '../db/pool.ts';
 import { HttpError, notFound } from '../lib/errors.ts';
@@ -186,6 +186,43 @@ export function createCodeGit(deps: CodeGitDeps) {
     }
   }
 
-  return { push, draft, publish, diff };
+  /** Repodaki slash komutları (`.claude/commands/*.md`, `.sixfinger/commands/*.md`). Okunamazsa boş liste. */
+  async function commands(user: AuthUser, chatId: string): Promise<SlashCommand[]> {
+    const { running } = await load(user, chatId);
+    if (running) return [];
+    try {
+      const out = await exec(user, chatId, `for f in .claude/commands/*.md .sixfinger/commands/*.md; do [ -f "$f" ] || continue; echo "@@FILE $f"; head -c 6000 "$f"; echo; done`, 20);
+      const seen = new Set<string>();
+      const list: SlashCommand[] = [];
+      for (const chunk of out.split('@@FILE ').slice(1)) {
+        const nl = chunk.indexOf('\n');
+        const cmd = parseRepoCommand(chunk.slice(0, nl).trim(), chunk.slice(nl + 1));
+        if (cmd && !seen.has(cmd.name)) {
+          seen.add(cmd.name);
+          list.push(cmd);
+        }
+      }
+      return list.slice(0, 40);
+    } catch {
+      return [];
+    }
+  }
+
+  /** Çalışma alanındaki dosyalar (izlenen + yeni, .gitignore hariç); `q` verilirse yola göre süzülür (@dosya ve dosya gezgini için). */
+  async function files(user: AuthUser, chatId: string, q = ''): Promise<{ files: string[]; truncated: boolean }> {
+    const { running } = await load(user, chatId);
+    if (running) return { files: [], truncated: false };
+    const limit = q ? 40 : 3_000;
+    const filter = q ? ` | grep -i -F -- ${shq(q)}` : '';
+    try {
+      const out = await exec(user, chatId, `git ls-files -co --exclude-standard${filter} | head -n ${limit + 1}`, 30);
+      const list = out.split('\n').map((l) => l.trim()).filter(Boolean);
+      return { files: list.slice(0, limit), truncated: list.length > limit };
+    } catch {
+      return { files: [], truncated: false };
+    }
+  }
+
+  return { push, draft, publish, diff, commands, files };
 }
 export type CodeGit = ReturnType<typeof createCodeGit>;

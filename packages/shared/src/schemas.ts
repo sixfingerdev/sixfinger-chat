@@ -171,6 +171,7 @@ export const createPrSchema = z.object({
   body: z.string().max(20_000).optional(),
   draft: z.boolean().default(false),
 });
+export const filesQuery = z.object({ q: z.string().trim().max(200).optional() });
 export const diffQuery = z.object({ path: z.string().trim().min(1).max(500).optional() });
 export const listReposQuery = z.object({ q: z.string().trim().max(100).optional() });
 export const branchesQuery = z.object({ repo: createCodeSessionSchema.shape.repo });
