@@ -64,6 +64,11 @@ const schema = z.object({
   BEDROCK_ACCESS_KEY_ID: z.string().optional().default(''),
   BEDROCK_SECRET_ACCESS_KEY: z.string().optional().default(''),
   BEDROCK_SESSION_TOKEN: z.string().optional().default(''),
+  /** Açıkken `reasoning_effort` destekleyen modellere kullanıcı düzeyi yerine modelin en yüksek düzeyi gönderilir (gpt-oss `high`, ücretsiz modeller `max`). */
+  AI_MAX_EFFORT: z
+    .enum(['true', 'false', '1', '0', ''])
+    .optional()
+    .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
   AI_MAX_CONCURRENCY: z.coerce.number().int().min(1).default(2),
   /** Üst servise bağlanma / ilk yanıt (başlıklar) ve akışsız çağrılar için süre. Akış başladıktan sonra uygulanmaz. */
   AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).default(120_000),

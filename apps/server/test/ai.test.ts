@@ -96,7 +96,7 @@ describe('Pollinations sağlayıcısı', () => {
     };
     const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
     expect(await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' })).toBe('ok');
-    expect(sent).toMatchObject({ model: 'openai-fast', stream: false, reasoning_effort: 'low' });
+    expect(sent).toMatchObject({ model: 'openai-fast', stream: false, reasoning_effort: 'high' });
   });
 
   it('iptal sinyali beklemeyi keser', async () => {
@@ -127,10 +127,10 @@ describe('Pollinations sağlayıcısı', () => {
 
     it('fast Pollinations, balanced gpt-oss-120b, deep Qwen kullanır; düşünme derinliği Qwen\'e gitmez', async () => {
       const low = await run('fast', ok);
-      expect(low.calls[0]).toMatchObject({ url: config.AI_BASE_URL, body: { model: 'openai-fast', reasoning_effort: 'medium' } });
+      expect(low.calls[0]).toMatchObject({ url: config.AI_BASE_URL, body: { model: 'openai-fast', reasoning_effort: 'high' } });
       const mid = await run('balanced', ok);
       expect(mid.calls[0]!.url).toBe(config.AI_BALANCED_BASE_URL);
-      expect(mid.calls[0]!.body).toMatchObject({ model: 'gpt-oss-120b', reasoning_effort: 'medium' });
+      expect(mid.calls[0]!.body).toMatchObject({ model: 'gpt-oss-120b', reasoning_effort: 'high' });
       const high = await run('deep', ok);
       expect(high.calls[0]!.body.model).toBe('Qwen3.8-27B');
       expect(high.calls[0]!.body).not.toHaveProperty('reasoning_effort');
@@ -219,6 +219,26 @@ describe('Pollinations sağlayıcısı', () => {
       };
       expect(await code(cfg)).toEqual(['Qwen3.8-27B']);
       expect(await code({ ...cfg, AI_FREE_FOR_CODE: true })).toEqual(['Qwen3.8-27B', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash']);
+    });
+
+    it('reasoning_effort: ücretsiz modellere max, gpt-oss\'a high gider; AI_MAX_EFFORT kapalıysa kullanıcı düzeyi', async () => {
+      const efforts: Record<string, string> = {};
+      const fetchMock = async (_u: string, init: RequestInit) => {
+        const b = JSON.parse(String(init.body));
+        efforts[b.model] = b.reasoning_effort;
+        return new Response('{}', { status: 400 });
+      };
+      const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
+      await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' }).catch(() => '');
+      expect(efforts).toEqual({ 'DeepSeek-V4-Flash-0731': 'max', 'GLM-5.3-Flash': 'max', 'minimax/minimax-m3.1-flash:free': 'max', 'openai-fast': 'high' });
+      const user: Record<string, string> = {};
+      const ai2 = createAi({ ...cfg, AI_MAX_EFFORT: false }, undefined, (async (_u: string, init: RequestInit) => {
+        const b = JSON.parse(String(init.body));
+        user[b.model] = b.reasoning_effort;
+        return new Response('{}', { status: 400 });
+      }) as unknown as typeof fetch);
+      await ai2.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' }).catch(() => '');
+      expect(Object.values(user).every((v) => v === 'low')).toBe(true);
     });
 
     it('AI_FREE_ENABLED kapalıyken zincire girmez', async () => {

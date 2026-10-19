@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Check, ChevronRight, Plug, Plus, RefreshCw, Trash2, X } from 'lucide-react';
-import { MCP_LIMITS, fillPresetUrl, mcpHost, mcpLogo, type McpPresetView, type McpScope, type McpServerDTO } from '@sixfinger/shared';
+import { MCP_LIMITS, fillPresetUrl, mcpHost, mcpLogo, mcpLogoSrc, type McpPresetView, type McpScope, type McpServerDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
@@ -25,21 +25,16 @@ export function StatusChip({ server }: { server: McpServerDTO }) {
 }
 
 /** Tek renkli kare harf avatarı (katalog ve satırlar). */
-/** Bağlayıcı simgesi: katalog logosu (varsa), yoksa adın baş harfi. */
+/** Bağlayıcı simgesi: markanın resmî logosu (varsa; koyu temada ayrı varyantı olanlar için ikisi de basılır, CSS biri gizler), yoksa adın baş harfi. */
 export function Avatar({ label, preset }: { label: string; preset?: string | null }) {
   const logo = mcpLogo(preset);
   return (
     <span className="mcp-avatar" aria-hidden>
-      {logo && 'shapes' in logo ? (
-        <svg viewBox="0 0 24 24" width="20" height="20">
-          {logo.shapes.map((sh, i) => (
-            <path key={i} d={sh.d} fill={sh.fill} />
-          ))}
-        </svg>
-      ) : logo ? (
-        <span className="mcp-mono" style={{ color: logo.fill }}>
-          {logo.letter}
-        </span>
+      {logo ? (
+        <>
+          <img className="mcp-logo light" src={mcpLogoSrc(logo, false)} alt="" width={22} height={22} draggable={false} />
+          {'dark' in logo && logo.dark && <img className="mcp-logo dark" src={mcpLogoSrc(logo, true)} alt="" width={22} height={22} draggable={false} />}
+        </>
       ) : (
         label.trim().charAt(0).toUpperCase() || '?'
       )}

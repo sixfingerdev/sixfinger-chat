@@ -124,6 +124,8 @@ interface Profile {
   apiKey: string;
   /** `reasoning_effort` yalnızca bunu destekleyen modele gönderilir (Llama reddediyor, Qwen boş yanıt veriyor). */
   sendEffort: boolean;
+  /** `AI_MAX_EFFORT` açıkken gönderilen düzey: modelin kabul ettiği en yükseği (gpt-oss `high`, DeepSeek/GLM/MiniMax `max`). */
+  maxEffort?: 'high' | 'max';
   /** Anahtar isteğe bağlıdır: 401/402/403 gelirse bir süre anahtarsız denenir (LLM7: bakiyesiz/iptal edilmiş anahtar). */
   keyOptional?: boolean;
 }
@@ -155,7 +157,7 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
       messages: req.messages,
       stream,
       temperature: req.temperature ?? 0.7,
-      ...(profile.sendEffort ? { reasoning_effort: req.effort ?? 'medium' } : {}),
+      ...(profile.sendEffort ? { reasoning_effort: (config.AI_MAX_EFFORT && profile.maxEffort) || req.effort || 'medium' } : {}),
       max_tokens: req.maxTokens ?? config.AI_MAX_TOKENS,
       ...(req.tools?.length ? { tools: req.tools, tool_choice: 'auto' } : {}),
     });
@@ -366,19 +368,19 @@ export function createAi(
   bedrockImpl?: AiProvider,
   now: () => number = Date.now,
 ): AiProvider {
-  const fast = createEndpoint({ baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, apiKey: config.AI_API_KEY, sendEffort: true }, config, log, fetchImpl);
-  const make = (baseUrl: string, model: string, apiKey: string, sendEffort: boolean) =>
-    baseUrl ? createEndpoint({ baseUrl, model, apiKey, sendEffort }, config, log, fetchImpl) : undefined;
+  const fast = createEndpoint({ baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, apiKey: config.AI_API_KEY, sendEffort: true, maxEffort: 'high' }, config, log, fetchImpl);
+  const make = (baseUrl: string, model: string, apiKey: string, sendEffort: boolean, maxEffort?: 'high' | 'max') =>
+    baseUrl ? createEndpoint({ baseUrl, model, apiKey, sendEffort, maxEffort }, config, log, fetchImpl) : undefined;
   // gpt-oss `reasoning_effort` ister; Qwen3.8 bununla boş yanıt döner.
-  const balanced = make(config.AI_BALANCED_BASE_URL, config.AI_BALANCED_MODEL, config.AI_BALANCED_API_KEY, true);
+  const balanced = make(config.AI_BALANCED_BASE_URL, config.AI_BALANCED_MODEL, config.AI_BALANCED_API_KEY, true, 'high');
   const deep = make(config.AI_DEEP_BASE_URL, config.AI_DEEP_MODEL, config.AI_DEEP_API_KEY, false);
   // Ücretsiz sağlayıcılar: DeepSeek (LLM7) → GLM (LLM7) → MiniMax (Kilo). Her biri `reasoning_effort`'u kabul eder.
   const free: Array<{ name: string; ai: AiProvider }> = [];
   if (config.AI_FREE_ENABLED) {
-    const llm7 = (model: string) => (config.LLM7_BASE_URL && model ? createEndpoint({ baseUrl: config.LLM7_BASE_URL, model, apiKey: config.LLM7_API_KEY, sendEffort: true, keyOptional: true }, config, log, fetchImpl) : undefined);
+    const llm7 = (model: string) => (config.LLM7_BASE_URL && model ? createEndpoint({ baseUrl: config.LLM7_BASE_URL, model, apiKey: config.LLM7_API_KEY, sendEffort: true, maxEffort: 'max', keyOptional: true }, config, log, fetchImpl) : undefined);
     const d = llm7(config.LLM7_MODEL);
     const g = llm7(config.LLM7_MODEL_2);
-    const k = make(config.KILO_BASE_URL, config.KILO_MODEL, config.KILO_API_KEY, true);
+    const k = make(config.KILO_BASE_URL, config.KILO_MODEL, config.KILO_API_KEY, true, 'max');
     if (d) free.push({ name: 'deepseek', ai: d });
     if (g) free.push({ name: 'glm', ai: g });
     if (k) free.push({ name: 'minimax', ai: k });

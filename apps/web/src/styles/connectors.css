@@ -72,13 +72,18 @@
   font-weight: 600;
   font-size: 15px;
 }
-.mcp-avatar svg {
+.mcp-logo {
+  display: block;
+  object-fit: contain;
+}
+.mcp-logo.dark {
+  display: none;
+}
+:root[data-theme='dark'] .mcp-logo.dark {
   display: block;
 }
-.mcp-mono {
-  font-weight: 700;
-  font-size: 17px;
-  line-height: 1;
+:root[data-theme='dark'] .mcp-avatar .mcp-logo.light:not(:only-child) {
+  display: none;
 }
 .mcp-row-title {
   font-family: var(--font-sans);

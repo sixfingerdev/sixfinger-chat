@@ -38,6 +38,7 @@ services:
       AI_DEEP_MODEL: ${AI_DEEP_MODEL:-Qwen3.8-27B}
       AI_DEEP_API_KEY: ${AI_DEEP_API_KEY:-}
       # Yedek model (Amazon Bedrock'ta Claude): diğer sağlayıcılar hata verirse devreye girer. Boşsa kapalı (bkz. docs/bedrock.md).
+      AI_MAX_EFFORT: ${AI_MAX_EFFORT:-true}
       AI_FREE_ENABLED: ${AI_FREE_ENABLED:-true}
       AI_FREE_FOR_CODE: ${AI_FREE_FOR_CODE:-false}
       LLM7_API_KEY: ${LLM7_API_KEY:-}

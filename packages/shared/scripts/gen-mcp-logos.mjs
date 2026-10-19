@@ -1,44 +1,50 @@
-// Bağlayıcı logolarını üretir: `npm i --no-save simple-icons` sonrası `node packages/shared/scripts/gen-mcp-logos.mjs`.
-// simple-icons CC0'dır. Kütüphanede olmayan markalar (Canva, Slack, monday.com, Adobe, Gamma, Granola, Wispr Flow) harf işaretiyle gelir.
-import * as si from 'simple-icons';
-import { writeFileSync } from 'node:fs';
+// Bağlayıcıların RESMÎ logolarını indirip `src/mcp-logos.ts` üretir: `node packages/shared/scripts/gen-mcp-logos.mjs` (ağ gerekir).
+// Kaynaklar: svgl.app (marka kitlerinden derlenmiş resmî SVG'ler), iconify (logos, selfhst, thesvg-color) ve markanın kendi simgesi
+// (Gamma, Wispr Flow: `assets/*.png`, sitelerinin simgesi). Logolar ilgili şirketlerin tescilli markalarıdır; yalnızca bağlayıcıyı
+// tanıtmak için kullanılır.
+import { readFileSync, writeFileSync } from 'node:fs';
 
-const ICONS = {
-  'google-drive': 'siGoogledrive', gmail: 'siGmail', 'google-calendar': 'siGooglecalendar', notion: 'siNotion', figma: 'siFigma',
-  hubspot: 'siHubspot', asana: 'siAsana', linear: 'siLinear', 'google-sheets': 'siGooglesheets', 'google-docs': 'siGoogledocs',
-  intercom: 'siIntercom', box: 'siBox', 'google-slides': 'siGoogleslides', miro: 'siMiro', supabase: 'siSupabase', shopify: 'siShopify',
-  indeed: 'siIndeed', vercel: 'siVercel', spotify: 'siSpotify',
+const svgl = (f) => `https://svgl.app/library/${f}`;
+const iconify = (prefix, name) => `https://api.iconify.design/${prefix}/${name}.svg`;
+/** id → [açık tema, koyu tema (yoksa aynısı)] */
+const SOURCES = {
+  'google-drive': [svgl('drive.svg')], gmail: [svgl('gmail.svg')], 'google-calendar': [svgl('google-calendar.svg')],
+  canva: [svgl('canva.svg')], notion: [svgl('notion.svg')], figma: [svgl('figma.svg')], slack: [svgl('slack.svg')],
+  hubspot: [iconify('simple-icons', 'hubspot') + '?color=%23FF7A59'], asana: [svgl('asana-logo.svg')], linear: [svgl('linear.svg')],
+  'google-sheets': [svgl('google-sheets.svg')], monday: [iconify('logos', 'monday-icon')], 'google-docs': [iconify('selfhst', 'google-docs')],
+  intercom: [iconify('logos', 'intercom-icon')], box: [iconify('logos', 'box')], 'google-slides': [svgl('google-slides.svg')],
+  adobe: [svgl('adobe.svg')], miro: [iconify('logos', 'miro-icon')], supabase: [svgl('supabase.svg')], shopify: [svgl('shopify.svg')],
+  indeed: [iconify('thesvg-color', 'indeed')], vercel: [svgl('vercel.svg'), svgl('vercel_dark.svg')], spotify: [svgl('spotify.svg')],
+  granola: [svgl('granola-light.svg'), svgl('granola-dark.svg')], 'microsoft-365': [iconify('selfhst', 'microsoft-365')],
 };
-const LETTERS = { canva: ['C', '00C4CC'], slack: ['S', 'E01E5A'], monday: ['m', 'FF3D57'], adobe: ['A', 'FA0F00'], gamma: ['G', '7C5CFF'], granola: ['G', '5FA55A'], 'wispr-flow': ['W', '6C5CE7'] };
-// Neredeyse siyah / çok koyu renkler koyu temada görünmez: temanın metin rengini kullanır.
-const dark = (hex) => {
-  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 70;
+const PNGS = { gamma: 'assets/gamma.png', 'wispr-flow': 'assets/wispr-flow.png' };
+
+const get = async (u) => {
+  const r = await fetch(u);
+  if (!r.ok) throw new Error(`${u}: ${r.status}`);
+  const t = (await r.text()).replace(/<\?xml[^>]*>/, '').trim();
+  if (!t.startsWith('<svg')) throw new Error(`${u}: SVG değil`);
+  return t;
 };
 const out = {};
-for (const [id, key] of Object.entries(ICONS)) {
-  const icon = si[key];
-  if (!icon) throw new Error(`simple-icons: ${key} yok`);
-  out[id] = { shapes: [{ d: icon.path, fill: dark(icon.hex) ? 'currentColor' : `#${icon.hex}` }] };
+for (const [id, urls] of Object.entries(SOURCES)) {
+  const [light, dark] = await Promise.all(urls.map(get));
+  out[id] = dark ? { svg: light, dark } : { svg: light };
 }
-for (const [id, [letter, hex]] of Object.entries(LETTERS)) out[id] = { letter, fill: `#${hex}` };
-out['microsoft-365'] = {
-  shapes: [
-    { d: 'M2 2h9.5v9.5H2z', fill: '#F25022' },
-    { d: 'M12.5 2H22v9.5h-9.5z', fill: '#7FBA00' },
-    { d: 'M2 12.5h9.5V22H2z', fill: '#00A4EF' },
-    { d: 'M12.5 12.5H22V22h-9.5z', fill: '#FFB900' },
-  ],
-};
-const body = JSON.stringify(out, null, 1).replace(/"(\w+)":/g, '$1:').replace(/"/g, "'");
+for (const [id, f] of Object.entries(PNGS)) out[id] = { png: `data:image/png;base64,${readFileSync(new URL(f, import.meta.url)).toString('base64')}` };
+
 writeFileSync(
   new URL('../src/mcp-logos.ts', import.meta.url),
-  `/** Bağlayıcı logoları (24x24 görünüm kutusu). Üretici: packages/shared/scripts/gen-mcp-logos.mjs — elle düzenleme. */
-export type McpLogo = { shapes: Array<{ d: string; fill: string }> } | { letter: string; fill: string };
+  `/** Bağlayıcıların resmî logoları. Üretici: packages/shared/scripts/gen-mcp-logos.mjs — elle düzenleme. */
+export type McpLogo = { svg: string; dark?: string } | { png: string };
 
-export const MCP_LOGOS: Record<string, McpLogo> = ${body};
+export const MCP_LOGOS: Record<string, McpLogo> = ${JSON.stringify(out, null, 1)};
 
 export const mcpLogo = (presetId: string | null | undefined): McpLogo | undefined => (presetId ? MCP_LOGOS[presetId] : undefined);
+
+/** \`<img src>\` için veri adresi (koyu temada \`dark\` varyantı varsa o). */
+export const mcpLogoSrc = (logo: McpLogo, dark: boolean): string =>
+  'png' in logo ? logo.png : \`data:image/svg+xml;utf8,\${encodeURIComponent(dark && logo.dark ? logo.dark : logo.svg)}\`;
 `,
 );
 console.log(Object.keys(out).length, 'logo');

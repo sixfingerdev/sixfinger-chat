@@ -77,6 +77,7 @@ Claude'a düşer (isteğe bağlı; bkz. [docs/bedrock.md](docs/bedrock.md)).
 `minimax/minimax-m3.1-flash:free` sırasıyla denenir (güç: DeepSeek > GLM > MiniMax). Hızlı modda ilk sıradadırlar; Dengeli/Derin'de seçilen modelden sonra, Bedrock'tan ve
 Pollinations'tan önce gelirler. `LLM7_API_KEY` isteğe bağlıdır: anahtar reddedilir (401/402/403) ya da kotası dolarsa (429) 10 dakika anahtarsız denenir; ≥ 1 dk beklemesi istenen
 uç o süre atlanır. Code'da varsayılan olarak **kullanılmaz** (depo içeriği üçüncü taraf servislere gider); `AI_FREE_FOR_CODE=true` ile Qwen'den sonra, Claude'dan önce DeepSeek/GLM denenir.
+`reasoning_effort` destekleyen modellere her zaman en yüksek düzey gider (gpt-oss: `high`, ücretsiz modeller: `max`); menüdeki düşünme düzeyi bunlarda etkisizdir. `AI_MAX_EFFORT=false` kullanıcının seçtiği düzeye döner.
 Ayarlar: `LLM7_BASE_URL/MODEL/MODEL_2/API_KEY`, `KILO_BASE_URL/MODEL/API_KEY` (adres boşsa o sağlayıcı kapalı).
 
 İstemci iki ayrı değer gönderir: `mode` (`fast`/`balanced`/`deep`, hangi model) ve `effort` (`low`/`medium`/`high`, düşünme düzeyi).
