@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Text as RNText, View } from 'react-native';
+import { Platform, Text as RNText, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { ChevronRight } from 'lucide-react-native';
 import type { MessagePartDTO } from '@sixfinger/shared';
@@ -60,22 +60,36 @@ export function ReasoningHead({ id, part, thinking }: { id: string; part: Reason
 export function ReasoningBody({ text, open }: { text: string; open: boolean }) {
   const { c } = useTheme();
   const [h, setH] = useState(0);
+  // Kapalıyken metin hiç çizilmez (uzun oturumda onlarca gizli, ölçülen uzun metin Android'de belleği şişirip ekranı karartıyordu);
+  // kapanma animasyonu bitince kaldırılır, açılırken önce takılır.
+  const [mounted, setMounted] = useState(open);
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      return;
+    }
+    const id = setTimeout(() => setMounted(false), 300);
+    return () => clearTimeout(id);
+  }, [open]);
   const k = useSharedValue(open ? 1 : 0);
   useEffect(() => {
     k.value = withTiming(open ? 1 : 0, { duration: 260, easing: Easing.out(Easing.cubic) });
   }, [open, k]);
-  const box = useAnimatedStyle(() => ({ height: h * k.value, opacity: k.value }));
+  // Android'de opaklık animasyonu uzun içerikte ekran dışı katman (texture sınırı) doğurabilir: orada yalnızca yükseklik animasyonlanır.
+  const box = useAnimatedStyle(() => ({ height: h * k.value, ...(Platform.OS === 'android' ? {} : { opacity: k.value }) }));
   return (
     <Animated.View style={[{ overflow: 'hidden' }, box]} pointerEvents={open ? 'auto' : 'none'}>
-      <View
-        onLayout={(e) => setH(Math.ceil(e.nativeEvent.layout.height))}
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', gap: 12, paddingLeft: 21, paddingRight: 16, paddingBottom: 8 }}
-      >
-        <View style={{ width: 2, backgroundColor: c.line, borderRadius: 1 }} />
-        <RNText selectable style={[type.small, { flex: 1, color: c.text3, lineHeight: 19 }]}>
-          {text}
-        </RNText>
-      </View>
+      {mounted && (
+        <View
+          onLayout={(e) => setH(Math.ceil(e.nativeEvent.layout.height))}
+          style={{ position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', gap: 12, paddingLeft: 21, paddingRight: 16, paddingBottom: 8 }}
+        >
+          <View style={{ width: 2, backgroundColor: c.line, borderRadius: 1 }} />
+          <RNText selectable style={[type.small, { flex: 1, color: c.text3, lineHeight: 19 }]}>
+            {text}
+          </RNText>
+        </View>
+      )}
     </Animated.View>
   );
 }

@@ -71,11 +71,15 @@ export function ChatScreen() {
           flushRun();
           const rid = `${m.id}:r${i}`;
           const thinking = streaming && i === parts.length - 1;
-          stick.push(out.length);
+          const open = isReasoningOpen(thinking, reasoningOpen[rid]);
+          // Yalnızca AÇIK düşünce yapışkan olur: uzun oturumda onlarca yapışkan başlık Android'de çizimi bozup ekranı karartıyordu.
+          // Kapalı gövdenin yüksekliği 0'dır, yapışması anlamsızdır.
+          const pin = open && Boolean(p.text);
+          if (pin) stick.push(out.length);
           out.push({ key: `${rid}:h`, kind: 'head', id: rid, part: p, thinking });
           // Gövde her zaman satırdır; açılıp kapanma yükseklik animasyonuyla yumuşak olur (web'deki gibi).
-          if (p.text) out.push({ key: `${rid}:b`, kind: 'body', part: p, open: isReasoningOpen(thinking, reasoningOpen[rid]) });
-          stick.push(out.length);
+          if (p.text) out.push({ key: `${rid}:b`, kind: 'body', part: p, open });
+          if (pin) stick.push(out.length);
           out.push({ key: `${rid}:e`, kind: 'end' });
         } else {
           if (!run.length) runStart = i;
@@ -225,7 +229,7 @@ export function ChatScreen() {
             keyboardDismissMode="interactive"
             initialNumToRender={12}
             maxToRenderPerBatch={8}
-            windowSize={9}
+            windowSize={7}
             // Yapışkan başlıklar JS ile kaydırılır; kırpılan alt görünümler (Android varsayılanı) onları gizleyebilir.
             removeClippedSubviews={false}
             contentContainerStyle={{ paddingVertical: 8 }}
