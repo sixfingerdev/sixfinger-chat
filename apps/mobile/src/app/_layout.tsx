@@ -80,6 +80,8 @@ function Shell() {
           <Stack.Screen name="auth" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
           <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="connectors" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="scheduled" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="artifacts" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="code/index" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="code/new" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="code/env" options={{ animation: 'slide_from_right' }} />

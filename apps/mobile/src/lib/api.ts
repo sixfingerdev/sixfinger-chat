@@ -1,4 +1,9 @@
 import type {
+  ArtifactListItemDTO,
+  CreateScheduledTaskBody,
+  ScheduledRunDTO,
+  ScheduledTaskDTO,
+  UpdateScheduledTaskInput,
   AuthResponse,
   ChatDTO,
   ChatDetailDTO,
@@ -329,6 +334,14 @@ export const api = {
   codeSharedSkill: (token: string) => request<SkillDetailDTO>('GET', `/code/skills/shared/${encodeURIComponent(token)}`),
   // ---- MCP bağlayıcıları ----
   mcpPresets: () => request<McpPresetsResponse>('GET', '/mcp/presets'),
+  // ---- zamanlanmış görevler + artifacts ----
+  schedules: () => request<{ tasks: ScheduledTaskDTO[] }>('GET', '/schedule'),
+  scheduleCreate: (body: CreateScheduledTaskBody) => request<{ task: ScheduledTaskDTO }>('POST', '/schedule', body),
+  scheduleUpdate: (id: string, body: UpdateScheduledTaskInput) => request<{ task: ScheduledTaskDTO }>('PATCH', `/schedule/${id}`, body),
+  scheduleDelete: (id: string) => request<void>('DELETE', `/schedule/${id}`),
+  scheduleRun: (id: string) => request<{ ok: boolean }>('POST', `/schedule/${id}/run`),
+  scheduleRuns: (id: string) => request<{ runs: ScheduledRunDTO[] }>('GET', `/schedule/${id}/runs`),
+  artifacts: () => request<{ artifacts: ArtifactListItemDTO[] }>('GET', '/artifacts'),
   mcpServers: () => request<McpServersResponse>('GET', '/mcp/servers'),
   mcpCreate: (body: { label: string; url: string; preset?: string; headers?: Record<string, string>; scopes?: McpScope[] }) => request<{ server: McpServerDTO }>('POST', '/mcp/servers', body),
   mcpUpdate: (id: string, body: { label?: string; url?: string; headers?: Record<string, string>; enabled?: boolean; scopes?: McpScope[]; autoApprove?: boolean; allowTools?: string[] }) =>
