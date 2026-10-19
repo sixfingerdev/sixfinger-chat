@@ -91,6 +91,17 @@ git pull && docker compose --profile sandbox up -d --build
 Sınama: `docker compose logs sandboxd` içinde `Code çıkış proxy'si dinliyor` satırı görünmeli. Boşta kalan konteyner 10 dk sonra kapanır,
 çalışma alanı diskte kalır; 30 gün dokunulmayan çalışma alanı silinir (**itilmemiş çalışma kaybolur**).
 
+### Sınama betikleri (Pi'de, yayına açmadan önce)
+
+1. **Çalışma alanı:** `SANDBOXD_TOKEN=... ./scripts/code-sandbox-smoke.sh` (genel bir repoyu klonlar; GitHub token'ı gerekmez). Klonlama, dosya
+   işlemleri, commit + ortak yazar satırı, `.git` içinde token olmaması, proxy üzerinden ağ (izinli açık / izinsiz kapalı / atlatma ve
+   yerel ağ kapalı) ve disk kotasını gerçek Docker'da sınar. Herhangi bir FAIL varsa Code'u açma. *(Geliştirme ortamında Docker olmadığı için
+   bu betik henüz gerçek donanımda çalıştırılmadı.)*
+2. **Model:** `cd apps/server && AI_DEEP_API_KEY=... npx tsx scripts/code-smoke.ts` — gerçek Qwen'i (varsa Claude yedeğiyle) üç küçük görevde
+   (işlev + test yaz, hatayı bul ve düzelt, çok dosyada yeniden adlandır) ajan araçlarıyla dener; geçti/kaldı, adım sayısı, araç hatası ve bozuk
+   JSON sayısını yazar. `--runs 3` kararlılığı, `--task N` tek görevi ölçer. Çalışma alanı geçici yerel klasördür (yalıtımsız): yalnızca kendi
+   makinende çalıştır. Bozuk JSON/araç hatası oranı yüksekse `services/tools/repair.ts` takma adlarına ve `code-prompt.ts`'e bak.
+
 ## Ortamlar
 
 Her kullanıcı kendi ortamlarını yönetir (en çok 10; ilk açılışta hazır bir `Default` gelir):
