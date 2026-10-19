@@ -95,7 +95,7 @@ describe('araç çağırma (genel)', () => {
     const { call } = fake();
     const r = await call('rm_rf', {});
     expect(r.status).toBe('error');
-    expect(r.output).toMatch(/bash, read, write, edit, glob, grep, todo/);
+    expect(r.output).toMatch(/bash, job_output, job_kill, read, write, edit, glob, grep, todo/);
   });
   it('geçersiz argüman: İngilizce, açık ve düzeltmeye yönlendirir', async () => {
     const { call } = fake();
