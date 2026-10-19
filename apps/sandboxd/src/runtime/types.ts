@@ -32,6 +32,8 @@ export interface CodeProfile {
   tmpMb: number;
   /** Tek dosyanın üst boyutu (bayt). */
   fsizeBytes: number;
+  /** Çalışma alanının disk kotası (MB). Konteynere `SF_DISK_QUOTA_MB` olarak verilir; `df` bunu gösterir (ana makinenin diski değil). */
+  diskMb: number;
   /** `none`: ağ yok. `proxy`: yalnızca iç ağdaki çıkış proxy'si. */
   network: 'none' | 'proxy';
   /** `proxy` için: iç ağın adı ve proxy adresi (kimlik bilgisiyle). */

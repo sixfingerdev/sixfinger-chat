@@ -1,7 +1,5 @@
 import { createHash } from 'node:crypto';
 import {
-  buildCommitMessage,
-  commitSubject,
   creditsFor,
   githubNoreply,
   weightedTokens,
@@ -19,7 +17,7 @@ import { MESSAGE_COLUMNS, toMessageDTO, type ChatRow, type MessageRow } from './
 import type { Code } from './code.ts';
 import type { CodeGit } from './code-git.ts';
 import { applyCompaction, buildCodeHistory, messagesTokens, pruneToolResults, renderTranscript, splitForCompaction, SUMMARIZER_PROMPT } from './code-context.ts';
-import { buildCodeSystemPrompt, skillsSection, commitMessagePrompt, WORKSPACE_BRIEF_COMMAND } from './code-prompt.ts';
+import { buildCodeSystemPrompt, skillsSection, WORKSPACE_BRIEF_COMMAND } from './code-prompt.ts';
 import type { CodeQueue } from './code-queue.ts';
 import { cleanTitle, fallbackTitle, titlePrompt, type HistoryItem } from './prompt.ts';
 import type { Run } from './runs.ts';
@@ -73,7 +71,7 @@ const notes = (locale: 'tr' | 'en') =>
     ? {
         credits: '*Günlük Code kredin bitti, çalışma burada durdu. Kredin yenilenince “devam et” yazabilirsin.*',
         loop: '*Aynı adımları tekrarlayıp ilerleyemediğim için durdum. İsteğini biraz daha açık yazarsan devam edebilirim.*',
-        context: '*Konuşma bağlamı doldu. Değişiklikler commit edildi; yeni bir oturum açıp kaldığın yerden sürdürebilirsin.*',
+        context: '*Konuşma bağlamı doldu. Çalışma alanı olduğu gibi duruyor; yeni bir oturum açıp kaldığın yerden sürdürebilirsin.*',
         length: '*Yanıt uzunluk sınırına takıldığı için durdum. “Devam et” yazarak sürdürebilirsin.*',
         compacted: '*Konuşma özetlendi; bağlamda yer açıldı.*',
         nothingToCompact: '*Özetlenecek bir şey yok: bağlam zaten kısa.*',
@@ -81,7 +79,7 @@ const notes = (locale: 'tr' | 'en') =>
     : {
         credits: '*Your daily Code credit ran out, so I stopped here. Type “continue” once it renews.*',
         loop: '*I stopped because I kept repeating the same steps without progress. Describe what you want a bit more precisely and I can carry on.*',
-        context: '*The conversation context is full. Your changes are committed; start a new session to carry on from here.*',
+        context: '*The conversation context is full. The workspace is kept as it is; start a new session to carry on from here.*',
         length: '*I stopped at the output length limit. Type “continue” to carry on.*',
         compacted: '*The conversation was summarized; context space was freed.*',
         nothingToCompact: '*Nothing to summarize: the context is already short.*',
@@ -171,6 +169,8 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
   let release: (() => void) | undefined;
   let runStatus: 'idle' | 'error' = 'idle';
   const scope: CodeScope = { user: user.id, session: `${user.id}:${chat.id}` };
+  /** Turun başındaki dal ucu (ajan bu turda commit attı mı anlamak için). */
+  let prevHead: string | null = null;
   let sandboxMs = 0;
   let diskUsedMb = 0;
   let contextTokens = 0;
@@ -193,6 +193,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     const session = await code.getSession(user.id, chat.id);
     if (!session) throw new HttpError(404, 'not_found', 'Code oturumu bulunamadı.');
     branches = { work: session.workBranch, base: session.baseBranch };
+    prevHead = session.headSha;
     const gh = await code.getConnection(user.id);
     if (!gh) throw new HttpError(409, 'github_required', 'GitHub bağlantın yok ya da geçersiz. Hesabını yeniden bağla.');
     if (session.environmentId) {
@@ -280,6 +281,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
         allowedDomains: env.allowedDomains, diskMb: env.diskMb, brief,
         setupFailure: prepared.setupRan && prepared.setupOk === false ? prepared.setupOutput.slice(-1_500) : undefined,
         planMode: g.planMode, instructions: env.instructions, skills: catalog.list, skillHints: hints, activeSkills: active,
+        sessionUrl: env.commitSessionLink ? `${config.PUBLIC_WEB_URL.replace(/\/$/, '')}/code/s/${chat.id}` : null,
       });
     const system = makeSystem(activeFromHistory);
     let messages: AiMessage[] = [{ role: 'system', content: system }, ...buildCodeHistory(g.history, Math.floor(config.CODE_CONTEXT_TOKENS * 0.6))];
@@ -556,40 +558,43 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
   }
   if (stopNote) buf.addText(`${buf.content.trim() ? '\n\n' : ''}${stopNote}`);
 
-  // --- tur sonu: değişiklikleri commit et (kullanıcı durdurmuş olsa da iş kaybolmasın) ---
+  // --- tur sonu: platform commit ATMAZ (ajan istediğini kendisi commit eder). Yalnızca durum özeti + geri sarma noktası. ---
   let changesEvent: Extract<StreamEvent, { type: 'changes' }> | null = null;
   if (deps.sandbox && release) {
     const fresh = new AbortController().signal;
     try {
       send({ type: 'phase', phase: 'committing' });
       const ch = await deps.sandbox.changes(scope, fresh);
-      let sha: string | null = null;
+      // Ajan bu turda commit attıysa dal ucu ilerlemiştir; başlangıçtan ileride değilse "commit" yoktur.
+      const sha = ch.ahead > 0 ? ch.headSha : null;
+      const newCommit = Boolean(sha) && sha !== prevHead;
       if (ch.files.length) {
-        const turnFiles = ch.files;
-        let subject = '';
-        try {
-          subject = commitSubject(await ai.complete({ messages: commitMessagePrompt(g.userText, turnFiles, user.locale), route: 'code', effort: 'low', temperature: 0.2, mode: 'deep' }), '');
-        } catch (err) {
-          log.warn({ err: String(err) }, 'commit mesajı üretilemedi, yedek kullanılıyor');
-        }
-        if (!subject) subject = commitSubject(`chore: ${g.userText.split('\n')[0] ?? ''}`);
-        const body = turnFiles.slice(0, 20).map((f) => `- ${f.path} (+${f.additions} −${f.deletions})`).join('\n');
-        const message = buildCommitMessage(subject, body, { sessionUrl: env.commitSessionLink ? `${config.PUBLIC_WEB_URL.replace(/\/$/, '')}/code/s/${chat.id}` : null });
-        const c = await deps.sandbox.commit(scope, message, fresh);
-        sha = c.sha;
-        if (sha) {
-          const part: Extract<MessagePartDTO, { type: 'tool' }> = {
-            type: 'tool', id: `commit-${sha.slice(0, 7)}`, name: 'commit', args: { message: subject }, status: 'done', summary: sha.slice(0, 7),
-            output: message, meta: { sha, subject, files: ch.files.length, additions: ch.additions, deletions: ch.deletions }, ms: 0,
-          };
-          buf.parts.push(part);
-          send({ type: 'tool_start', id: part.id, name: part.name, args: part.args });
-          send({ type: 'tool_end', id: part.id, status: 'done', output: message, summary: part.summary, meta: part.meta, ms: 0 });
-        }
+        const tr = user.locale === 'tr';
+        const cp = await deps.sandbox.checkpoint(scope, fresh).catch((err) => {
+          log.warn({ err: String(err) }, 'geri sarma noktası alınamadı');
+          return null;
+        });
+        const subject = newCommit && ch.subject ? ch.subject : tr ? `${ch.files.length} dosya değişti` : `${ch.files.length} files changed`;
+        const lines = ch.files.slice(0, 30).map((f) => `${f.status === 'added' ? 'A' : f.status === 'deleted' ? 'D' : f.status === 'renamed' ? 'R' : 'M'} ${f.path} (+${f.additions} −${f.deletions})`);
+        const note =
+          ch.uncommitted > 0
+            ? tr
+              ? `${ch.uncommitted} dosya commit edilmedi. Commit için ajana "commit et" de ya da /commit yaz.`
+              : `${ch.uncommitted} files are not committed. Ask the agent to commit or type /commit.`
+            : tr ? 'Tüm değişiklikler commit edildi.' : 'All changes are committed.';
+        const output = [newCommit && ch.subject ? `${ch.headSha.slice(0, 7)} ${ch.subject}` : '', ...lines, '', note].filter((x, i) => x || i > 0).join('\n');
+        const part: Extract<MessagePartDTO, { type: 'tool' }> = {
+          type: 'tool', id: `commit-${(cp?.snapshot ?? ch.headSha).slice(0, 7)}-${Date.now().toString(36)}`, name: 'commit', args: { message: subject }, status: 'done',
+          summary: sha && ch.uncommitted === 0 ? sha.slice(0, 7) : sha ? `${sha.slice(0, 7)}+` : tr ? 'commit yok' : 'no commit',
+          output, meta: { sha, checkpoint: cp?.snapshot ?? null, subject, files: ch.files.length, additions: ch.additions, deletions: ch.deletions, committed: Boolean(sha) && ch.uncommitted === 0 }, ms: 0,
+        };
+        buf.parts.push(part);
+        send({ type: 'tool_start', id: part.id, name: part.name, args: part.args });
+        send({ type: 'tool_end', id: part.id, status: 'done', output, summary: part.summary, meta: part.meta, ms: 0 });
       }
-      // Ajan PR'ını kendisi açar: commit GitHub'a itilir; ilk turda PR açılır, sonraki turlarda aynı PR güncellenir.
+      // Ajan PR'ını kendisi açar: ajan bu turda commit attıysa GitHub'a itilir; ilk turda PR açılır, sonraki turlarda aynı PR güncellenir.
       // Kullanıcı durdurduysa ya da tur hata verdiyse hiçbir şey itilmez (iş commit'te güvende, kullanıcı karar verir).
-      if (sha && env.autoPr && status === 'complete') {
+      if (sha && newCommit && env.autoPr && status === 'complete') {
         // PR adımı oturumun head_sha'sını DB'den okur: önce kaydet.
         await code.updateSessionStats(chat.id, { additions: ch.additions, deletions: ch.deletions, filesChanged: ch.files.length, headSha: sha, contextTokens });
         send({ type: 'phase', phase: 'publishing' });

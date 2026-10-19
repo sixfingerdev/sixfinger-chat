@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       nodejs npm netcat-openbsd less nano sqlite3 bc \
     && rm -rf /var/lib/apt/lists/*
 
+# `df`, /work için ana makinenin diskini değil ortamın disk kotasını gösterir (SF_DISK_QUOTA_MB; sandboxd verir)
+COPY df-quota /usr/local/bin/df
+RUN chmod 755 /usr/local/bin/df
+
 # Ayrıcalıksız kullanıcı (sandboxd --user 1000:1000 ile çalıştırır)
 RUN groupadd -g 1000 sandbox && useradd -u 1000 -g 1000 -m -d /work -s /bin/bash sandbox \
     && chmod 755 /work

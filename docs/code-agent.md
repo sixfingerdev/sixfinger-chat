@@ -48,7 +48,7 @@ is currently available.` Araç hatası döngüyü kırmaz; model hatayı görüp
 
 Kısa ve eylem odaklı. Qwen için hazır istem yok; opencode'un Kimi istemindeki kuralları temel alıyoruz:
 araçla gerçekten yaz (metindeki kod kaydedilmez), minimal değişiklik, yazdıktan sonra çalıştırıp doğrula, bağımsız
-çağrıları paralel yap, kullanıcının dilinde yanıtla, git'i kendin değiştirme (branch/commit/push sunucu tarafında),
+çağrıları paralel yap, kullanıcının dilinde yanıtla, branch/push/rebase yapma (sunucu tarafında); commit'i sen at ama yalnızca ilgili dosyaları sahnele,
 aynı araçla aynı parametreyi sonuç aldıktan sonra tekrarlama, bağımlılığı varsayma, dosyayı okumadan düzenleme.
 Araca bağlı satırlar yalnızca o araç açıksa eklenir. Qwen için örnekleme ayarları modele özgü tutulur ve sağlayıcının
 bağlam sınırı doğrulanır.
@@ -68,9 +68,10 @@ bağlam sınırı doğrulanır.
 
 - Her adım başında ve sonunda çalışma ağacı durumu yakalanır; adıma değişen dosyalar yazılır. Çip sayıları (+N −M)
   satır farkından, yama `createTwoFilesPatch` ile üretilir. Tur diff'i: ilk adımın başı ile son adımın sonu.
-- Ajan kendi `sixfinger/<konu>-<hash>` dalında çalışır. Her başarılı tur sonunda sunucu commit atar (ajan değil), mesajı
-  Qwen üretir (Conventional Commits, ≤72 karakter) ve `Co-authored-by` ekler. Push/PR yalnızca kullanıcı onayıyla.
-- Geri alma: kayıtlı kontrol noktası SHA'sına dön (yalnızca ajan commit'leri, itilmemiş olanlar).
+- Ajan kendi `sixfinger/<konu>-<hash>` dalında çalışır. Sunucu commit ATMAZ: ajan `git add <dosyalar>` + `git commit` ile istediğini commit eder
+  (Conventional Commits, `Co-authored-by` satırı istemle istenir); bağımlılık/sanal ortam/önbellek klasörleri `.git/info/exclude`'dadır. Push/PR
+  sunucuda, yalnızca ajan commit attıysa.
+- Geri alma: her tur sonunda alınan anlık görüntüye (`refs/sixfinger/cp/*`, commit edilmemiş iş dahil) dön.
 
 ## Model seçimi (Auto)
 

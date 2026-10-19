@@ -160,7 +160,7 @@ export function createCodeGit(deps: CodeGitDeps) {
   ): Promise<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }> {
     const { session, running } = await load(user, chatId);
     if (!opts.internal) guardIdle(running);
-    if (!session.headSha) throw new HttpError(409, 'conflict', 'Henüz commit yok; PR açılacak bir değişiklik bulunmuyor.');
+    if (!session.headSha) throw new HttpError(409, 'conflict', 'Henüz commit yok; PR açılacak bir değişiklik bulunmuyor. Ajana "commit et" de ya da /commit yaz.');
     const gh = await connection(user.id);
     const pushed = await push(user, chatId, { internal: opts.internal });
     if (session.prUrl && session.prNumber) {
@@ -277,13 +277,27 @@ export function createCodeGit(deps: CodeGitDeps) {
     guardIdle(running);
     const own = await db.query<{ id: string; role: string }>('select id, role from messages where id = $1 and chat_id = $2', [messageId, chatId]);
     if (!own.rows[0] || own.rows[0].role !== 'assistant') throw notFound('Mesaj bulunamadı.');
-    // Yoldaki son commit (yoksa oturumun başlangıç commit'i).
+    // Yoldaki son geri sarma noktası (tur sonu anlık görüntüsü); eski mesajlarda commit sha'sı; hiçbiri yoksa oturumun başlangıç commit'i.
+    let snap = '';
     let sha = '';
     for (const m of await getPath(db, messageId)) {
-      for (const p of m.parts ?? []) if (p.type === 'tool' && p.name === 'commit' && typeof p.meta?.sha === 'string') sha = p.meta.sha;
+      for (const p of m.parts ?? []) {
+        if (p.type !== 'tool' || p.name !== 'commit') continue;
+        if (typeof p.meta?.checkpoint === 'string' && /^[0-9a-f]{40}$/.test(p.meta.checkpoint)) {
+          snap = p.meta.checkpoint;
+          sha = '';
+        } else if (typeof p.meta?.sha === 'string') {
+          sha = p.meta.sha;
+          snap = '';
+        }
+      }
     }
-    const target = /^[0-9a-f]{40}$/.test(sha) ? shq(sha) : BASE;
-    const out = await exec(user, chatId, `git reset -q --hard ${target} && git clean -qfd && git rev-parse HEAD`, 90);
+    // Anlık görüntü: dal ucu o andaki commit'e döner, çalışma ağacı (commit edilmemişler dahil) görüntüdeki hâle gelir.
+    const script = snap
+      ? `S=${shq(snap)}; H=$(git rev-parse "$S^") && git reset -q --hard "$H" && git clean -qfd && git checkout -q "$S" -- . && ` +
+        `{ git diff-tree -r -z --name-only --diff-filter=D "$H" "$S" | xargs -0 -r rm -f --; } && git reset -q && git rev-parse HEAD`
+      : `git reset -q --hard ${/^[0-9a-f]{40}$/.test(sha) ? shq(sha) : BASE} && git clean -qfd && git rev-parse HEAD`;
+    const out = await exec(user, chatId, script, 90);
     const head = out.trim().split('\n').at(-1) ?? '';
     if (!/^[0-9a-f]{40}$/.test(head)) throw new HttpError(502, 'upstream_unavailable', 'Çalışma alanı geri sarılamadı.');
     await db.query('update chats set leaf_id = $2, updated_at = now() where id = $1', [chatId, messageId]);

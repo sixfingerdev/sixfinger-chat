@@ -25,6 +25,13 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
       'Analyze this repository and create (or, if it exists, improve) a SIXFINGER.md file at the repository root for future coding agents (if the repository already has an AGENTS.md or CLAUDE.md, use it as a source but still write SIXFINGER.md): what the project is, the directory layout, how to install, build, test and lint (the exact commands, verified by running the fast ones), code conventions you can see in the code, and pitfalls. Keep it under 120 lines and factual. $ARGUMENTS',
   },
   {
+    name: 'commit',
+    kind: 'send',
+    source: 'builtin',
+    template:
+      'Commit the work done so far. Run `git status --short` and `git diff --stat`, decide which files belong to this change, stage ONLY those by explicit path (never use `git add -A` / `git add .`; never stage dependencies, virtual environments, caches, build output or secrets; if such folders show up as untracked, add them to .gitignore and include the .gitignore), then `git commit` with a Conventional Commit message (imperative, at most 70 characters). Report the commit hash and anything that was left uncommitted and why. $ARGUMENTS',
+  },
+  {
     name: 'review',
     kind: 'send',
     source: 'builtin',

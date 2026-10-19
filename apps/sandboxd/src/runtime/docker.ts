@@ -93,6 +93,11 @@ export function buildCodeRunArgs(cfg: Config, name: string, p: CodeProfile): { a
     // Önbellekler RAM'deki /tmp'ye: çalışma alanı diskini şişirmez.
     '--env', 'npm_config_cache=/tmp/.npm',
     '--env', 'PIP_CACHE_DIR=/tmp/.pip',
+    // /tmp küçük bir RAM diskidir (büyük tekerlekler sığmaz): geçici dosyalar çalışma alanında (kotaya sayılır), pip önbelleği kapalı.
+    '--env', 'TMPDIR=/work/.sixfinger/tmp',
+    '--env', 'PIP_NO_CACHE_DIR=1',
+    // `df` ana makinenin diskini değil bu kotayı gösterir (sandbox/df-quota).
+    '--env', `SF_DISK_QUOTA_MB=${p.diskMb}`,
     '--env', 'YARN_CACHE_FOLDER=/tmp/.yarn',
     '--env', 'CI=1',
     '--env', 'GIT_TERMINAL_PROMPT=0',

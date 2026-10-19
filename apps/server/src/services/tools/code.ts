@@ -40,7 +40,7 @@ export function tailTrim(text: string, max: number): { text: string; omittedLine
 }
 
 // `git -C dir commit`, `git -c k=v push` gibi seçenek+değer çiftlerini de atlar.
-const GIT_BLOCKED = /(?:^|[;&|\n(`]\s*)git\s+(?:-[^\s]+(?:\s+[^\s-][^\s]*)?\s+)*(push|commit|rebase|merge|switch|branch|remote|config)\b/;
+const GIT_BLOCKED = /(?:^|[;&|\n(`]\s*)git\s+(?:-[^\s]+(?:\s+[^\s-][^\s]*)?\s+)*(push|rebase|merge|switch|branch|remote|config)\b/;
 
 const SYNTAX: Record<string, (p: string) => string> = {
   '.js': (p) => `node --check ${shq(p)}`,
@@ -136,7 +136,7 @@ export function createCodeTools(client: CodeSandboxClient): ToolDef[] {
       'Each call starts a fresh shell: the working directory and environment do NOT persist, so use `cd dir && command` when needed. There is no TTY; never run interactive commands. ' +
       'Prefer the dedicated tools for reading (read), searching (grep, glob) and editing (edit, write) files instead of cat/grep/sed. ' +
       'Default timeout is 120 seconds (max 900). For long-running servers or watchers set background=true: the command keeps running and its log file path is returned; do not poll it in a loop. ' +
-      'Do NOT run git push, commit, rebase, merge, switch, branch, remote or config: the platform commits your work on the working branch for you. ' +
+      'You may commit your own work with git add <files> + git commit (stage explicit paths, never dependencies, virtualenvs, caches or build output). Do NOT run git push, rebase, merge, switch, branch, remote or config: the platform owns the branch and pushes it. ' +
       'The network is limited by the environment policy; a "blocked by SixFinger network policy" message means that host is not allowed. When output is large only the END is returned; pipe to grep/tail/head to see specific parts.',
     parameters: {
       type: 'object',
@@ -154,7 +154,7 @@ export function createCodeTools(client: CodeSandboxClient): ToolDef[] {
       const s = scope(ctx);
       guard(ctx);
       if (GIT_BLOCKED.test(a.command)) {
-        throw new ToolError('This git command is managed by the platform (it commits your work on the working branch and the user pushes it). Do not run git push/commit/rebase/merge/switch/branch/remote/config. Read-only git commands such as status, diff, log and show are fine.');
+        throw new ToolError('This git command is managed by the platform (it owns the working branch and pushes it). Do not run git push/rebase/merge/switch/branch/remote/config. git status, diff, log, show, add and commit are fine.');
       }
       if (a.background) {
         const id = randomBytes(3).toString('hex');
