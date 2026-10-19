@@ -150,24 +150,20 @@ describe('Code ajan döngüsü: mutlu yol', () => {
 });
 
 describe('Code ajan döngüsü: güvenlik ve sınırlar', () => {
-  it('adım sınırı: son turda araç verilmez, uyarı notu eklenir ve "devam et" denir', async () => {
-    await boot({ CODE_MAX_STEPS: 3 });
+  it('adım sınırı YOK: 90 farklı araç turu kesilmeden sürer ve her turda araçlar açıktır', async () => {
     const { a, s } = await prepared();
-    env.ai.steps = [
-      [call('c1', 'bash', { command: 'echo bir' })],
-      [call('c2', 'bash', { command: 'echo iki' })],
-      text('Elimdekiyle özetliyorum.'),
-    ];
-    const r = await send(a, s.chatId, 'çok iş');
+    env.ai.steps = [...Array.from({ length: 90 }, (_, i) => [call(`c${i}`, 'bash', { command: `echo adım ${i}` })]), text('Hepsi bitti.')];
+    fc.state.execImpl = (c) => ({ stdout: `${c}\n` });
+    const r = await send(a, s.chatId, 'çok uzun bir iş');
     const reqs = agentCalls();
-    expect(reqs).toHaveLength(3);
-    expect(reqs[0]!.tools).toBeTruthy();
-    expect(reqs[2]!.tools).toBeUndefined();
-    expect(reqs[2]!.messages.at(-1)!.content).toMatch(/maximum number of tool steps/);
+    expect(reqs).toHaveLength(91);
+    expect(reqs.every((q) => q.tools?.length)).toBe(true);
+    expect(reqs.some((q) => q.messages.some((m) => /maximum number of tool steps/.test(m.content)))).toBe(false);
     const m = lastAssistant(await detail(a, s.chatId));
-    expect(m.content).toContain('“Devam et”');
+    expect(m.content).toBe('Hepsi bitti.');
+    expect(m.status).toBe('complete');
     expect(r.events.some((e) => e.type === 'done')).toBe(true);
-  });
+  }, 60_000);
 
   it('döngü kırıcı: aynı çağrı aynı sonucu 3. kez verirse uyarı, 5. kezde durur', async () => {
     await boot();

@@ -15,7 +15,7 @@ arayüze akar) → çalışma alanını hazırlar (ilk seferde klonlar, kurulum 
 Her tur sonunda değişiklikler **kullanıcının kimliğiyle** commit edilir (`Co-Authored-By: SixFinger Code` her zaman eklenir; oturum bağlantısı
 ortam ayarına bağlı) ve oturumun +N −M özeti güncellenir. Kullanıcı durdursa bile o ana kadarki iş commit edilir.
 
-Güvenlik/sınır kuralları: mesaj başına en çok `CODE_MAX_STEPS` tur (aşılırsa araçsız özet + "Devam et"); aynı araç+argüman+çıktı 3. kez gelince uyarı,
+Güvenlik/sınır kuralları: **adım sınırı yoktur** (ajan işi bitirene kadar sürer); aynı araç+argüman+çıktı 3. kez gelince uyarı,
 5. kezde durur; çıktı uzunluk sınırında en çok 2 kez "devam et" notu; bağlam `CODE_CONTEXT_TOKENS`'ı aşarsa eski araç çıktıları kırpılır, çok aşarsa tur durur;
 kredi çalışırken biterse tur durur. Model zinciri: Qwen3.8-27B → Claude yedeği (Hızlı modele asla düşülmez).
 

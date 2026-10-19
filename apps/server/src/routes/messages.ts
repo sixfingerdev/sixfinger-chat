@@ -177,7 +177,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
   function generateCode(reply: FastifyReply, g: CodeRunInput) {
     const run = runs.start(g.chat.id, g.user.id, g.assistantId);
     attach(reply, run, false);
-    const cap = setTimeout(() => run.stop(), config.CODE_RUN_TIMEOUT_MS);
+    // Code çalıştırmasında süre ya da adım sınırı yoktur: frenler döngü kırıcı, kredi, bağlam doluluğu ve kullanıcının Durdur'udur.
     void (async () => {
       try {
         await runCodeGeneration({ db, ai, tools, sandbox: ctx.codeSandbox, code, queue: ctx.codeQueue, config, log }, run, g);
@@ -187,7 +187,6 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         await db.query(`update messages set status = 'error' where id = $1 and status = 'streaming'`, [g.assistantId]).catch(() => {});
         await code.setSessionStatus(g.chat.id, 'error').catch(() => {});
       } finally {
-        clearTimeout(cap);
         run.finish();
         runs.remove(run);
       }

@@ -64,14 +64,12 @@ const notes = (locale: 'tr' | 'en') =>
         loop: '*Aynı adımları tekrarlayıp ilerleyemediğim için durdum. İsteğini biraz daha açık yazarsan devam edebilirim.*',
         context: '*Konuşma bağlamı doldu. Değişiklikler commit edildi; yeni bir oturum açıp kaldığın yerden sürdürebilirsin.*',
         length: '*Yanıt uzunluk sınırına takıldığı için durdum. “Devam et” yazarak sürdürebilirsin.*',
-        steps: '*Tek seferde yapabildiğim adım sayısına ulaştım. “Devam et” yazarak sürdürebilirsin.*',
       }
     : {
         credits: '*Your daily Code credit ran out, so I stopped here. Type “continue” once it renews.*',
         loop: '*I stopped because I kept repeating the same steps without progress. Describe what you want a bit more precisely and I can carry on.*',
         context: '*The conversation context is full. Your changes are committed; start a new session to carry on from here.*',
         length: '*I stopped at the output length limit. Type “continue” to carry on.*',
-        steps: '*I reached the number of steps I can take in one go. Type “continue” to carry on.*',
       };
 
 /** Asistan mesajının parçalarını ve anlık görüntüsünü tutar; 2 sn'de bir veritabanına yazar. */
@@ -247,21 +245,13 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     const messages: AiMessage[] = [{ role: 'system', content: system }, ...fitHistory(g.history, Math.floor(config.CODE_CONTEXT_TOKENS * 0.6))];
     const specs = toolSpecs(defs);
     const specTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(specs)));
-    const maxSteps = config.CODE_MAX_STEPS;
     const toolCtx = { user, signal, chatId: chat.id, code: { session: scope.session, diskMb: env.diskMb, prepare } };
     const seen: string[] = [];
     let lengthRetries = 0;
 
-    for (let step = 0; step < maxSteps; step++) {
+    // Adım sınırı YOK: ajan işi bitirene kadar sürer. Frenler: döngü kırıcı, kredi, bağlam doluluğu, mutlak süre ve kullanıcının Durdur'u.
+    for (let step = 0; ; step++) {
       if (signal.aborted) throw new DOMException('aborted', 'AbortError');
-      const lastStep = step === maxSteps - 1;
-      if (lastStep && step > 0) {
-        messages.push({
-          role: 'user',
-          content: '[System note] You have reached the maximum number of tool steps for this turn; you can no longer call tools. Write your final answer now: what you changed, what is verified and what remains. Say clearly that the user can reply "continue" to let you carry on.',
-        });
-        stopNote = t.steps;
-      }
 
       const pruned = pruneToolResults(messages, { keepRecent: 8, trimTo: 700, budgetTokens: config.CODE_CONTEXT_TOKENS - specTokens });
       contextTokens = messagesTokens(pruned) + specTokens;
@@ -277,7 +267,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
       let stepOut = 0;
       let truncated = false;
       for await (const chunk of ai.stream({
-        messages: pruned, signal, mode: 'deep', route: 'code', tools: lastStep ? undefined : specs, patient: step > 0, onProvider: (n) => (provider = n),
+        messages: pruned, signal, mode: 'deep', route: 'code', tools: specs, patient: step > 0, onProvider: (n) => (provider = n),
       })) {
         if (chunk.type === 'reasoning') {
           buf.addReasoning(chunk.text);
