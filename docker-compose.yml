@@ -59,6 +59,10 @@ services:
       CODE_ALLOWED_EMAILS: ${CODE_ALLOWED_EMAILS:-}
       CODE_DAILY_CREDITS: ${CODE_DAILY_CREDITS:-100}
       CODE_CLAUDE_DAILY_TOKENS: ${CODE_CLAUDE_DAILY_TOKENS:-2000000}
+      CODE_MAX_RUNS: ${CODE_MAX_RUNS:-2}
+      CODE_MAX_QUEUE: ${CODE_MAX_QUEUE:-10}
+      CODE_MAX_STEPS: ${CODE_MAX_STEPS:-60}
+      CODE_CONTEXT_TOKENS: ${CODE_CONTEXT_TOKENS:-120000}
 
   # Modelin komut çalıştırdığı yalıtılmış ortamın yöneticisi. Docker soketi YALNIZCA bu serviste bulunur.
   sandboxd:

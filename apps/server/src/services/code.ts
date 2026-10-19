@@ -38,6 +38,11 @@ interface SessionRow {
   environment_name: string | null;
   status: CodeSessionDTO['status'];
   disk_used_mb: number;
+  additions: number;
+  deletions: number;
+  files_changed: number;
+  head_sha: string | null;
+  context_tokens: number;
   preview: string | null;
   created_at: Date;
   last_message_at: Date | null;
@@ -55,14 +60,14 @@ export interface EnvInput {
 
 const SESSION_SELECT = `
   select s.chat_id, c.title, s.repo, s.base_branch, s.work_branch, s.environment_id, e.name as environment_name,
-         s.status, s.disk_used_mb, s.created_at, c.last_message_at,
+         s.status, s.disk_used_mb, s.additions, s.deletions, s.files_changed, s.head_sha, s.context_tokens, s.created_at, c.last_message_at,
          (select left(regexp_replace(m.content, '\\s+', ' ', 'g'), 160) from messages m
            where m.chat_id = s.chat_id and m.role = 'assistant' and m.content <> '' order by m.seq desc limit 1) as preview
     from code_sessions s
     join chats c on c.id = s.chat_id
     left join code_environments e on e.id = s.environment_id`;
 
-const toSessionDTO = (r: SessionRow): CodeSessionDTO => ({
+const toSessionDTO = (r: SessionRow, contextLimit = 0): CodeSessionDTO => ({
   chatId: r.chat_id,
   title: r.title,
   repo: r.repo,
@@ -72,6 +77,12 @@ const toSessionDTO = (r: SessionRow): CodeSessionDTO => ({
   environmentName: r.environment_name,
   status: r.status,
   diskUsedMb: r.disk_used_mb,
+  additions: r.additions,
+  deletions: r.deletions,
+  filesChanged: r.files_changed,
+  headSha: r.head_sha,
+  contextTokens: r.context_tokens,
+  contextLimit,
   preview: r.preview ?? '',
   createdAt: r.created_at.toISOString(),
   lastMessageAt: r.last_message_at?.toISOString() ?? null,
@@ -235,12 +246,12 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
       `${SESSION_SELECT} where s.user_id = $1 order by coalesce(c.last_message_at, s.created_at) desc limit 100`,
       [userId],
     );
-    return r.rows.map(toSessionDTO);
+    return r.rows.map((x) => toSessionDTO(x, config.CODE_CONTEXT_TOKENS));
   }
 
   async function getSession(userId: string, chatId: string): Promise<CodeSessionDTO | null> {
     const r = await db.query<SessionRow>(`${SESSION_SELECT} where s.chat_id = $1 and s.user_id = $2`, [chatId, userId]);
-    return r.rows[0] ? toSessionDTO(r.rows[0]) : null;
+    return r.rows[0] ? toSessionDTO(r.rows[0], config.CODE_CONTEXT_TOKENS) : null;
   }
 
   async function createSession(
@@ -282,6 +293,32 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
     return (r.rowCount ?? 0) > 0;
   }
 
+  /** Oturumun çalışma durumu (running yalnızca etkin bir üretim varken). */
+  async function setSessionStatus(chatId: string, status: CodeSessionDTO['status']): Promise<void> {
+    await db.query('update code_sessions set status = $2 where chat_id = $1', [chatId, status]);
+  }
+
+  async function updateSessionStats(
+    chatId: string,
+    s: { additions: number; deletions: number; filesChanged: number; headSha?: string | null; diskUsedMb?: number; contextTokens?: number },
+  ): Promise<void> {
+    await db.query(
+      `update code_sessions set additions = $2, deletions = $3, files_changed = $4,
+              head_sha = coalesce($5, head_sha), disk_used_mb = coalesce($6, disk_used_mb),
+              context_tokens = coalesce($7, context_tokens) where chat_id = $1`,
+      [chatId, s.additions, s.deletions, s.filesChanged, s.headSha ?? null, s.diskUsedMb ?? null, s.contextTokens ?? null],
+    );
+  }
+
+  async function setContextTokens(chatId: string, tokens: number): Promise<void> {
+    await db.query('update code_sessions set context_tokens = $2 where chat_id = $1', [chatId, Math.max(0, Math.round(tokens))]);
+  }
+
+  /** Sunucu yeniden başlamış ya da üretim ölmüşse "running" kalan oturumları "idle" yapar. */
+  async function reconcileRunning(activeChatIds: string[]): Promise<void> {
+    await db.query(`update code_sessions set status = 'idle' where status = 'running' and not (chat_id = any($1::uuid[]))`, [activeChatIds]);
+  }
+
   // ---- Kredi ----
   async function credits(userId: string): Promise<CodeCreditsDTO> {
     const r = await db.query<{ credits: string; resets_at: Date }>(
@@ -297,17 +334,25 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
     };
   }
 
+  const dayExpr = `(now() at time zone 'Europe/Istanbul')::date`;
+
+  /** Günlük kredi tükendi mi? (yuvarlanmamış değerle) */
+  async function creditsExhausted(userId: string): Promise<boolean> {
+    const raw = await db.query<{ credits: string }>(`select credits from code_credit_daily where user_id = $1 and day = ${dayExpr}`, [userId]);
+    return Number(raw.rows[0]?.credits ?? 0) >= config.CODE_DAILY_CREDITS;
+  }
+
   /** Kredi harcar. Limit zaten aşıldıysa 429 fırlatır (harcama yapılmışsa limit biraz aşılabilir, bir sonraki istek durur). */
   async function spend(userId: string, amount: number): Promise<CodeCreditsDTO> {
-    const before = await credits(userId);
-    if (before.used >= before.limit) {
-      throw new HttpError(429, 'quota_exceeded', 'Günlük Code kredin doldu. Yarın yenilenecek.', {
-        resetsAt: before.resetsAt,
-        limit: before.limit,
-      });
+    // Karşılaştırma yuvarlanmamış değerle yapılır (0,999 / 1 kredi henüz dolmamıştır).
+    const raw = await db.query<{ credits: string }>(`select credits from code_credit_daily where user_id = $1 and day = ${dayExpr}`, [userId]);
+    const used = Number(raw.rows[0]?.credits ?? 0);
+    if (used >= config.CODE_DAILY_CREDITS) {
+      const before = await credits(userId);
+      throw new HttpError(429, 'quota_exceeded', 'Günlük Code kredin doldu. Yarın yenilenecek.', { resetsAt: before.resetsAt, limit: before.limit });
     }
     await db.query(
-      `insert into code_credit_daily (user_id, day, credits) values ($1, (now() at time zone 'Europe/Istanbul')::date, $2)
+      `insert into code_credit_daily (user_id, day, credits) values ($1, ${dayExpr}, $2)
        on conflict (user_id, day) do update set credits = code_credit_daily.credits + $2`,
       [userId, amount],
     );
@@ -329,7 +374,12 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
     getSession,
     createSession,
     deleteSession,
+    setSessionStatus,
+    setContextTokens,
+    updateSessionStats,
+    reconcileRunning,
     credits,
+    creditsExhausted,
     spend,
   };
 }

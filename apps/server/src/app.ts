@@ -22,7 +22,8 @@ import { meRoutes } from './routes/me.ts';
 import { publicRoutes } from './routes/public.ts';
 import { createAi, type AiProvider } from './services/ai.ts';
 import { createRunHub } from './services/runs.ts';
-import { createSandboxClient, createTools, type Tools } from './services/tools/index.ts';
+import { createCodeClient, createSandboxClient, createTools, type Tools } from './services/tools/index.ts';
+import { CodeQueue } from './services/code-queue.ts';
 import { createCodes } from './services/codes.ts';
 import { createSessions } from './services/sessions.ts';
 import { createUsage } from './services/usage.ts';
@@ -39,6 +40,8 @@ export interface BuildOptions {
   mailer?: Mailer;
   /** GitHub istemcisi (testlerde sahte). */
   github?: ReturnType<typeof createGithub>;
+  /** sandboxd Code istemcisi (testlerde sahte). */
+  codeSandbox?: import('./services/tools/code-client.ts').CodeSandboxClient | null;
   /** Başlangıçta migrasyonları çalıştır. */
   migrate?: boolean;
 }
@@ -63,6 +66,8 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     throw new Error('CODE_SECRET_KEY en az 32 karakter olmalı.');
   }
   const secrets = config.CODE_SECRET_KEY ? createSecretBox(config.CODE_SECRET_KEY) : null;
+  const sandboxUrl = config.SANDBOXD_URL && config.SANDBOXD_TOKEN ? { url: config.SANDBOXD_URL, token: config.SANDBOXD_TOKEN } : null;
+  const codeSandbox = opts.codeSandbox ?? (sandboxUrl ? createCodeClient(sandboxUrl.url, sandboxUrl.token) : null);
   const ctx: AppContext = {
     config,
     db,
@@ -77,9 +82,9 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     github: opts.github ?? createGithub(config),
     code: createCode(db, config, secrets),
     ai: opts.ai ?? createAi(config, app.log),
-    tools:
-      opts.tools ??
-      createTools([], { sandbox: config.SANDBOXD_URL && config.SANDBOXD_TOKEN ? createSandboxClient(config.SANDBOXD_URL, config.SANDBOXD_TOKEN) : undefined }),
+    codeQueue: new CodeQueue({ maxRuns: config.CODE_MAX_RUNS, maxQueue: config.CODE_MAX_QUEUE }),
+    codeSandbox,
+    tools: opts.tools ?? createTools([], { sandbox: sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : undefined, code: codeSandbox ?? undefined }),
   };
   const guard = createGuard(ctx);
   app.decorateRequest('user', null);

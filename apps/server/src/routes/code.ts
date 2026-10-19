@@ -166,9 +166,13 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
       });
 
       // --- Oturumlar ---
-      authed.get('/code/sessions', async (req) => ({ sessions: await code.listSessions(req.user!.id) }));
+      authed.get('/code/sessions', async (req) => {
+        await code.reconcileRunning(ctx.runs.activeChatIds());
+        return { sessions: await code.listSessions(req.user!.id) };
+      });
 
       authed.get<{ Params: { id: string } }>('/code/sessions/:id', async (req) => {
+        await code.reconcileRunning(ctx.runs.activeChatIds());
         const session = await code.getSession(req.user!.id, req.params.id);
         if (!session) throw notFound('Oturum bulunamadı.');
         return { session };
@@ -181,6 +185,14 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
         const { branches } = await github.branches(token, body.repo);
         if (!branches.includes(body.baseBranch)) throw badRequest('Bu branch repoda yok.');
         return reply.code(201).send({ session: await code.createSession(user.id, body) });
+      });
+
+      /** Oturumun çalışma branch'indeki PR'lar (başlıktaki PR düğmesi). */
+      authed.get<{ Params: { id: string } }>('/code/sessions/:id/pulls', async (req) => {
+        const user = req.user!;
+        const session = await code.getSession(user.id, req.params.id);
+        if (!session) throw notFound('Oturum bulunamadı.');
+        return { pulls: await github.pulls(await tokenOf(user.id), session.repo, session.workBranch) };
       });
 
       authed.delete<{ Params: { id: string } }>('/code/sessions/:id', async (req, reply) => {

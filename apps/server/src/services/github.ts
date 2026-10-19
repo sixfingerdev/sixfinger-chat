@@ -1,4 +1,4 @@
-import type { GithubBranchesDTO, GithubRepoDTO } from '@sixfinger/shared';
+import type { CodePullDTO, GithubBranchesDTO, GithubRepoDTO } from '@sixfinger/shared';
 import type { Config } from '../config.ts';
 import { HttpError } from '../lib/errors.ts';
 
@@ -134,6 +134,35 @@ export function createGithub(config: Config, fetchImpl: FetchLike = fetch) {
         }
         const ordered = [info.default_branch, ...names.filter((n) => n !== info.default_branch)];
         return { defaultBranch: info.default_branch, branches: ordered };
+      });
+    },
+
+    /** Bir branch'ten açılmış pull request'ler (en yeni 5; ekleme/silme sayıları için tek tek okunur). */
+    async pulls(token: string, repo: string, branch: string): Promise<CodePullDTO[]> {
+      return wrapNetwork(async () => {
+        const owner = repo.split('/')[0]!;
+        const list = await json<Array<{ number: number }>>(
+          await call(`${API}/repos/${repo}/pulls?state=all&per_page=5&head=${encodeURIComponent(`${owner}:${branch}`)}`, { token }),
+          'Pull request listesi',
+        );
+        const out: CodePullDTO[] = [];
+        for (const p of list.slice(0, 5)) {
+          const d = await json<{
+            number: number; title: string; state: string; merged?: boolean; draft?: boolean; html_url: string;
+            additions?: number; deletions?: number; changed_files?: number;
+          }>(await call(`${API}/repos/${repo}/pulls/${p.number}`, { token }), 'Pull request');
+          out.push({
+            number: d.number,
+            title: d.title,
+            state: d.merged ? 'merged' : d.state === 'open' ? 'open' : 'closed',
+            draft: Boolean(d.draft),
+            url: d.html_url,
+            additions: d.additions ?? 0,
+            deletions: d.deletions ?? 0,
+            changedFiles: d.changed_files ?? 0,
+          });
+        }
+        return out;
       });
     },
 

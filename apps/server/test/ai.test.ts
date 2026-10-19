@@ -199,3 +199,78 @@ describe('Pollinations sağlayıcısı', () => {
     });
   });
 });
+
+describe('Code zinciri (Qwen → Claude)', () => {
+  const failing = async () => new Response('limit', { status: 429 });
+  const bedrock = (text: string) => ({
+    async *stream() {
+      yield { type: 'content' as const, text };
+    },
+    async complete() {
+      return text;
+    },
+  });
+  const run = async (ai: ReturnType<typeof createAi>, onProvider?: (n: string) => void) => {
+    let out = '';
+    for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }], route: 'code', onProvider, failFast: true })) if (c.type === 'content') out += c.text;
+    return out;
+  };
+
+  it('Qwen yanıtlarsa yalnızca Qwen uç noktası çağrılır (Hızlı sağlayıcıya dokunulmaz)', async () => {
+    const urls: string[] = [];
+    const fetchMock = async (u: string) => {
+      urls.push(String(u));
+      return sse([delta({ content: 'qwen yanıtı' })]);
+    };
+    const cfg = loadConfig();
+    const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch, bedrock('claude yanıtı'));
+    const seen: string[] = [];
+    expect(await run(ai, (n) => seen.push(n))).toBe('qwen yanıtı');
+    expect(seen).toEqual(['qwen']);
+    expect(urls).toEqual([cfg.AI_DEEP_BASE_URL]);
+  });
+
+  it('Qwen hata verirse Claude yedeği devreye girer; Hızlı sağlayıcıya ASLA düşülmez', async () => {
+    const urls: string[] = [];
+    const fetchMock = async (u: string) => {
+      urls.push(String(u));
+      return failing();
+    };
+    const cfg = loadConfig();
+    const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch, bedrock('claude yanıtı'));
+    const seen: string[] = [];
+    expect(await run(ai, (n) => seen.push(n))).toBe('claude yanıtı');
+    expect(seen).toEqual(['claude']);
+    expect(urls.every((u) => u === cfg.AI_DEEP_BASE_URL)).toBe(true);
+    // yedek yoksa hata verir (Hızlı'ya düşmez)
+    const noBackup = createAi({ ...cfg, BEDROCK_MODEL_ID: '' }, undefined, fetchMock as unknown as typeof fetch);
+    await expect(run(noBackup)).rejects.toBeTruthy();
+    expect(urls.every((u) => u === cfg.AI_DEEP_BASE_URL)).toBe(true);
+  });
+
+  it('Claude yedeği günlük genel token tavanına uyar; gün değişince sıfırlanır', async () => {
+    const fetchMock = async () => failing();
+    const cfg = { ...loadConfig(), CODE_CLAUDE_DAILY_TOKENS: 50 };
+    let t = Date.parse('2026-10-19T10:00:00Z');
+    const big = { messages: [{ role: 'user' as const, content: 'x'.repeat(700) }], route: 'code' as const };
+    const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch, bedrock('claude'), () => t);
+    const once = async () => {
+      let out = '';
+      for await (const c of ai.stream(big)) if (c.type === 'content') out += c.text;
+      return out;
+    };
+    expect(await once()).toBe('claude'); // ~200 token harcar → tavan (50) aşıldı
+    await expect(once()).rejects.toMatchObject({ code: 'upstream_busy' });
+    t += 86_400_000; // ertesi gün
+    expect(await once()).toBe('claude');
+    // tavan 0 = yedek kapalı
+    const off = createAi({ ...cfg, CODE_CLAUDE_DAILY_TOKENS: 0 }, undefined, fetchMock as unknown as typeof fetch, bedrock('claude'));
+    await expect(run(off)).rejects.toMatchObject({ code: 'upstream_busy' });
+  });
+
+  it('complete() de Code zincirini kullanır', async () => {
+    const cfg = loadConfig();
+    const ai = createAi(cfg, undefined, (async () => failing()) as unknown as typeof fetch, bedrock('commit mesajı'));
+    expect(await ai.complete({ messages: [{ role: 'user', content: 'x' }], route: 'code' })).toBe('commit mesajı');
+  });
+});

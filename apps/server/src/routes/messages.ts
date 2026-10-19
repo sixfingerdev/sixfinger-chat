@@ -15,7 +15,8 @@ import type { AppContext } from '../context.ts';
 import type { Guard } from '../guard.ts';
 import type { AuthUser } from '../lib/types.ts';
 import type { Run } from '../services/runs.ts';
-import { HttpError, badRequest, conflict, notFound, tierRestricted } from '../lib/errors.ts';
+import { runCodeGeneration, type CodeRunInput } from '../services/code-run.ts';
+import { HttpError, badRequest, conflict, forbidden, notFound, tierRestricted } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
 import type { AiMessage, AiToolCall, Effort } from '../services/ai.ts';
 import { runToolCall, toolSpecs } from '../services/tools/index.ts';
@@ -80,7 +81,7 @@ interface GenerationInput {
 }
 
 export function messageRoutes(ctx: AppContext, guard: Guard) {
-  const { db, ai, usage, log, tools, config, runs } = ctx;
+  const { db, ai, usage, log, tools, config, runs, code } = ctx;
 
   /** Bu kullanıcının bu yanıtta kullanabileceği araçlar. */
   const toolsFor = (user: AuthUser) => (config.TOOLS_ENABLED ? tools.forUser(user) : []);
@@ -164,6 +165,27 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         log.error({ err }, 'akış beklenmedik şekilde sonlandı');
         run.emit({ type: 'error', code: 'internal', message: 'Beklenmeyen bir hata oluştu.' });
         await db.query(`update messages set status = 'error' where id = $1 and status = 'streaming'`, [g.assistantId]).catch(() => {});
+      } finally {
+        clearTimeout(cap);
+        run.finish();
+        runs.remove(run);
+      }
+    })();
+  }
+
+  /** Code oturumunda üretimi başlatır (ajan döngüsü); arka planda sürer, istemci kopsa da bitmez. */
+  function generateCode(reply: FastifyReply, g: CodeRunInput) {
+    const run = runs.start(g.chat.id, g.user.id, g.assistantId);
+    attach(reply, run, false);
+    const cap = setTimeout(() => run.stop(), config.CODE_RUN_TIMEOUT_MS);
+    void (async () => {
+      try {
+        await runCodeGeneration({ db, ai, tools, sandbox: ctx.codeSandbox, code, queue: ctx.codeQueue, config, log }, run, g);
+      } catch (err) {
+        log.error({ err }, 'Code üretimi beklenmedik şekilde sonlandı');
+        run.emit({ type: 'error', code: 'internal', message: 'Beklenmeyen bir hata oluştu.' });
+        await db.query(`update messages set status = 'error' where id = $1 and status = 'streaming'`, [g.assistantId]).catch(() => {});
+        await code.setSessionStatus(g.chat.id, 'error').catch(() => {});
       } finally {
         clearTimeout(cap);
         run.finish();
@@ -424,7 +446,11 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const body = parse(sendMessageSchema, req.body);
         const chat = await getOwnedChat(db, req.params.id, user.id);
         if (!chat) throw notFound('Sohbet bulunamadı.');
-        if (chat.kind === 'code') throw conflict('Code oturumlarında çalıştırma henüz hazır değil.');
+        const isCode = chat.kind === 'code';
+        if (isCode) {
+          if (!code.isAllowed(user)) throw forbidden('Code için erişimin yok.');
+          if (body.attachments?.length) throw badRequest('Code oturumlarına dosya eklenemez; dosyalar repoda yer alır.');
+        }
 
         if (body.content.length > user.limits.maxMessageChars) {
           throw badRequest(`Mesaj en fazla ${user.limits.maxMessageChars} karakter olabilir.`);
@@ -450,7 +476,8 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         }
 
         await assertCanStart(chat.id, user);
-        await usage.consume(user.id, user.tier, user.isGuest ? req.ip : null);
+        // Code kendi kredisini kullanır; sohbet günlük mesaj hakkından düşmez.
+        if (!isCode) await usage.consume(user.id, user.tier, user.isGuest ? req.ip : null);
 
         let userRow: MessageRow, assistantId: string;
         let isFirstExchange = false;
@@ -474,7 +501,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
             assistantId,
           ]);
         } catch (err) {
-          await usage.refund(user.id, user.isGuest ? req.ip : null).catch(() => {});
+          if (!isCode) await usage.refund(user.id, user.isGuest ? req.ip : null).catch(() => {});
           throw err;
         }
 
@@ -484,6 +511,9 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
           parts: m.role === 'assistant' ? m.parts : undefined,
         }));
+        if (isCode) {
+          return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange });
+        }
         generate(req, reply, {
           chat,
           user,

@@ -28,8 +28,13 @@ export function diskMultiplier(usedMb: number, quotaMb: number): number {
   return 1 + CODE_CREDIT_WEIGHTS.diskFillBoost * fill;
 }
 
+/** Girdi (bağlam) token'ları önbellekten ucuz geldiği için çıktıdan daha hafif sayılır. */
+export const INPUT_TOKEN_WEIGHT = 0.25;
+export const weightedTokens = (tokensIn: number, tokensOut: number): number => tokensIn * INPUT_TOKEN_WEIGHT + tokensOut;
+
 export interface CreditUsage {
   model?: CodeModelKind;
+  /** Ağırlıklı token sayısı (`weightedTokens`). */
   tokens?: number;
   sandboxSeconds?: number;
   diskUsedMb: number;

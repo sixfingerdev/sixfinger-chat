@@ -4,8 +4,20 @@ GitHub reposu seçip kendi branch'inde çalışan bulut kodlama oturumları. Bir
 sohbettir; mesajlar, arka planda üretim ve akış sohbetle aynı altyapıyı paylaşır. Ajanın nasıl çalışacağı
 [code-agent.md](code-agent.md)'de.
 
-> **Durum:** Faz 1 (hesap bağlama, ortamlar, oturumlar, kredi, ekranlar) hazır. Faz 2'de ajanın çalışacağı altyapı
-> (kalıcı çalışma alanı, filtreli internet, sandboxd Code uçları) yazıldı; ajan döngüsü ve oturum ekranı sırada.
+> **Durum:** Faz 1 (hesap bağlama, ortamlar, oturumlar, kredi, ekranlar) hazır. Faz 2'de sunucu tarafı tamam: kalıcı çalışma alanı,
+> filtreli internet, Code araçları, ajan döngüsü (Qwen → Claude yedeği, adım/döngü/bağlam/kredi sınırları, kuyruk, tur sonu
+> commit). Oturum ekranı (mesajlar, araç kartları, bağlam halkası, PR listesi) sırada.
+
+## Ajan nasıl çalışır
+
+Oturuma mesaj gönderince sunucu: krediyi denetler → **kuyruğa** girer (Pi'de aynı anda `CODE_MAX_RUNS`=2 oturum; fazlası sırada, sıra numarası
+arayüze akar) → çalışma alanını hazırlar (ilk seferde klonlar, kurulum betiğini çalıştırır) → modelle araç döngüsüne girer.
+Her tur sonunda değişiklikler **kullanıcının kimliğiyle** commit edilir (`Co-Authored-By: SixFinger Code` her zaman eklenir; oturum bağlantısı
+ortam ayarına bağlı) ve oturumun +N −M özeti güncellenir. Kullanıcı durdursa bile o ana kadarki iş commit edilir.
+
+Güvenlik/sınır kuralları: mesaj başına en çok `CODE_MAX_STEPS` tur (aşılırsa araçsız özet + "Devam et"); aynı araç+argüman+çıktı 3. kez gelince uyarı,
+5. kezde durur; çıktı uzunluk sınırında en çok 2 kez "devam et" notu; bağlam `CODE_CONTEXT_TOKENS`'ı aşarsa eski araç çıktıları kırpılır, çok aşarsa tur durur;
+kredi çalışırken biterse tur durur. Model zinciri: Qwen3.8-27B → Claude yedeği (Hızlı modele asla düşülmez).
 
 ## Kurulum
 

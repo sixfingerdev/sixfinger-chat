@@ -78,6 +78,15 @@ const schema = z.object({
   /** Code kullanabilen e-postalar (virgülle). Boşsa kimse kullanamaz. `*` herkese (doğrulanmış üyelere) açar. */
   CODE_ALLOWED_EMAILS: z.string().optional().default(''),
   CODE_DAILY_CREDITS: z.coerce.number().min(1).default(100),
+  /** Aynı anda çalışan Code oturumu (Pi 4 için 2) ve bekleme sırası uzunluğu. */
+  CODE_MAX_RUNS: z.coerce.number().int().min(1).default(2),
+  CODE_MAX_QUEUE: z.coerce.number().int().min(0).default(10),
+  /** Bir kullanıcı mesajında ajanın en çok kaç araç turu atacağı. Aşılırsa özetleyip durur; kullanıcı "devam et" der. */
+  CODE_MAX_STEPS: z.coerce.number().int().min(2).default(60),
+  /** Modele gönderilen bağlam için tahmini token bütçesi (Qwen3.8 penceresi 262k; güvenli pay bırakılır). */
+  CODE_CONTEXT_TOKENS: z.coerce.number().int().min(8_000).default(120_000),
+  /** Tek bir Code çalıştırmasının mutlak üst süresi. */
+  CODE_RUN_TIMEOUT_MS: z.coerce.number().int().min(60_000).default(2_700_000),
   /** Qwen başarısız olunca Claude'a (Bedrock) düşen Code isteklerinin tüm kullanıcılar için günlük token tavanı. 0 = yedek kapalı. */
   CODE_CLAUDE_DAILY_TOKENS: z.coerce.number().int().min(0).default(2_000_000),
 

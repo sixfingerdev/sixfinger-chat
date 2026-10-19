@@ -304,11 +304,11 @@ describe('oturumlar', () => {
     expect(r2.statusCode).toBe(409);
   });
 
-  it('Code oturumunda henüz mesaj gönderilemez; tüm sohbetleri silmek Code oturumlarına dokunmaz', async () => {
+  it('Code oturumu yeniden üretilemez; tüm sohbetleri silmek Code oturumlarına dokunmaz', async () => {
     const a = await prepared();
     const s = (await env.app.inject({ method: 'POST', url: '/api/code/sessions', headers: auth(a), payload: { repo: 'octo/alpha', baseBranch: 'main' } })).json().session;
-    const send = await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/messages`, headers: auth(a), payload: { content: 'merhaba' } });
-    expect(send.statusCode).toBe(409);
+    const regen = await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/regenerate`, headers: auth(a), payload: { messageId: s.chatId } });
+    expect(regen.statusCode).toBe(409);
     await env.app.inject({ method: 'DELETE', url: '/api/chats', headers: auth(a) });
     expect((await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}`, headers: auth(a) })).statusCode).toBe(200);
   });

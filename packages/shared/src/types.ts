@@ -95,6 +95,8 @@ export type MessagePartDTO =
       output?: string;
       /** Kartta gösterilen tek satırlık özet ("5 sonuç", "example.com"). */
       summary?: string;
+      /** Zengin gösterim için yapısal veri (dosya +N −M, çıkış kodu, yapılacaklar...). Modele gitmez. */
+      meta?: Record<string, unknown>;
       ms?: number;
     };
 
@@ -174,7 +176,13 @@ export type StreamEvent =
   | { type: 'reasoning'; delta: string }
   | { type: 'delta'; delta: string }
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
-  | { type: 'tool_end'; id: string; status: ToolStatus; output: string; summary?: string; ms: number }
+  | { type: 'tool_end'; id: string; status: ToolStatus; output: string; summary?: string; meta?: Record<string, unknown>; ms: number }
+  /** Code: çalışmanın evresi (sırada, çalışma alanı hazırlanıyor, çalışıyor, commit ediliyor). */
+  | { type: 'phase'; phase: 'queued' | 'preparing' | 'working' | 'committing'; position?: number }
+  /** Code: tur sonunda çalışma alanındaki toplam değişiklik (+N −M). */
+  | { type: 'changes'; additions: number; deletions: number; files: number; sha: string | null }
+  /** Code: modele giden bağlamın tahmini doluluğu (başlıktaki halka). */
+  | { type: 'context'; tokens: number; limit: number }
   | { type: 'title'; title: string }
   | { type: 'memory'; memory: MemoryDTO }
   | { type: 'usage'; usage: UsageDTO }
@@ -250,8 +258,28 @@ export interface CodeSessionDTO {
   environmentName: string | null;
   status: CodeSessionStatus;
   diskUsedMb: number;
+  /** Başlangıç commit'ine göre toplam değişiklik. */
+  additions: number;
+  deletions: number;
+  filesChanged: number;
+  headSha: string | null;
+  /** Modele giden son bağlamın tahmini token sayısı ve üst sınırı (başlıktaki halka). */
+  contextTokens: number;
+  contextLimit: number;
   /** Son mesajdan kesit (liste kartında). */
   preview: string;
   createdAt: string;
   lastMessageAt: string | null;
+}
+
+/** Oturumun çalışma branch'indeki bir pull request. */
+export interface CodePullDTO {
+  number: number;
+  title: string;
+  state: 'open' | 'merged' | 'closed';
+  draft: boolean;
+  url: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
 }
