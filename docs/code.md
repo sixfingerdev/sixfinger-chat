@@ -237,6 +237,11 @@ uygulanır. Bu yanıltmasın diye imajdaki `df` (`sandbox/df-quota`, **imaj yeni
 Kotadan büyük paketler (torch, tensorflow…) yine sığmaz; istem ajana bunları kurmayı denememesini söyler.
 `.local/` (pip kullanıcı paketleri) ve `.npm-global/` sandbox'ın `.git/info/exclude` dosyasındadır: commit'e ve fark sayısına girmez.
 
+### RAM ve CPU (`free`, `nproc`)
+Aynı yanılgı bellekte de olur: konteyner 1 GB ile sınırlıyken `free` ana makinenin 3.8 GB'ını, `nproc` 4 çekirdeği gösterir. İmajdaki `free` ve `nproc`
+(`sandbox/free-quota`, `sandbox/nproc-quota`) konteynerin cgroup sınırını gösterir (`-m`, `-g`, `-h` seçenekleri çalışır; bilinmeyen seçenek ya da sınırsız cgroup'ta gerçek komut).
+Python `os.cpu_count()`, `psutil` ve `/proc/meminfo` hâlâ ana makineyi gösterir; Code istemi ajana bunu söyler. **İmaj yeniden derlenmeli** (`docker build -t sixfinger-sandbox:latest sandbox/`).
+
 ## Oturum silinince
 Bir Code oturumu silinince (`DELETE /api/code/sessions/:id`, genel `DELETE /api/chats/:id` ya da hesap silme) süren üretim durdurulur ve çalışma alanı
 sandboxd'de **konteyneri ve diskteki klasörüyle birlikte silinir** (`services/code-cleanup.ts`). Sandboxd'ye ulaşılamazsa oturum yine silinir, hata yalnızca

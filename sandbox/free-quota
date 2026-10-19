@@ -1,0 +1,38 @@
+#!/bin/sh
+# SixFinger: `free`, ana makinenin RAM'i yerine konteynerin bellek SINIRINI (cgroup) gösterir; ajan 3.8 GB var sanıp ona göre işe girişmesin.
+# Sınır okunamazsa ya da bilinmeyen seçenek varsa gerçek `free` çalışır.
+real=$(PATH=/usr/bin:/bin command -v free)
+root=${SF_CGROUP_ROOT:-/sys/fs/cgroup}
+limit=""; cur=""; anon=""; file=""
+if [ -r "$root/memory.max" ]; then
+  limit=$(cat "$root/memory.max"); cur=$(cat "$root/memory.current" 2>/dev/null)
+  anon=$(awk '$1=="anon"{print $2}' "$root/memory.stat" 2>/dev/null); file=$(awk '$1=="file"{print $2}' "$root/memory.stat" 2>/dev/null)
+elif [ -r "$root/memory/memory.limit_in_bytes" ]; then
+  limit=$(cat "$root/memory/memory.limit_in_bytes"); cur=$(cat "$root/memory/memory.usage_in_bytes" 2>/dev/null)
+  anon=$(awk '$1=="total_rss"{print $2}' "$root/memory/memory.stat" 2>/dev/null); file=$(awk '$1=="total_cache"{print $2}' "$root/memory/memory.stat" 2>/dev/null)
+fi
+case "$limit" in ''|max|*[!0-9]*) exec "$real" "$@" ;; esac
+# 2^60'tan büyük değer "sınırsız" demektir
+[ "$limit" -ge 1152921504606846976 ] && exec "$real" "$@"
+unit=k; human=0
+for a in "$@"; do
+  case "$a" in
+    -b|--bytes) unit=b ;; -k|--kibi) unit=k ;; -m|--mebi) unit=m ;; -g|--gibi) unit=g ;;
+    -h|--human) human=1 ;; --si|-w|--wide|-l|--lohi|-t|--total|-v) ;;
+    *) exec "$real" "$@" ;;
+  esac
+done
+cur=${cur:-0}; anon=${anon:-$cur}; file=${file:-0}
+awk -v lim="$limit" -v cur="$cur" -v anon="$anon" -v file="$file" -v unit="$unit" -v human="$human" '
+function fmt(b,   v) {
+  if (human) { if (b >= 1073741824) return sprintf("%.1fGi", b/1073741824); if (b >= 1048576) return sprintf("%.0fMi", b/1048576); if (b >= 1024) return sprintf("%.0fKi", b/1024); return sprintf("%dB", b) }
+  if (unit == "b") return sprintf("%d", b); if (unit == "m") return sprintf("%d", b/1048576); if (unit == "g") return sprintf("%d", b/1073741824); return sprintf("%d", b/1024)
+}
+BEGIN {
+  used = anon; if (used > lim) used = lim
+  free = lim - cur; if (free < 0) free = 0
+  avail = lim - used
+  printf "%14s %11s %11s %11s %11s %11s\n", "total", "used", "free", "shared", "buff/cache", "available"
+  printf "%-7s%7s %11s %11s %11s %11s %11s\n", "Mem:", fmt(lim), fmt(used), fmt(free), fmt(0), fmt(file), fmt(avail)
+  printf "%-7s%7s %11s %11s\n", "Swap:", fmt(0), fmt(0), fmt(0)
+}'

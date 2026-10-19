@@ -12,7 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # `df`, /work için ana makinenin diskini değil ortamın disk kotasını gösterir (SF_DISK_QUOTA_MB; sandboxd verir)
 COPY df-quota /usr/local/bin/df
-RUN chmod 755 /usr/local/bin/df
+# `free` ve `nproc` de ana makinenin RAM/çekirdeğini değil konteynerin cgroup sınırını gösterir
+COPY free-quota /usr/local/bin/free
+COPY nproc-quota /usr/local/bin/nproc
+RUN chmod 755 /usr/local/bin/df /usr/local/bin/free /usr/local/bin/nproc
 
 # Ayrıcalıksız kullanıcı (sandboxd --user 1000:1000 ile çalıştırır)
 RUN groupadd -g 1000 sandbox && useradd -u 1000 -g 1000 -m -d /work -s /bin/bash sandbox \
