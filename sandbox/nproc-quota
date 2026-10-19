@@ -1,0 +1,14 @@
+#!/bin/sh
+# SixFinger: `nproc`, ana makinenin çekirdek sayısı yerine konteynerin CPU SINIRINI (cgroup, yukarı yuvarlanır) gösterir.
+real=$(PATH=/usr/bin:/bin command -v nproc)
+[ "$#" -gt 0 ] && exec "$real" "$@"
+root=${SF_CGROUP_ROOT:-/sys/fs/cgroup}
+n=""
+if [ -r "$root/cpu.max" ]; then
+  set -- $(cat "$root/cpu.max"); [ "$1" != max ] && [ "${2:-0}" -gt 0 ] 2>/dev/null && n=$(( ($1 + $2 - 1) / $2 ))
+elif [ -r "$root/cpu/cpu.cfs_quota_us" ]; then
+  q=$(cat "$root/cpu/cpu.cfs_quota_us"); p=$(cat "$root/cpu/cpu.cfs_period_us" 2>/dev/null || echo 0)
+  [ "$q" -gt 0 ] 2>/dev/null && [ "$p" -gt 0 ] && n=$(( (q + p - 1) / p ))
+fi
+real_n=$("$real")
+if [ -n "$n" ] && [ "$n" -lt "$real_n" ]; then echo "$n"; else echo "$real_n"; fi

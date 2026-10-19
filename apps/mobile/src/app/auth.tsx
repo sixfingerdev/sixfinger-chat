@@ -34,6 +34,26 @@ export default function AuthScreen() {
   const [info, setInfo] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
 
+  // Doğrulama ekranı sonradan (uyarı, menü) açılınca kimse kod göndermemiştir: kendiliğinden gönder. Az önce gönderildiyse (429) kalan beklemeyi göster.
+  useEffect(() => {
+    if (params.mode !== 'verify' || !user || user.isGuest || user.emailVerified) return;
+    let alive = true;
+    api
+      .resendVerify()
+      .then(() => alive && (setCooldown(45), setInfo(t('auth.resent'))))
+      .catch((err) => {
+        if (!alive) return;
+        if (err instanceof ApiError && err.status === 429) {
+          setCooldown((err.details as { retryAfter?: number } | undefined)?.retryAfter ?? 45);
+          setInfo(t('auth.resent'));
+        } else setError(err instanceof ApiError ? err.message : t('error.generic'));
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (cooldown <= 0) return;
     const id = setTimeout(() => setCooldown((x) => x - 1), 1000);
