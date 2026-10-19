@@ -57,6 +57,8 @@ export interface RunHub {
   forChat(chatId: string): Run | undefined;
   countForUser(userId: string): number;
   activeIds(chatId: string): string[];
+  /** Şu an üretimi süren sohbetler. */
+  activeChatIds(): string[];
   remove(run: Run): void;
 }
 
@@ -79,6 +81,9 @@ export function createRunHub(): RunHub {
     },
     activeIds(chatId) {
       return [...runs.values()].filter((r) => r.chatId === chatId && !r.finished).map((r) => r.assistantId);
+    },
+    activeChatIds() {
+      return [...new Set([...runs.values()].filter((r) => !r.finished).map((r) => r.chatId))];
     },
     remove(run) {
       runs.delete(run.assistantId);

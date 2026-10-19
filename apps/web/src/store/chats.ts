@@ -20,6 +20,14 @@ export interface Generating {
   reconnect?: boolean;
 }
 
+/** Code: süren turun canlı durumu (evre, bağlam doluluğu, toplam değişiklik). Tur bitince `phase` temizlenir, diğerleri kalır. */
+export interface CodeLive {
+  phase?: 'queued' | 'preparing' | 'working' | 'committing';
+  position?: number;
+  context?: { tokens: number; limit: number };
+  changes?: { additions: number; deletions: number; files: number; sha: string | null };
+}
+
 type EventSource = (onEvent: (e: StreamEvent) => void, signal: AbortSignal) => Promise<void>;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -33,6 +41,8 @@ interface ChatsState {
   loadError: 'notfound' | 'error' | null;
   /** Sohbet kimliği → o sohbette süren üretim. Her sohbet bağımsızdır: birinde üretim sürerken diğerine mesaj gönderilebilir. */
   generating: Record<string, Generating>;
+  /** Code oturumu sohbet kimliği → canlı durum. */
+  codeLive: Record<string, CodeLive>;
   draftPersona: string | null;
 
   reset: () => void;
@@ -124,6 +134,11 @@ export const useChats = create<ChatsState>((set, get) => {
   const patchChat = (chat: ChatDTO) => {
     set({ chats: get().chats.some((c) => c.id === chat.id) ? sortChats(get().chats.map((c) => (c.id === chat.id ? chat : c))) : get().chats });
     patchDetail(chat.id, (d) => ({ ...d, chat }));
+  };
+
+  const patchLive = (chatId: string, patch: Partial<CodeLive> | ((l: CodeLive) => CodeLive)) => {
+    const cur = get().codeLive[chatId] ?? {};
+    set({ codeLive: { ...get().codeLive, [chatId]: typeof patch === 'function' ? patch(cur) : { ...cur, ...patch } } });
   };
 
   const setGen = (chatId: string, g: Generating) => set({ generating: { ...get().generating, [chatId]: g } });
@@ -246,9 +261,18 @@ export const useChats = create<ChatsState>((set, get) => {
           patchMessage(chatId, assistantId, (m) => ({
             ...m,
             parts: m.parts.map((p) =>
-              p.type === 'tool' && p.id === e.id ? { ...p, status: e.status, output: e.output, summary: e.summary, ms: e.ms } : p,
+              p.type === 'tool' && p.id === e.id ? { ...p, status: e.status, output: e.output, summary: e.summary, meta: e.meta ?? p.meta, ms: e.ms } : p,
             ),
           }));
+          break;
+        case 'phase':
+          patchLive(chatId, { phase: e.phase, position: e.position });
+          break;
+        case 'changes':
+          patchLive(chatId, { changes: { additions: e.additions, deletions: e.deletions, files: e.files, sha: e.sha } });
+          break;
+        case 'context':
+          patchLive(chatId, { context: { tokens: e.tokens, limit: e.limit } });
           break;
         case 'title': {
           const d = get().detail[chatId];
@@ -301,6 +325,7 @@ export const useChats = create<ChatsState>((set, get) => {
         patchMessage(chatId, assistantId, (m) => (m.status === 'streaming' ? { ...m, status: abort.signal.aborted ? 'stopped' : 'error' } : m));
       }
       clearGen(chatId, abort);
+      if (get().codeLive[chatId]?.phase && !dropped) patchLive(chatId, { phase: undefined, position: undefined });
       // Sunucu ile kesin eşitleme (gerçek kimlikler, durum). Kopma durumunda yeniden izleme bunu zaten yapar.
       if (!dropped) void get().openChat(chatId, true);
     }
@@ -316,10 +341,11 @@ export const useChats = create<ChatsState>((set, get) => {
     loadingId: null,
     loadError: null,
     generating: {},
+    codeLive: {},
     draftPersona: null,
 
     reset: () =>
-      set({ chats: [], archived: null, chatsLoaded: false, detail: {}, activeId: null, loadingId: null, loadError: null, generating: {} }),
+      set({ chats: [], archived: null, chatsLoaded: false, detail: {}, activeId: null, loadingId: null, loadError: null, generating: {}, codeLive: {} }),
 
     async loadChats() {
       try {

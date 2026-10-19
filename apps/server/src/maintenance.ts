@@ -12,12 +12,13 @@ export async function runMaintenance(ctx: AppContext): Promise<void> {
     [String(GUEST_RETENTION_DAYS)],
   );
   const empty = await db.query(
-    `delete from chats where last_message_at is null and created_at < now() - interval '1 day'`,
+    `delete from chats where kind = 'chat' and last_message_at is null and created_at < now() - interval '1 day'`,
   );
   await db.query(`delete from email_codes where expires_at < now() - interval '1 day'`);
   await db.query(`delete from refresh_tokens where expires_at < now() or revoked_at < now() - interval '7 days'`);
   await db.query(`delete from usage_daily where day < current_date - 7`);
   await db.query(`delete from usage_ip where day < current_date - 7`);
+  await db.query(`delete from code_credit_daily where day < current_date - 7`);
   log.info(
     { stuckStreams: stuck.rowCount, guestsDeleted: guests.rowCount, emptyChats: empty.rowCount },
     'bakım tamamlandı',

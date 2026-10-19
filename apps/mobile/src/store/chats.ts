@@ -6,6 +6,7 @@ import { translate } from '../lib/i18n/index.ts';
 import { kv } from '../lib/storage.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 import { activePath, deepestLeaf, indexMessages } from '../lib/tree.ts';
+import { useCode } from './code.ts';
 import { useUi } from './ui.ts';
 
 export interface ChatDetail {
@@ -34,6 +35,8 @@ interface ChatsState {
   loadError: 'notfound' | 'error' | null;
   /** Sohbet kimliği → o sohbette süren üretim. Her sohbet bağımsızdır: birinde üretim sürerken diğerine mesaj gönderilebilir. */
   generating: Record<string, Generating>;
+  /** Code: sohbet kimliği → çalışmanın evresi (sırada / hazırlanıyor / çalışıyor / commit). Üretim bitince silinir. */
+  codeRun: Record<string, { phase: 'queued' | 'preparing' | 'working' | 'committing'; position?: number }>;
   draftPersona: string | null;
 
   reset: () => void;
@@ -57,6 +60,8 @@ interface ChatsState {
   follow: (chatId: string) => Promise<void>;
   /** Uygulama ön plana gelince / ağ dönünce: açık sohbeti sunucuyla eşitler ve akışı yeniden bağlar. */
   refreshActive: () => void;
+  /** Verilen sohbeti (açık olmasa da) sunucuyla eşitler ve süren üretimi yeniden izler. */
+  refresh: (id: string) => void;
   switchVersion: (chatId: string, messageId: string) => void;
 
   renameChat: (id: string, title: string) => Promise<void>;
@@ -132,7 +137,9 @@ export const useChats = create<ChatsState>((set, get) => {
     if (get().generating[chatId]?.abort !== abort) return;
     const { [chatId]: _gone, ...rest } = get().generating;
     void _gone;
-    set({ generating: rest });
+    const { [chatId]: _run, ...runs } = get().codeRun;
+    void _run;
+    set({ generating: rest, codeRun: runs });
   };
 
   /**
@@ -249,9 +256,18 @@ export const useChats = create<ChatsState>((set, get) => {
           patchMessage(chatId, assistantId, (m) => ({
             ...m,
             parts: m.parts.map((p) =>
-              p.type === 'tool' && p.id === e.id ? { ...p, status: e.status, output: e.output, summary: e.summary, ms: e.ms } : p,
+              p.type === 'tool' && p.id === e.id ? { ...p, status: e.status, output: e.output, summary: e.summary, meta: e.meta, ms: e.ms } : p,
             ),
           }));
+          break;
+        case 'phase':
+          set({ codeRun: { ...get().codeRun, [chatId]: { phase: e.phase, position: e.position } } });
+          break;
+        case 'changes':
+          useCode.getState().patchSession(chatId, { additions: e.additions, deletions: e.deletions, filesChanged: e.files, headSha: e.sha ?? undefined });
+          break;
+        case 'context':
+          useCode.getState().patchSession(chatId, { contextTokens: e.tokens, contextLimit: e.limit });
           break;
         case 'title': {
           const d = get().detail[chatId];
@@ -320,10 +336,11 @@ export const useChats = create<ChatsState>((set, get) => {
     loadingId: null,
     loadError: null,
     generating: {},
+    codeRun: {},
     draftPersona: null,
 
     reset: () =>
-      set({ chats: [], archived: null, chatsLoaded: false, detail: {}, activeId: null, loadingId: null, loadError: null, generating: {} }),
+      set({ chats: [], archived: null, chatsLoaded: false, detail: {}, activeId: null, loadingId: null, loadError: null, generating: {}, codeRun: {} }),
 
     async loadChats() {
       try {
@@ -451,7 +468,10 @@ export const useChats = create<ChatsState>((set, get) => {
 
     refreshActive() {
       const id = get().activeId;
-      if (!id) return;
+      if (id) get().refresh(id);
+    },
+
+    refresh(id) {
       const g = get().generating[id];
       if (g) {
         // Arka plandayken soket sessizce ölmüş olabilir: bilerek kesip anlık görüntüyle yeniden bağlan.

@@ -40,6 +40,10 @@ export interface AiRequest {
   failFast?: boolean;
   /** Araç turlarının devamında: hız sınırına takılınca daha uzun beklemeyi göze al. */
   patient?: boolean;
+  /** `code`: SixFinger Code zinciri (Qwen → Claude yedeği; zayıf Hızlı modele düşülmez). */
+  route?: 'code';
+  /** Hangi sağlayıcının yanıtlamaya başladığını bildirir (kredi ve kullanım için). */
+  onProvider?: (name: string) => void;
 }
 
 export type AiChunk =
@@ -338,6 +342,7 @@ export function createAi(
   log: Logger = { warn: () => {} },
   fetchImpl: typeof fetch = fetch,
   bedrockImpl?: AiProvider,
+  now: () => number = Date.now,
 ): AiProvider {
   const fast = createEndpoint({ baseUrl: config.AI_BASE_URL, model: config.AI_MODEL, apiKey: config.AI_API_KEY, sendEffort: true }, config, log, fetchImpl);
   const make = (baseUrl: string, model: string, apiKey: string, sendEffort: boolean) =>
@@ -347,8 +352,21 @@ export function createAi(
   const deep = make(config.AI_DEEP_BASE_URL, config.AI_DEEP_MODEL, config.AI_DEEP_API_KEY, false);
   const backup = bedrockImpl ?? (bedrockConfigured(config) ? createBedrock(config) : undefined);
 
+  /** Code'da Claude yedeğinin tüm kullanıcılar için günlük token tavanı (Bedrock harcamasını korur). */
+  const claude = { day: '', used: 0 };
+  const claudeToday = () => {
+    const d = new Date(now()).toISOString().slice(0, 10);
+    if (claude.day !== d) Object.assign(claude, { day: d, used: 0 });
+    return claude;
+  };
+  const approxTokens = (req: AiRequest) => Math.ceil(req.messages.reduce((n, m) => n + m.content.length + (m.tool_calls ? JSON.stringify(m.tool_calls).length : 0), 0) / 3.5);
+
   /** Bu mod için denenecek sağlayıcılar, sırayla: seçilen model → Bedrock (varsa) → Hızlı. */
-  const chain = (mode: ChatMode | undefined): Array<{ name: string; ai: AiProvider }> => {
+  const chain = (mode: ChatMode | undefined, route?: 'code'): Array<{ name: string; ai: AiProvider }> => {
+    // Code: önce Qwen (deep), olmazsa Claude. Hızlı (Pollinations) modeline ASLA düşülmez: kod ajanında sessizce zayıf modele geçmek kötü sonuç verir.
+    if (route === 'code') {
+      return [deep && { name: 'qwen', ai: deep }, backup && { name: 'claude', ai: backup }].filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
+    }
     const main = mode === 'deep' ? deep : mode === 'balanced' ? balanced : undefined;
     const all = [
       main && { name: mode ?? 'main', ai: main },
@@ -363,26 +381,42 @@ export function createAi(
 
   return {
     async *stream(req) {
-      const list = chain(req.mode);
+      const list = chain(req.mode, req.route);
+      if (!list.length) throw new HttpError(503, 'upstream_unavailable', 'Code için model yapılandırılmamış (AI_DEEP_BASE_URL).');
       for (const [i, p] of list.entries()) {
         const last = i === list.length - 1;
         let started = false;
+        // Claude yedeği: günlük genel token tavanı dolduysa denenmez.
+        if (req.route === 'code' && p.name === 'claude') {
+          const c = claudeToday();
+          if (config.CODE_CLAUDE_DAILY_TOKENS <= 0 || c.used >= config.CODE_CLAUDE_DAILY_TOKENS) {
+            if (last) throw new HttpError(503, 'upstream_busy', 'Code modeli şu an yoğun, yedek model de bugünlük doldu. Biraz sonra tekrar dene.');
+            continue;
+          }
+        }
+        let produced = 0;
         try {
           for await (const chunk of p.ai.stream(last ? req : { ...req, failFast: true })) {
+            if (!started) req.onProvider?.(p.name);
             started = true;
+            if (chunk.type === 'content' || chunk.type === 'reasoning') produced += chunk.text.length;
+            else if (chunk.type === 'tool_calls') produced += JSON.stringify(chunk.calls).length;
             yield chunk;
           }
+          if (started && req.route === 'code' && p.name === 'claude') claudeToday().used += approxTokens(req) + Math.ceil(produced / 3.5);
           if (started) return;
           if (last) return;
           log.warn({ mode: req.mode, provider: p.name }, 'sağlayıcı boş yanıt verdi, yedeğe düşülüyor');
         } catch (err) {
+          if (started && req.route === 'code' && p.name === 'claude') claudeToday().used += approxTokens(req) + Math.ceil(produced / 3.5);
           if (started || last || aborted(req, err)) throw err;
           log.warn({ mode: req.mode, provider: p.name, err: String(err) }, 'sağlayıcı yanıt vermedi, yedeğe düşülüyor');
         }
       }
     },
     async complete(req) {
-      const list = chain(req.mode);
+      const list = chain(req.mode, req.route);
+      if (!list.length) throw new HttpError(503, 'upstream_unavailable', 'Code için model yapılandırılmamış (AI_DEEP_BASE_URL).');
       for (const [i, p] of list.entries()) {
         const last = i === list.length - 1;
         try {

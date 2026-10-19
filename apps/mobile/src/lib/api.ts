@@ -2,8 +2,17 @@ import type {
   AuthResponse,
   ChatDTO,
   ChatDetailDTO,
+  CodeChangesDTO,
+  CodeDiffDTO,
+  CodePrDraftDTO,
+  CodeEnvironmentDTO,
+  CodePullDTO,
+  CodeSessionDTO,
+  CodeStatusDTO,
   ConfigDTO,
   ErrorCode,
+  GithubBranchesDTO,
+  GithubRepoDTO,
   MemoryDTO,
   MessageDTO,
   Persona,
@@ -268,4 +277,30 @@ export const api = {
   feedback: (messageId: string, value: 1 | -1 | null) =>
     request<{ message: MessageDTO }>('PUT', `/messages/${messageId}/feedback`, { value }),
   shared: (slug: string) => request<SharedChatDTO>('GET', `/public/shares/${slug}`, undefined, { auth: false }),
+
+  // Code
+  codeStatus: () => request<CodeStatusDTO>('GET', '/code/status'),
+  codeGithubStart: () => request<{ url: string }>('POST', '/code/github/start', { target: 'app' }),
+  codeGithubComplete: (code: string, state: string) =>
+    request<{ github: { login: string; avatarUrl: string } }>('POST', '/code/github/complete', { code, state }),
+  codeGithubDisconnect: () => request<void>('DELETE', '/code/github'),
+  codeRepos: (q?: string) => request<{ repos: GithubRepoDTO[] }>('GET', '/code/repos', undefined, { query: { q } }),
+  codeBranches: (repo: string) => request<GithubBranchesDTO>('GET', '/code/branches', undefined, { query: { repo } }),
+  codeEnvironments: () => request<{ environments: CodeEnvironmentDTO[] }>('GET', '/code/environments'),
+  codeEnvironment: (id: string) => request<{ environment: CodeEnvironmentDTO }>('GET', `/code/environments/${id}`),
+  codeCreateEnvironment: (p: object) => request<{ environment: CodeEnvironmentDTO }>('POST', '/code/environments', p),
+  codeUpdateEnvironment: (id: string, p: object) => request<{ environment: CodeEnvironmentDTO }>('PATCH', `/code/environments/${id}`, p),
+  codeDeleteEnvironment: (id: string) => request<void>('DELETE', `/code/environments/${id}`),
+  codeSessions: () => request<{ sessions: CodeSessionDTO[] }>('GET', '/code/sessions'),
+  codeSession: (id: string) => request<{ session: CodeSessionDTO }>('GET', `/code/sessions/${id}`),
+  codeCreateSession: (p: { repo: string; baseBranch: string; environmentId?: string }) =>
+    request<{ session: CodeSessionDTO }>('POST', '/code/sessions', p),
+  codePulls: (id: string) => request<{ pulls: CodePullDTO[] }>('GET', `/code/sessions/${id}/pulls`),
+  codeDiff: (id: string, path?: string) => request<CodeDiffDTO>('GET', `/code/sessions/${id}/diff${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+  codePrDraft: (id: string) => request<{ draft: CodePrDraftDTO }>('GET', `/code/sessions/${id}/pr-draft`),
+  codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
+  codeCreatePr: (id: string, p: { title: string; body: string; draft: boolean }) =>
+    request<{ pull: CodePullDTO; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, p),
+  codeChanges: (id: string) => request<CodeChangesDTO>('GET', `/code/sessions/${id}/changes`),
+  codeDeleteSession: (id: string) => request<void>('DELETE', `/code/sessions/${id}`),
 };

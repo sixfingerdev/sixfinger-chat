@@ -5,7 +5,7 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      bash coreutils findutils procps ca-certificates curl wget git jq unzip zip tar gzip xz-utils \
+      bash coreutils findutils procps ca-certificates curl wget git ripgrep jq unzip zip tar gzip xz-utils \
       python3 python3-pip python3-venv python3-numpy python3-pandas python3-matplotlib python3-requests python3-bs4 python3-yaml \
       nodejs npm netcat-openbsd less nano sqlite3 bc \
     && rm -rf /var/lib/apt/lists/*

@@ -49,6 +49,24 @@ export function timeUntil(iso: string, locale: 'tr' | 'en'): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** "3 dk önce" / "3m ago" gibi kısa göreli zaman. */
+export function timeAgo(iso: string, locale: 'tr' | 'en'): string {
+  const sec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  const units: Array<[number, string, string]> = [
+    [60, 'sn', 's'],
+    [3600, 'dk', 'm'],
+    [86_400, 'sa', 'h'],
+    [604_800, 'g', 'd'],
+  ];
+  if (sec < 45) return locale === 'tr' ? 'şimdi' : 'now';
+  let div = 1;
+  for (const [limit, tr, en] of units) {
+    if (sec < limit) return `${Math.max(1, Math.round(sec / div))}${locale === 'tr' ? ' ' + tr : en}`;
+    div = limit;
+  }
+  return new Date(iso).toLocaleDateString(locale === 'tr' ? 'tr-TR' : 'en-US', { day: 'numeric', month: 'short' });
+}
+
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
@@ -94,3 +112,11 @@ export const slugify = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 50) || 'sohbet';
+
+/** 60 300 → "60,3k"; yerel ondalık ayracı kullanılmaz (kısa, sabit). */
+export function compactNumber(n: number): string {
+  if (n < 1_000) return String(Math.round(n));
+  if (n < 100_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+  if (n < 1_000_000) return `${Math.round(n / 1_000)}k`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+}

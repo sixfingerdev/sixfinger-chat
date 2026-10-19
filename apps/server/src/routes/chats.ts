@@ -37,7 +37,7 @@ export function chatRoutes(ctx: AppContext, guard: Guard) {
                   (select m.content from messages m where m.chat_id = c.id and m.content ilike $3 order by m.seq limit 1)
                 end as snippet
            from chats c left join shares sh on sh.chat_id = c.id
-          where c.user_id = $1 and c.last_message_at is not null and c.archived = $2
+          where c.user_id = $1 and c.kind = 'chat' and c.last_message_at is not null and c.archived = $2
             and ($3::text is null or c.title ilike $3
                  or exists (select 1 from messages m where m.chat_id = c.id and m.content ilike $3))
           order by c.pinned desc, c.last_message_at desc
@@ -51,7 +51,7 @@ export function chatRoutes(ctx: AppContext, guard: Guard) {
       const user = req.user!;
       const body = parse(createChatSchema, req.body);
       const count = await db.query<{ n: number }>(
-        'select count(*)::int as n from chats where user_id = $1 and last_message_at is not null',
+        "select count(*)::int as n from chats where user_id = $1 and kind = 'chat' and last_message_at is not null",
         [user.id],
       );
       if ((count.rows[0]?.n ?? 0) >= user.limits.maxChats) {
@@ -139,7 +139,7 @@ export function chatRoutes(ctx: AppContext, guard: Guard) {
     });
 
     app.delete('/chats', async (req, reply) => {
-      await db.query('delete from chats where user_id = $1', [req.user!.id]);
+      await db.query("delete from chats where user_id = $1 and kind = 'chat'", [req.user!.id]);
       return reply.code(204).send();
     });
 

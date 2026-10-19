@@ -45,6 +45,7 @@ E-posta doğrulama ve şifre sıfırlama 6 haneli kodla (SMTP).
 - **Web araçları** (herkes): `web_search` (DuckDuckGo, Bing yedekli) ve `web_fetch` (SSRF korumalı; fiyat/stok gibi somut veriler için sayfa içi JSON-LD'yi de okur).
 - **Artifact'lar** (herkes): model tek dosyalık uygulama/oyun/SVG/diyagram/belge üretir; web'de yan panelde, mobilde tam ekranda, izole iframe/WebView içinde çalışır.
 - **Widget'lar** (herkes): mesajın içinde küçük etkileşimli parçalar (grafik, hesaplayıcı); uygulama temasına uyar.
+- **Code** (izin listesi): GitHub reposu seçip kendi branch'inde çalışan bulut kodlama oturumları; ortamlar, disk ve kredi sınırları. Faz 1 (hesap bağlama, ortamlar, oturumlar) hazır, ajan çalıştırması Faz 2. Kurulum: [docs/code.md](docs/code.md), tasarım notları: [docs/code-agent.md](docs/code-agent.md).
 - **Sandbox** (yalnızca doğrulanmış üyeler): `bash`, `read`, `write`, `edit` — izole Docker konteynerinde, kaynak sınırlı, isteğe bağlı kısıtlı internet. Kurulum ve güvenlik modeli: [docs/sandbox.md](docs/sandbox.md).
 
 ## Mimari

@@ -105,6 +105,14 @@ SMTP_FROM=SixFinger <senin@gmail.com>
 
 Sonra `docker compose up -d`.
 
+Gmail günlük gönderim sınırı düşüktür ve kendi alan adından göndermez. Kalıcı çözüm için bir gönderim servisi (ücretsiz katmanı yeten):
+
+- **Brevo** (günde 300 e-posta): `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, kullanıcı/parola Brevo → SMTP & API sayfasındaki SMTP anahtarı.
+- **Resend**: `SMTP_HOST=smtp.resend.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER=resend`, `SMTP_PASSWORD=<API anahtarı>`.
+
+`SMTP_FROM` adresinin alan adını (ör. `no-reply@sixfinger.live`) servis panelinde doğrula ve verdiği SPF/DKIM kayıtlarını
+Cloudflare DNS'e ekle; yoksa postalar spam'e düşer.
+
 ## 6. İnternetten erişim (APK için https şart)
 
 Router'da port açma. Aşağıdaki iki yoldan biriyle güvenli bir https adresi al.

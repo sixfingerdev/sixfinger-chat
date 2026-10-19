@@ -50,6 +50,8 @@ export interface ChatDTO {
   id: string;
   title: string;
   personaId: string;
+  /** `code`: SixFinger Code oturumu (sohbet listesinde görünmez). */
+  kind: 'chat' | 'code';
   pinned: boolean;
   archived: boolean;
   leafId: string | null;
@@ -93,6 +95,8 @@ export type MessagePartDTO =
       output?: string;
       /** Kartta gösterilen tek satırlık özet ("5 sonuç", "example.com"). */
       summary?: string;
+      /** Zengin gösterim için yapısal veri (dosya +N −M, çıkış kodu, yapılacaklar...). Modele gitmez. */
+      meta?: Record<string, unknown>;
       ms?: number;
     };
 
@@ -131,6 +135,8 @@ export interface ConfigDTO {
   limits: TierLimits;
   usage: UsageDTO;
   smtpEnabled: boolean;
+  /** Code özelliğinin bu kullanıcı için durumu (menüde Code sekmesi gösterilsin mi?). */
+  code: { allowed: boolean };
 }
 
 export interface SharedChatDTO {
@@ -155,6 +161,7 @@ export type ErrorCode =
   | 'invalid_code'
   | 'upstream_unavailable'
   | 'upstream_busy'
+  | 'github_required'
   | 'internal';
 
 export interface ApiError {
@@ -169,9 +176,149 @@ export type StreamEvent =
   | { type: 'reasoning'; delta: string }
   | { type: 'delta'; delta: string }
   | { type: 'tool_start'; id: string; name: string; args: Record<string, unknown> }
-  | { type: 'tool_end'; id: string; status: ToolStatus; output: string; summary?: string; ms: number }
+  | { type: 'tool_end'; id: string; status: ToolStatus; output: string; summary?: string; meta?: Record<string, unknown>; ms: number }
+  /** Code: çalışmanın evresi (sırada, çalışma alanı hazırlanıyor, çalışıyor, commit ediliyor). */
+  | { type: 'phase'; phase: 'queued' | 'preparing' | 'working' | 'committing'; position?: number }
+  /** Code: tur sonunda çalışma alanındaki toplam değişiklik (+N −M). */
+  | { type: 'changes'; additions: number; deletions: number; files: number; sha: string | null }
+  /** Code: modele giden bağlamın tahmini doluluğu (başlıktaki halka). */
+  | { type: 'context'; tokens: number; limit: number }
   | { type: 'title'; title: string }
   | { type: 'memory'; memory: MemoryDTO }
   | { type: 'usage'; usage: UsageDTO }
   | { type: 'done'; assistantMessage: MessageDTO }
   | { type: 'error'; code: ErrorCode; message: string };
+
+// ---------- Code (bulut kodlama oturumları) ----------
+/** Ortamın ağ erişimi: none = yok, trusted = bilinen paket kaynakları, full = tüm internet (yerel ağ hariç), custom = kendi alan adı listen. */
+export type CodeNetwork = 'none' | 'trusted' | 'full' | 'custom';
+
+export interface GithubAccountDTO {
+  login: string;
+  avatarUrl: string;
+}
+
+export interface CodeCreditsDTO {
+  used: number;
+  limit: number;
+  resetsAt: string;
+}
+
+export interface CodeStatusDTO {
+  /** Sunucuda GitHub OAuth ve sır anahtarı ayarlı mı? */
+  available: boolean;
+  /** Bu kullanıcı Code kullanabilir mi (izin listesi + doğrulanmış hesap)? */
+  allowed: boolean;
+  github: GithubAccountDTO | null;
+  credits: CodeCreditsDTO;
+}
+
+export interface GithubRepoDTO {
+  fullName: string;
+  private: boolean;
+  defaultBranch: string;
+  description: string;
+  pushedAt: string | null;
+}
+
+export interface GithubBranchesDTO {
+  defaultBranch: string;
+  branches: string[];
+}
+
+export interface CodeEnvironmentDTO {
+  id: string;
+  name: string;
+  network: CodeNetwork;
+  /** `network: 'custom'` iken izinli alan adları (`*.example.com` desteklenir). */
+  allowedDomains: string[];
+  /** Kurulum betiği: oturum çalışma alanı ilk hazırlandığında çalışır (ör. `npm ci`). */
+  setupScript: string;
+  /** Çalışma alanı disk tavanı (MB). */
+  diskMb: number;
+  /** Ortam değişkenleri. Yalnızca tek ortam okunurken döner, listede boştur. */
+  envVars?: Record<string, string>;
+  /** Listede gösterim için değişken adlarının sayısı. */
+  envVarCount: number;
+  /** Commit'lere oturum bağlantısı eklensin mi? (varsayılan kapalı) */
+  commitSessionLink: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CodeSessionStatus = 'idle' | 'running' | 'error';
+
+export interface CodeSessionDTO {
+  chatId: string;
+  title: string;
+  repo: string;
+  baseBranch: string;
+  workBranch: string;
+  environmentId: string | null;
+  environmentName: string | null;
+  status: CodeSessionStatus;
+  diskUsedMb: number;
+  /** Başlangıç commit'ine göre toplam değişiklik. */
+  additions: number;
+  deletions: number;
+  filesChanged: number;
+  headSha: string | null;
+  /** GitHub'a en son itilen commit (headSha farklıysa itilmemiş iş var). */
+  pushedSha: string | null;
+  /** Modele giden son bağlamın tahmini token sayısı ve üst sınırı (başlıktaki halka). */
+  contextTokens: number;
+  contextLimit: number;
+  /** Son mesajdan kesit (liste kartında). */
+  preview: string;
+  createdAt: string;
+  lastMessageAt: string | null;
+}
+
+/** Oturumdaki değişen bir dosya (başlangıç commit'ine göre). */
+export interface CodeChangedFileDTO {
+  path: string;
+  status: 'added' | 'modified' | 'deleted' | 'renamed';
+  additions: number;
+  deletions: number;
+}
+
+/** Oturumdaki toplam değişiklik. `stale`: çalışma alanı o an okunamadı (ajan çalışıyor / alan uykuda); sayılar son bilinen toplamdır. */
+export interface CodeChangesDTO {
+  files: CodeChangedFileDTO[];
+  additions: number;
+  deletions: number;
+  stale: boolean;
+}
+
+/** PR açmadan önce gösterilen model taslağı. */
+export interface CodePrDraftDTO {
+  title: string;
+  body: string;
+  base: string;
+  head: string;
+  commits: number;
+  additions: number;
+  deletions: number;
+  files: number;
+  /** headSha, GitHub'daki branch'ten ileride (itilecek iş var). */
+  needsPush: boolean;
+}
+
+/** Birleşik fark (git diff). `stale`: ajan çalışırken ya da çalışma alanı okunamadığında boş döner. */
+export interface CodeDiffDTO {
+  diff: string;
+  truncated: boolean;
+  stale: boolean;
+}
+
+/** Oturumun çalışma branch'indeki bir pull request. */
+export interface CodePullDTO {
+  number: number;
+  title: string;
+  state: 'open' | 'merged' | 'closed';
+  draft: boolean;
+  url: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+}

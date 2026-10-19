@@ -55,3 +55,30 @@ export async function copyText(text: string): Promise<boolean> {
     return false;
   }
 }
+
+/** Kısa göreli zaman: "6 dk", "10 sa", "2 g" / "6m", "10h", "2d". */
+export function ago(iso: string | null, locale: 'tr' | 'en', now = Date.now()): string {
+  if (!iso) return '';
+  const m = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60_000));
+  const unit = locale === 'tr' ? { m: 'dk', h: 'sa', d: 'g' } : { m: 'm', h: 'h', d: 'd' };
+  if (m < 1) return locale === 'tr' ? 'şimdi' : 'now';
+  if (m < 60) return `${m} ${unit.m}`;
+  if (m < 1_440) return `${Math.floor(m / 60)} ${unit.h}`;
+  return `${Math.floor(m / 1_440)} ${unit.d}`;
+}
+
+/** Disk boyutu: 512 → "512 MB", 1536 → "1,5 GB" (TR) / "1.5 GB". */
+export function formatMb(mb: number, locale: 'tr' | 'en' = 'tr'): string {
+  if (mb < 1_024) return `${Math.round(mb)} MB`;
+  const gb = Math.round((mb / 1_024) * 10) / 10;
+  const text = Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
+  return `${locale === 'tr' ? text.replace('.', ',') : text} GB`;
+}
+
+/** Token sayısı: 842 → "842", 12 345 → "12,3k". */
+export function formatTokens(n: number, locale: 'tr' | 'en' = 'tr'): string {
+  const fmt = (v: number) => (Math.round(v * 10) / 10).toLocaleString(locale === 'tr' ? 'tr-TR' : 'en-US');
+  if (n >= 1_000_000) return `${fmt(n / 1_000_000)}M`;
+  if (n >= 1_000) return `${fmt(n / 1_000)}k`;
+  return String(Math.round(n));
+}

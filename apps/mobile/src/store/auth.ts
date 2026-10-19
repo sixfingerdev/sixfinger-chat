@@ -5,6 +5,7 @@ import { getLocale } from '../lib/i18n/index.ts';
 import { kv } from '../lib/storage.ts';
 import { useUi } from './ui.ts';
 import { useChats } from './chats.ts';
+import { useCode } from './code.ts';
 
 const USER_CACHE = 'sf.user';
 const cacheUser = (u: UserDTO | null) => {
@@ -87,6 +88,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     cacheUser(a.user);
     set({ user: a.user });
     useChats.getState().reset();
+    useCode.getState().reset();
     await get().reloadConfig();
     await useChats.getState().loadChats();
   },
@@ -112,6 +114,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     sessionStore.clear();
     cacheUser(null);
     useChats.getState().reset();
+    useCode.getState().reset();
     useUi.getState().setConfig(null);
     set({ user: null, ready: false });
     await get().boot();

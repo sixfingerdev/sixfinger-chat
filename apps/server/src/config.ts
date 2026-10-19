@@ -66,6 +66,28 @@ const schema = z.object({
   SANDBOXD_URL: z.string().optional().default(''),
   SANDBOXD_TOKEN: z.string().optional().default(''),
 
+  /**
+   * SixFinger Code. GitHub OAuth uygulaması (Client ID/Secret) ve token'ları şifreleyen anahtar (en az 32 karakter,
+   * JWT_SECRET'tan ayrı; değiştirilirse kayıtlı GitHub bağlantıları ve ortam değişkenleri çözülemez). Üçü de yoksa Code kapalıdır.
+   */
+  GITHUB_CLIENT_ID: z.string().optional().default(''),
+  GITHUB_CLIENT_SECRET: z.string().optional().default(''),
+  /** OAuth geri dönüş adresi. Boşsa PUBLIC_WEB_URL + /api/code/github/callback. GitHub uygulamasındaki adresle birebir aynı olmalı. */
+  GITHUB_REDIRECT_URL: z.string().optional().default(''),
+  CODE_SECRET_KEY: z.string().optional().default(''),
+  /** Code kullanabilen e-postalar (virgülle). Boşsa kimse kullanamaz. `*` herkese (doğrulanmış üyelere) açar. */
+  CODE_ALLOWED_EMAILS: z.string().optional().default(''),
+  CODE_DAILY_CREDITS: z.coerce.number().min(1).default(100),
+  /** Aynı anda çalışan Code oturumu (Pi 4 için 2) ve bekleme sırası uzunluğu. */
+  CODE_MAX_RUNS: z.coerce.number().int().min(1).default(2),
+  CODE_MAX_QUEUE: z.coerce.number().int().min(0).default(10),
+  /** Modele gönderilen bağlam için tahmini token bütçesi (Qwen3.8 penceresi 262k; güvenli pay bırakılır). */
+  CODE_CONTEXT_TOKENS: z.coerce.number().int().min(8_000).default(262_144),
+  /** Bağlam bu orana dolunca eski konuşma özetlenir (kırpma yetmediğinde). */
+  CODE_COMPACT_AT: z.coerce.number().min(0.4).max(0.95).default(0.8),
+  /** Qwen başarısız olunca Claude'a (Bedrock) düşen Code isteklerinin tüm kullanıcılar için günlük token tavanı. 0 = yedek kapalı. */
+  CODE_CLAUDE_DAILY_TOKENS: z.coerce.number().int().min(0).default(2_000_000),
+
   SMTP_HOST: z.string().optional().default(''),
   SMTP_PORT: z.coerce.number().int().default(587),
   SMTP_USER: z.string().optional().default(''),
@@ -77,6 +99,8 @@ const schema = z.object({
 export type Config = z.infer<typeof schema> & {
   corsOrigins: string[];
   smtpEnabled: boolean;
+  codeAllowed: { all: boolean; emails: Set<string> };
+  githubRedirectUrl: string;
   isProd: boolean;
   isTest: boolean;
 };
@@ -99,6 +123,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...c,
     corsOrigins: origins,
     smtpEnabled: Boolean(c.SMTP_HOST),
+    codeAllowed: {
+      all: c.CODE_ALLOWED_EMAILS.trim() === '*',
+      emails: new Set(
+        c.CODE_ALLOWED_EMAILS.split(',')
+          .map((e) => e.trim().toLowerCase())
+          .filter((e) => e && e !== '*'),
+      ),
+    },
+    githubRedirectUrl: c.GITHUB_REDIRECT_URL || `${c.PUBLIC_WEB_URL.replace(/\/$/, '')}/api/code/github/callback`,
     isProd: c.NODE_ENV === 'production',
     isTest: c.NODE_ENV === 'test',
   };

@@ -1,6 +1,8 @@
 import { loadConfig } from './config.ts';
 import { DockerRuntime } from './runtime/docker.ts';
 import { LocalRuntime } from './runtime/local.ts';
+import { CodeService } from './code.ts';
+import { createEgressProxy } from './egress.ts';
 import { buildServer } from './server.ts';
 import { SandboxService } from './service.ts';
 
@@ -31,11 +33,23 @@ if (cfg.SANDBOX_RUNTIME === 'local-unsafe') {
 
 const service = new SandboxService(cfg, runtime, bootLog);
 await service.start();
-const app = buildServer(service, cfg);
+
+// SixFinger Code: iç ağdaki Code konteynerlerinin tek internet çıkışı (alan adı izin listeli proxy).
+// local-unsafe çalıştırıcıda konteyner ağı olmadığından proxy açılmaz (Code ağı kapalı çalışır).
+const egress = cfg.SANDBOX_RUNTIME === 'docker' ? createEgressProxy({ log: bootLog }) : null;
+if (egress) {
+  const port = await egress.listen(cfg.CODE_PROXY_PORT, cfg.CODE_PROXY_BIND);
+  console.log(`Code çıkış proxy'si dinliyor: ${cfg.CODE_PROXY_BIND}:${port}`);
+}
+const code = new CodeService(cfg, runtime, egress, bootLog);
+await code.start();
+const app = buildServer(service, cfg, { code });
 await app.listen({ port: cfg.PORT, host: cfg.HOST });
 
 const shutdown = async () => {
   await app.close();
+  await code.stop();
+  await egress?.close();
   await service.stop();
   process.exit(0);
 };

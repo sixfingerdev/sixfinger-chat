@@ -1,5 +1,13 @@
 import { z } from 'zod';
-import { ATTACHMENT_MAX_CHARS, MEMORY_MAX_CHARS, PASSWORD_MAX, PASSWORD_MIN } from './limits.ts';
+import {
+  ATTACHMENT_MAX_CHARS,
+  CODE_DISK_MAX_MB,
+  CODE_DISK_MIN_MB,
+  CODE_MAX_ENV_VARS,
+  MEMORY_MAX_CHARS,
+  PASSWORD_MAX,
+  PASSWORD_MIN,
+} from './limits.ts';
 
 const email = z.string().trim().toLowerCase().email().max(254);
 const password = z.string().min(PASSWORD_MIN).max(PASSWORD_MAX);
@@ -103,3 +111,57 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ProfileInput = z.infer<typeof profileSchema>;
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
+
+// ---------- Code ----------
+export const githubStartSchema = z.object({ target: z.enum(['web', 'app']).default('web') });
+/** GitHub'dan dönen tek kullanımlık kod + imzalı `state`; bağlantıyı oturumlu istemci tamamlar. */
+export const githubCompleteSchema = z.object({ code: z.string().min(1).max(200), state: z.string().min(1).max(2_000) });
+
+const DOMAIN_RE = /^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/;
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+/** Sandbox'ın kendi çalışmasını bozacak ya da ağ yalıtımını delecek adlar. */
+const RESERVED_ENV = /^(PATH|HOME|USER|SHELL|PWD|LD_.*|DYLD_.*|NODE_OPTIONS|HTTPS?_PROXY|NO_PROXY|ALL_PROXY|GIT_(ASKPASS|SSH.*|CONFIG.*|EXEC_PATH))$/i;
+
+export const codeEnvFields = z.object({
+  name: z.string().trim().min(1).max(40),
+  network: z.enum(['none', 'trusted', 'full', 'custom']),
+  allowedDomains: z
+    .array(z.string().trim().toLowerCase().regex(DOMAIN_RE, 'geçersiz alan adı'))
+    .max(50)
+    .transform((a) => [...new Set(a)]),
+  setupScript: z.string().max(4_000),
+  diskMb: z.number().int().min(CODE_DISK_MIN_MB).max(CODE_DISK_MAX_MB),
+  commitSessionLink: z.boolean(),
+  envVars: z
+    .record(z.string().max(4_000))
+    .refine((o) => Object.keys(o).length <= CODE_MAX_ENV_VARS, `en fazla ${CODE_MAX_ENV_VARS} değişken`)
+    .refine((o) => Object.keys(o).every((k) => ENV_NAME_RE.test(k)), 'geçersiz değişken adı')
+    .refine((o) => !Object.keys(o).some((k) => RESERVED_ENV.test(k)), 'bu değişken adı ayrılmış'),
+});
+export const createCodeEnvSchema = codeEnvFields.partial({
+  network: true,
+  allowedDomains: true,
+  setupScript: true,
+  diskMb: true,
+  commitSessionLink: true,
+  envVars: true,
+});
+export const updateCodeEnvSchema = codeEnvFields.partial();
+export const createCodeSessionSchema = z.object({
+  repo: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/, 'owner/repo biçiminde olmalı')
+    // `..` GitHub adresinde yol atlamasına yol açar (/repos/../user).
+    .refine((r) => r.split('/').every((p) => p !== '.' && p !== '..'), 'owner/repo biçiminde olmalı'),
+  baseBranch: z.string().trim().min(1).max(200),
+  environmentId: z.string().uuid().optional(),
+});
+export const createPrSchema = z.object({
+  title: z.string().trim().min(1).max(256),
+  body: z.string().max(20_000).default(''),
+  draft: z.boolean().default(false),
+});
+export const diffQuery = z.object({ path: z.string().trim().min(1).max(500).optional() });
+export const listReposQuery = z.object({ q: z.string().trim().max(100).optional() });
+export const branchesQuery = z.object({ repo: createCodeSessionSchema.shape.repo });
