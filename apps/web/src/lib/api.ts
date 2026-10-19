@@ -5,6 +5,7 @@ import type {
   CodeChangesDTO,
   CodeDiffDTO,
   CodeEnvironmentDTO,
+  CodeQueueItemDTO,
   CodePreviewDTO,
   SkillDetailDTO,
   SkillListItemDTO,
@@ -381,6 +382,11 @@ export const api = {
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
   /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */
   codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),
+  /** Sunucu tarafı mesaj kuyruğu (Code): çalışırken eklenen mesajlar sunucuda bekler, tur bitince sunucu başlatır. */
+  codeQueue: (id: string) => request<{ queue: CodeQueueItemDTO[] }>('GET', `/chats/${id}/queue`),
+  codeEnqueue: (id: string, body: { content: string; planMode?: boolean; attachments?: Array<{ name: string; mime: string; text: string }> }) =>
+    request<{ queue: CodeQueueItemDTO[]; started: boolean }>('POST', `/chats/${id}/queue`, body),
+  codeQueueRemove: (id: string, queueId: string) => request<void>('DELETE', `/chats/${id}/queue/${queueId}`),
   deleteCodeSession: (id: string) => request<void>('DELETE', `/code/sessions/${id}`),
   shared: (slug: string) => request<SharedChatDTO>('GET', `/public/shares/${slug}`, undefined, { auth: false }),
 };

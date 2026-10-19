@@ -309,6 +309,42 @@ describe('üye özellikleri', () => {
     expect(list.json().memories.map((x: { content: string }) => x.content)).toContain('Kullanıcı vejetaryen.');
   });
 
+  it('kalıcı kişisel bilgi (örn. "adım aslında Enes") "hatırla" demeden de kaydedilir; sıradan mesaj kaydetmez', async () => {
+    const m = await member(env);
+    const chat = await newChat(env.app, m);
+    env.ai.completeText = 'Kullanıcının adı Enes.';
+    const { events } = await send(m, chat.id, { content: 'Adım aslında enes' });
+    expect(events.some((e) => e.type === 'memory')).toBe(true);
+    const list = await env.app.inject({ method: 'GET', url: '/api/memories', headers: auth(m) });
+    expect(list.json().memories.map((x: { content: string }) => x.content)).toContain('Kullanıcının adı Enes.');
+
+    const chat2 = await newChat(env.app, m);
+    env.ai.completeText = 'Kullanıcı bir şey sordu.';
+    const plain = await send(m, chat2.id, { content: 'İstanbul’un nüfusu kaç?' });
+    expect(plain.events.some((e) => e.type === 'memory')).toBe(false);
+  });
+
+  it('sistem istemi hafıza durumunu söyler: açık (otomatik kaydedilir), kapalı, hesapta yok', async () => {
+    const m = await member(env);
+    const chat = await newChat(env.app, m);
+    await send(m, chat.id, { content: 'Merhaba' });
+    const on = env.ai.calls[0]!.messages[0]!.content;
+    expect(on).toContain('Hafıza: AÇIK');
+    expect(on).toContain('"kalıcı hafızam yok"');
+
+    await env.app.inject({ method: 'PATCH', url: '/api/me', headers: auth(m), payload: { settings: { memoryEnabled: false } } });
+    env.ai.calls.length = 0;
+    const chat2 = await newChat(env.app, m);
+    await send(m, chat2.id, { content: 'Merhaba' });
+    expect(env.ai.calls[0]!.messages[0]!.content).toContain('Hafıza: KAPALI');
+
+    const u = await member(env, { verify: false, email: 'dogrulanmamis@example.com' });
+    env.ai.calls.length = 0;
+    const chat3 = await newChat(env.app, u);
+    await send(u, chat3.id, { content: 'Merhaba' });
+    expect(env.ai.calls[0]!.messages[0]!.content).toContain('Hafıza: bu hesapta yok');
+  });
+
   it('sohbet arama, sabitleme, arşivleme ve silme', async () => {
     const m = await member(env);
     const a = await newChat(env.app, m);

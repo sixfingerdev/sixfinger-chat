@@ -136,7 +136,10 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
       } else if (cmd.template) content = expandTemplate(cmd.template, slash.args);
     }
     if (useChats.getState().generating[chatId]) {
-      useCode.getState().enqueue(chatId, { text: content, plan: usePlan, attachments: atts });
+      void useCode
+        .getState()
+        .enqueue(chatId, { text: content, plan: usePlan, attachments: atts })
+        .then((started) => started && void useChats.getState().openChat(chatId, true));
       return;
     }
     void useChats.getState().send({ content, chatId, planMode: usePlan, attachments: atts });
@@ -154,11 +157,23 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
     void dispatch(content, plan, atts);
   };
 
-  // Tur bitince kuyruktaki ilk mesaj gönderilir.
+  // Kuyruk SUNUCUDA: oturum açılınca yüklenir; tur bitince sıradakini sunucu başlatır. Beklerken sunucuyu yoklarız:
+  // kuyruk kısaldıysa sunucu yeni bir tur başlatmıştır, ona bağlanırız.
   useEffect(() => {
-    if (busy) return;
-    const next = useCode.getState().takeQueued(chatId);
-    if (next) void useChats.getState().send({ content: next.text, chatId, planMode: next.plan, attachments: next.attachments });
+    void useCode.getState().loadQueue(chatId);
+  }, [chatId]);
+  useEffect(() => {
+    if (busy || queue.length === 0) return;
+    let working = false;
+    const id = setInterval(async () => {
+      if (working) return;
+      working = true;
+      const before = useCode.getState().queue[chatId]?.length ?? 0;
+      await useCode.getState().loadQueue(chatId);
+      if ((useCode.getState().queue[chatId]?.length ?? 0) < before) await useChats.getState().openChat(chatId, true);
+      working = false;
+    }, 1_500);
+    return () => clearInterval(id);
   }, [busy, chatId, queue.length]);
 
   const scale = useSharedValue(1);
@@ -213,16 +228,16 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
         </ScrollView>
       )}
 
-      {queue.map((q, i) => (
-        <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 6 }}>
+      {queue.map((q) => (
+        <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 6 }}>
           <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: c.surface3 }}>
             <RNText style={{ fontFamily: fonts.sans, fontSize: 11.5, color: c.text3 }}>{t('code.queue.title')}</RNText>
           </View>
-          {!!q.attachments?.length && <Paperclip size={13} color={c.text3} />}
+          {q.attachments.length > 0 && <Paperclip size={13} color={c.text3} />}
           <RNText numberOfLines={1} style={{ flex: 1, fontFamily: fonts.sans, fontSize: 13, color: c.text2 }}>
             {q.text}
           </RNText>
-          <Press scale={0.85} accessibilityLabel={t('code.queue.remove')} hitSlop={10} onPress={() => useCode.getState().removeQueued(chatId, i)}>
+          <Press scale={0.85} accessibilityLabel={t('code.queue.remove')} hitSlop={10} onPress={() => useCode.getState().removeQueued(chatId, q.id)}>
             <X size={15} color={c.text3} />
           </Press>
         </View>

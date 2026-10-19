@@ -458,6 +458,83 @@ describe('Code ajan döngüsü: hata, durdurma, kuyruk', () => {
   });
 });
 
+describe('Code: sunucu tarafı mesaj kuyruğu', () => {
+  const queue = (a: Awaited<ReturnType<typeof member>>, chatId: string, content: string, extra: object = {}) =>
+    env.app.inject({ method: 'POST', url: `/api/chats/${chatId}/queue`, headers: auth(a), payload: { content, ...extra } });
+  const listQueue = async (a: Awaited<ReturnType<typeof member>>, chatId: string) =>
+    (await env.app.inject({ method: 'GET', url: `/api/chats/${chatId}/queue`, headers: auth(a) })).json().queue as Array<{ id: string; text: string; plan: boolean; attachments: string[] }>;
+  const waitFor = async (fn: () => Promise<boolean>, ms = 4_000) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < ms) {
+      if (await fn()) return true;
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    return false;
+  };
+  const turns = async (a: Awaited<ReturnType<typeof member>>, chatId: string) => {
+    const d = await detail(a, chatId);
+    return (d.messages as Array<{ role: string; content: string; status: string }>).map((m) => `${m.role}:${m.content}:${m.status}`);
+  };
+
+  it('çalışırken eklenen mesajlar sunucuda bekler, tur bitince sırayla kendiliğinden (istemci bağlı olmadan) çalışır', async () => {
+    const { a, s } = await prepared();
+    env.ai.delayMs = 120;
+    env.ai.steps = [text('birinci'), text('ikinci'), text('üçüncü')];
+    const first = send(a, s.chatId, 'bir');
+    await new Promise((res) => setTimeout(res, 60));
+    const q1 = await queue(a, s.chatId, 'iki', { planMode: true });
+    expect(q1.statusCode).toBe(201);
+    expect(q1.json()).toMatchObject({ started: false, queue: [{ text: 'iki', plan: true, attachments: [] }] });
+    const q2 = await queue(a, s.chatId, 'üç');
+    expect(q2.json().queue.map((x: { text: string }) => x.text)).toEqual(['iki', 'üç']);
+    expect((await listQueue(a, s.chatId)).map((x) => x.text)).toEqual(['iki', 'üç']);
+    await first;
+    // İstemci yok: sunucu sıradakini kendisi başlatır, sonra onu.
+    expect(await waitFor(async () => (await turns(a, s.chatId)).filter((t) => t.startsWith('assistant:') && t.endsWith(':complete')).length === 3)).toBe(true);
+    expect(await turns(a, s.chatId)).toEqual(['user:bir:complete', 'assistant:birinci:complete', 'user:iki:complete', 'assistant:ikinci:complete', 'user:üç:complete', 'assistant:üçüncü:complete']);
+    expect(await listQueue(a, s.chatId)).toEqual([]);
+  });
+
+  it('çalışma yokken eklenen mesaj hemen başlar; sıradan silinen çalışmaz; başkasının oturumu 404', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [text('anında')];
+    const r = await queue(a, s.chatId, 'hemen');
+    expect(r.json()).toMatchObject({ started: true, queue: [] });
+    expect(await waitFor(async () => (await turns(a, s.chatId)).includes('assistant:anında:complete'))).toBe(true);
+
+    env.ai.delayMs = 150;
+    env.ai.steps = [text('uzun'), text('çalışmamalı')];
+    const first = send(a, s.chatId, 'uzun iş');
+    await new Promise((res) => setTimeout(res, 70));
+    const q = (await queue(a, s.chatId, 'silinecek')).json().queue as Array<{ id: string }>;
+    const del = await env.app.inject({ method: 'DELETE', url: `/api/chats/${s.chatId}/queue/${q[0]!.id}`, headers: auth(a) });
+    expect(del.statusCode).toBe(204);
+    await first;
+    await new Promise((res) => setTimeout(res, 300));
+    expect((await turns(a, s.chatId)).some((t) => t.includes('silinecek'))).toBe(false);
+
+    env.ai.delayMs = 0;
+    env.ctx.config.codeAllowed.emails.add('baskasi@example.com');
+    const b = await member(env, { email: 'baskasi@example.com' });
+    expect((await queue(b, s.chatId, 'hırsız')).statusCode).toBe(404);
+    expect((await env.app.inject({ method: 'GET', url: `/api/chats/${s.chatId}/queue`, headers: auth(b) })).statusCode).toBe(404);
+  });
+
+  it('kullanıcı durdurunca sıradaki mesaj çalışır', async () => {
+    const { a, s } = await prepared();
+    fc.state.delayMs = 120;
+    env.ai.delayMs = 60;
+    env.ai.steps = [[call('c1', 'write', { path: 'w.txt', content: 'w\n' })], [call('c2', 'bash', { command: 'sleep 5' })], text('sıradaki bitti')];
+    const first = send(a, s.chatId, 'uzun iş');
+    await new Promise((res) => setTimeout(res, 300));
+    await queue(a, s.chatId, 'devam');
+    await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/stop`, headers: auth(a) });
+    await first;
+    expect(await waitFor(async () => (await turns(a, s.chatId)).includes('assistant:sıradaki bitti:complete'))).toBe(true);
+    expect(await listQueue(a, s.chatId)).toEqual([]);
+  });
+});
+
 describe('PR listesi', () => {
   it('oturumun çalışma branch\'indeki PR\'ları döndürür', async () => {
     const calls: string[] = [];

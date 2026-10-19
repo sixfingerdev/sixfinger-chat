@@ -127,7 +127,9 @@ Kullanıcı elle başlık/açıklama yazmaz.
 - **Slash komutları**: `/plan`, `/compact` (bağlamı hemen özetle), `/pr`, `/init` (SIXFINGER.md yazar), `/review`, `/test` ve reponun `.claude/commands/*.md` ile
   `.sixfinger/commands/*.md` dosyaları (`$ARGUMENTS` desteklenir). `/` yazınca menü açılır.
 - **`@dosya`**: yazarken repo dosyaları önerilir (`GET /files?q=`).
-- **Mesaj kuyruğu**: ajan çalışırken yazılan mesajlar kuyruğa girer, tur bitince sırayla gönderilir (kuyruktan silinebilir).
+- **Mesaj kuyruğu (sunucu tarafı)**: ajan çalışırken yazılan mesajlar sunucuda (`code_queue`, migration 013) bekler; uygulama kapansa ya da yenilense de kaybolmaz.
+  Tur bitince (tamamlandı ya da kullanıcı durdurdu; hata ile bittiyse beklemede kalır) sunucu sıradakini **kendisi** başlatır, istemcinin açık olması gerekmez; istemci yoklayıp ona bağlanır.
+  Oturum başına en çok 20 mesaj. Uçlar: `GET/POST /api/chats/:id/queue`, `DELETE /api/chats/:id/queue/:qid`. Çalışma yokken eklenen mesaj hemen başlar (`started: true`).
 - **Durum çubuğu**: çalışırken altta evre, geçen süre, çalışan alt ajan sayısı ve dönen eğlenceli bir sözcük (`packages/shared/src/code-status-words.ts`).
   Üstte **Diff** (+N −M) ve **PR** çipleri.
 - **Dosya gezgini**: çalışma alanını gezer, dosya içeriğini gösterir, `.tar.gz` indirir (`CODE_ARCHIVE_MAX_MB`, varsayılan 64; `node_modules` ve `.git` hariç).

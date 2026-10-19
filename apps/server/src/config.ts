@@ -100,6 +100,8 @@ const schema = z.object({
   MCP_SLACK_CLIENT_SECRET: z.string().optional().default(''),
   MCP_HUBSPOT_CLIENT_ID: z.string().optional().default(''),
   MCP_HUBSPOT_CLIENT_SECRET: z.string().optional().default(''),
+  MCP_BOX_CLIENT_ID: z.string().optional().default(''),
+  MCP_BOX_CLIENT_SECRET: z.string().optional().default(''),
   /** MCP bağlayıcıları açık mı (CODE_SECRET_KEY de gerekir). */
   MCP_ENABLED: z.string().optional().default('true'),
   GITHUB_CLIENT_ID: z.string().optional().default(''),

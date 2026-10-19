@@ -11,6 +11,8 @@ export interface PromptContext {
   displayName: string;
   /** Modele hangi araç grupları verildi. */
   tools?: { web: boolean; sandbox?: boolean };
+  /** Hafıza durumu: açık (otomatik kaydedilir), kullanıcı kapatmış ya da hesapta yok (doğrulanmamış/misafir). */
+  memory?: 'on' | 'off' | 'locked';
   now?: Date;
 }
 
@@ -75,6 +77,16 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     parts.push(
       `Kullanıcının özel talimatları (yukarıdaki genel kurallarla çelişmedikçe uygula):\n${s.instructions}`,
     );
+  }
+  if (ctx.memory === 'on') {
+    parts.push(
+      `Hafıza: AÇIK. Kullanıcı kalıcı bir bilgi paylaştığında (adı, hitap tercihi, mesleği, tercihleri, hedefleri…) SİSTEM bunu otomatik kaydeder ve sonraki sohbetlerde sana verir. ` +
+        `Bu yüzden "kalıcı hafızam yok", "bunu hatırlayamam" ya da "sonraki sohbette tekrar söylemen gerekir" DEME; bilgiyi aldığını ve hatırlayacağını kısaca söyle. Hafıza kayıtlarını kullanıcı Ayarlar > Hafıza'dan görüp silebilir.`,
+    );
+  } else if (ctx.memory === 'off') {
+    parts.push(`Hafıza: KAPALI (kullanıcı ayarlardan kapatmış). Kalıcı bilgi paylaşırsa Ayarlar > Hafıza'dan açabileceğini söyle; açılana kadar bilgiyi sohbet dışında hatırlayamazsın.`);
+  } else if (ctx.memory === 'locked') {
+    parts.push(`Hafıza: bu hesapta yok (yalnızca e-postasını doğrulamış hesaplarda var). Kullanıcı bir şeyi hatırlamanı isterse bunu söyle.`);
   }
   if (ctx.memories.length) {
     parts.push(
@@ -194,13 +206,17 @@ export function titlePrompt(userText: string, assistantText: string, locale: 'tr
   ];
 }
 
-export function memoryPrompt(userText: string): AiMessage[] {
+export function memoryPrompt(userText: string, existing: string[] = []): AiMessage[] {
   return [
     {
       role: 'system',
       content:
-        'Kullanıcının hatırlanmasını istediği bilgiyi tek, kısa ve kalıcı bir cümleye çevir (en fazla 200 karakter). ' +
-        'Kullanıcının dilinde, "Kullanıcı ..." biçiminde yaz. Kalıcı bir bilgi yoksa sadece NONE yaz. Başka hiçbir şey yazma.',
+        'Kullanıcının mesajında ileride işe yarayacak KALICI bir kişisel bilgi varsa (adı ya da hitap tercihi, yaşı, yaşadığı yer, mesleği, tercihleri, hedefleri, ilgi alanları, kısıtları) ' +
+        'ya da kullanıcı bir şeyi hatırlanmasını/unutulmamasını istiyorsa onu tek, kısa ve kalıcı bir cümleye çevir (en fazla 200 karakter). ' +
+        'Kullanıcının dilinde, "Kullanıcı ..." biçiminde yaz (ör. "Kullanıcının adı Enes."). Bir düzeltme ise ("adım aslında ...") yeni, doğru hâlini yaz. ' +
+        'Geçici istekler, sorular, selamlaşma ve genel sohbet için sadece NONE yaz.' +
+        (existing.length ? ` Aşağıdaki bilgi zaten kayıtlıysa NONE yaz:\n${existing.slice(0, 40).map((m) => `- ${m}`).join('\n')}\n` : '') +
+        ' Başka hiçbir şey yazma.',
     },
     { role: 'user', content: userText.slice(0, 1_000) },
   ];

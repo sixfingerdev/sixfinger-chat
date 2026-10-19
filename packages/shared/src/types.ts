@@ -351,3 +351,12 @@ export interface CodePullDTO {
   deletions: number;
   changedFiles: number;
 }
+
+/** Code oturumunda sunucuda bekleyen (sıraya eklenmiş) mesaj. */
+export interface CodeQueueItemDTO {
+  id: string;
+  text: string;
+  plan: boolean;
+  /** Ek dosya adları. */
+  attachments: string[];
+}

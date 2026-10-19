@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { CodeEnvironmentDTO, CodeSessionDTO, CodeStatusDTO } from '@sixfinger/shared';
+import type { CodeEnvironmentDTO, CodeQueueItemDTO, CodeSessionDTO, CodeStatusDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import type { PendingAttachment } from '../lib/types.ts';
@@ -21,6 +21,7 @@ function readDraft(): CodeDraft {
   }
 }
 
+/** Sıraya eklenecek mesaj (ekler sunucuya düz metin olarak gider). */
 export interface QueuedMessage {
   text: string;
   plan: boolean;
@@ -37,12 +38,13 @@ interface CodeState {
   draft: CodeDraft;
   /** Oturum başına plan modu anahtarı. */
   plan: Record<string, boolean>;
-  /** Ajan çalışırken yazılan, tur bitince sırayla gönderilecek mesajlar. */
-  queue: Record<string, QueuedMessage[]>;
+  /** Ajan çalışırken eklenen mesajlar: SUNUCUDA tutulur ve tur bitince sunucu başlatır; burada yalnızca görünümü. */
+  queue: Record<string, CodeQueueItemDTO[]>;
   setPlan: (chatId: string, on: boolean) => void;
-  enqueue: (chatId: string, m: QueuedMessage) => void;
-  takeQueued: (chatId: string) => QueuedMessage | undefined;
-  removeQueued: (chatId: string, index: number) => void;
+  loadQueue: (chatId: string) => Promise<void>;
+  /** Sıraya ekler. Döner: sunucu hemen başlattıysa (çalışma yoktu) true. */
+  enqueue: (chatId: string, m: QueuedMessage) => Promise<boolean>;
+  removeQueued: (chatId: string, id: string) => Promise<void>;
 
   setDraft: (patch: Partial<CodeDraft>) => void;
   loadStatus: () => Promise<void>;
@@ -74,13 +76,37 @@ export const useCode = create<CodeState>((set, get) => ({
   queue: {},
 
   setPlan: (chatId, on) => set((s) => ({ plan: { ...s.plan, [chatId]: on } })),
-  enqueue: (chatId, m) => set((s) => ({ queue: { ...s.queue, [chatId]: [...(s.queue[chatId] ?? []), m] } })),
-  takeQueued(chatId) {
-    const [first, ...rest] = get().queue[chatId] ?? [];
-    if (first) set((s) => ({ queue: { ...s.queue, [chatId]: rest } }));
-    return first;
+  async loadQueue(chatId) {
+    try {
+      const { queue } = await api.codeQueue(chatId);
+      set((s) => ({ queue: { ...s.queue, [chatId]: queue } }));
+    } catch {
+      /* ağ hatası: eldeki görünüm kalır */
+    }
   },
-  removeQueued: (chatId, index) => set((s) => ({ queue: { ...s.queue, [chatId]: (s.queue[chatId] ?? []).filter((_, i) => i !== index) } })),
+  async enqueue(chatId, m) {
+    try {
+      const r = await api.codeEnqueue(chatId, {
+        content: m.text,
+        planMode: m.plan,
+        attachments: m.attachments?.map((a) => ({ name: a.name, mime: a.mime, text: a.text })),
+      });
+      set((s) => ({ queue: { ...s.queue, [chatId]: r.queue } }));
+      return r.started;
+    } catch (err) {
+      reportError(err);
+      return false;
+    }
+  },
+  async removeQueued(chatId, id) {
+    set((s) => ({ queue: { ...s.queue, [chatId]: (s.queue[chatId] ?? []).filter((q) => q.id !== id) } }));
+    try {
+      await api.codeQueueRemove(chatId, id);
+    } catch (err) {
+      reportError(err);
+      void get().loadQueue(chatId);
+    }
+  },
 
   setDraft(patch) {
     const draft = { ...get().draft, ...patch };

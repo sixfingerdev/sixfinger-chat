@@ -374,11 +374,12 @@ function PresetRow({ p, added, busy, disabled, onPress }: { p: McpPresetView; ad
         <RNText numberOfLines={3} style={[type.small, { color: c.text2, fontSize: 13.5, lineHeight: 19 }]}>
           {pickLocale(p.description, locale)}
         </RNText>
+        {p.reason === 'blocked' && <RNText style={[type.small, { color: c.text3, fontSize: 12 }]}>{t('mcp.blockedHint')}</RNText>}
         {!!p.note && !off && <RNText style={[type.small, { color: c.text3, fontSize: 12 }]}>{pickLocale(p.note, locale)}</RNText>}
         {p.status === 'verify' && !off && <RNText style={[type.small, { color: c.text3, fontSize: 12 }]}>{t('mcp.unverified')}</RNText>}
       </View>
       {off ? (
-        <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 12.5, color: c.text3, maxWidth: 96, textAlign: 'right' }}>{p.reason === 'admin' ? t('mcp.needsAdmin') : t('mcp.soon')}</RNText>
+        <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 12.5, color: c.text3, maxWidth: 96, textAlign: 'right' }}>{p.reason === 'admin' ? t('mcp.needsAdmin') : p.reason === 'blocked' ? t('mcp.blocked') : t('mcp.soon')}</RNText>
       ) : linked ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, height: 36 }}>
           <Check size={16} color={c.text2} />
