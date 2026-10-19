@@ -63,7 +63,8 @@ export default function Connectors() {
   const load = useCallback(async () => {
     try {
       const [s, p] = await Promise.all([api.mcpServers(), api.mcpPresets()]);
-      setData({ enabled: s.enabled && p.enabled, servers: s.servers, presets: [...p.presets].sort((a, b) => a.rank - b.rank), limits: s.limits, redirectUrl: s.redirectUrl });
+      setData({ enabled: s.enabled && p.enabled, servers: s.servers, // Kullanılabilir kartlar önce (sıra: popülerlik), yönetici kaydı/yakında olanlar sonda.
+        presets: [...p.presets].sort((a, b) => Number(!a.available) - Number(!b.available) || a.rank - b.rank), limits: s.limits, redirectUrl: s.redirectUrl });
       setFailed(false);
     } catch (err) {
       setFailed(true);
@@ -373,7 +374,6 @@ function PresetRow({ p, added, busy, disabled, onPress }: { p: McpPresetView; ad
         <RNText numberOfLines={3} style={[type.small, { color: c.text2, fontSize: 13.5, lineHeight: 19 }]}>
           {pickLocale(p.description, locale)}
         </RNText>
-        {p.reason === 'admin' && <RNText style={[type.small, { color: c.text3, fontSize: 12 }]}>{t('mcp.adminHint')}</RNText>}
         {!!p.note && !off && <RNText style={[type.small, { color: c.text3, fontSize: 12 }]}>{pickLocale(p.note, locale)}</RNText>}
         {p.status === 'verify' && !off && <RNText style={[type.small, { color: c.text3, fontSize: 12 }]}>{t('mcp.unverified')}</RNText>}
       </View>

@@ -175,7 +175,7 @@ describe('Code: bağlayıcılar (MCP)', () => {
   it('Code ajanı MCP araçlarını görür ve salt okunur olanı çağırır; istemde bağlayıcı bölümü var', async () => {
     const { a, s } = await prepared();
     await addFake(env, a);
-    env.ai.steps = [[call('c1', 'mcp__deneme-sunucu__echo', { text: 'kod' })], text('Bitti.')];
+    env.ai.steps = [[call('c1', 'mcp__deneme-sunucu__echo', { text: 'kod' })], [text('Bitti.')]];
     const r = await send(env, a, s.chatId, 'mcp dene');
     expect(r.status).toBe(200);
     const names = agentCalls()[0]!.tools!.map((t) => t.function.name);
@@ -189,7 +189,7 @@ describe('Code: bağlayıcılar (MCP)', () => {
   it('Code: yazan araç turu bitirir (terminal), onaydan sonra çalışır', async () => {
     const { a, s } = await prepared();
     await addFake(env, a);
-    env.ai.steps = [[call('c1', 'mcp__deneme-sunucu__create_note', { title: 'Kod notu' })], text('ASLA GELMEMELİ')];
+    env.ai.steps = [[call('c1', 'mcp__deneme-sunucu__create_note', { title: 'Kod notu' })], [text('ASLA GELMEMELİ')]];
     const r = await send(env, a, s.chatId, 'not ekle');
     const end = r.events.find((e) => e.type === 'tool_end' && e.id === 'c1') as Extract<StreamEvent, { type: 'tool_end' }>;
     expect(end.meta).toMatchObject({ terminal: true, approval: { tool: 'create_note' } });
@@ -197,7 +197,7 @@ describe('Code: bağlayıcılar (MCP)', () => {
     expect(fake.calls).toEqual([]);
     const tool = lastAssistant(await detail(env, a, s.chatId)).parts.find((p) => p.type === 'tool' && p.name.startsWith('mcp__')) as Extract<MessageDTO['parts'][number], { type: 'tool' }>;
     await approve(env, a, (tool.meta!.approval as { id: string }).id, 'once');
-    env.ai.steps = [[call('c2', 'mcp__deneme-sunucu__create_note', { title: 'Kod notu' })], text('Eklendi.')];
+    env.ai.steps = [[call('c2', 'mcp__deneme-sunucu__create_note', { title: 'Kod notu' })], [text('Eklendi.')]];
     await send(env, a, s.chatId, 'Onayladım, devam et.');
     expect(fake.calls).toEqual([{ tool: 'create_note', args: { title: 'Kod notu' } }]);
   });
@@ -205,14 +205,14 @@ describe('Code: bağlayıcılar (MCP)', () => {
   it('Code: plan modunda yalnızca salt okunur MCP araçları; alt ajan yalnızca onay gerektirmeyenleri görür', async () => {
     const { a, s } = await prepared();
     await addFake(env, a);
-    env.ai.steps = [text('plan')];
+    env.ai.steps = [[text('plan')]];
     await env.app.inject({ method: 'POST', url: `/api/chats/${s.chatId}/messages`, headers: auth(a), payload: { content: 'planla', planMode: true } });
     const names = agentCalls()[0]!.tools!.map((t) => t.function.name);
     expect(names).toContain('mcp__deneme-sunucu__echo');
     expect(names).not.toContain('mcp__deneme-sunucu__create_note');
 
     env.ai.calls.length = 0;
-    env.ai.steps = [[call('t1', 'task', { description: 'araştır', prompt: 'echo kullan', agent: 'general' })], text('alt ajan raporu'), text('Bitti.')];
+    env.ai.steps = [[call('t1', 'task', { description: 'araştır', prompt: 'echo kullan', agent: 'general' })], [text('alt ajan raporu')], [text('Bitti.')]];
     await send(env, a, s.chatId, 'alt ajan çalıştır');
     const sub = env.ai.calls.find((c) => c.tools?.some((t) => t.function.name === 'read') && !c.tools.some((t) => t.function.name === 'task'));
     expect(sub).toBeTruthy();

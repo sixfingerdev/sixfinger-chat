@@ -369,6 +369,8 @@ export function createMcp(deps: McpDeps) {
     }
     if (result === 'AUTHORIZED') return { authorizeUrl: null, server: await refresh(userId, id) };
     if (!provider.authorizationUrl) throw badRequest('Yetkilendirme adresi alınamadı.');
+    // Yetkilendirme adresi sunucunun meta verisinden gelir: üretimde yalnızca https adreslerine yönlendirilir.
+    if (!deps.fetchImpl && provider.authorizationUrl.protocol !== 'https:') throw badRequest('Yetkilendirme adresi güvenli (https) değil.');
     return { authorizeUrl: provider.authorizationUrl.toString(), server: toDTO(await getRow(userId, id)) };
   }
 
