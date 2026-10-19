@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowDown, Ellipsis, GitPullRequest, Trash2 } from 'lucide-react';
+import { ArrowDown, Ellipsis, FolderOpen, GitPullRequest, Trash2 } from 'lucide-react';
 import type { CodePullDTO, CodeSessionDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
@@ -9,8 +9,9 @@ import { useT } from '../lib/i18n/index.ts';
 import { activePath, indexMessages } from '../lib/tree.ts';
 import { selectPath, useChats } from '../store/chats.ts';
 import { useCode } from '../store/code.ts';
+import { useUi } from '../store/ui.ts';
 import { ChangesSheet, ContextRing, Delta, PullsSheet, UsageSheet } from '../components/CodeSheets.tsx';
-import { DiffSheet } from '../components/CodeGitSheets.tsx';
+import { DiffSheet, FilesSheet } from '../components/CodeGitSheets.tsx';
 import { CodeComposer } from '../components/CodeComposer.tsx';
 import { CodeRunStatus } from '../components/CodeRunStatus.tsx';
 import { CodeMascot } from '../components/CodeMascot.tsx';
@@ -29,6 +30,7 @@ export function CodeSessionPage() {
   const [missing, setMissing] = useState(false);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [diffPath, setDiffPath] = useState<{ path?: string } | null>(null);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [focusSignal, setFocusSignal] = useState(0);
   const [pr, setPr] = useState<CodePullDTO | null>(null);
 
@@ -157,6 +159,21 @@ export function CodeSessionPage() {
     };
   }, [chatId, generating, t]);
 
+  const rewind = useCallback(
+    async (messageId: string) => {
+      if (!chatId) return;
+      try {
+        const r = await api.codeRewind(chatId, messageId);
+        setSession(r.session);
+        await useChats.getState().openChat(chatId, true);
+        useUi.getState().toast({ kind: 'success', text: t('code.rewind.done') });
+      } catch (err) {
+        reportError(err);
+      }
+    },
+    [chatId, t],
+  );
+
   const empty = Boolean(session && detail && detail.messages.length === 0 && !generating);
 
   return (
@@ -184,6 +201,16 @@ export function CodeSessionPage() {
                 )}
               >
                 {(close) => (
+                  <>
+                  <button
+                    className="menu-item"
+                    onClick={() => {
+                      close();
+                      setFilesOpen(true);
+                    }}
+                  >
+                    <FolderOpen size={16} /> {t('code.menu.files')}
+                  </button>
                   <button
                     className="menu-item danger"
                     onClick={() => {
@@ -193,6 +220,7 @@ export function CodeSessionPage() {
                   >
                     <Trash2 size={16} /> {t('code.session.delete')}
                   </button>
+                  </>
                 )}
               </Popover>
             </>
@@ -216,7 +244,7 @@ export function CodeSessionPage() {
           )}
           {path.map((m) => {
             const streaming = generating?.assistantId === m.id || m.status === 'streaming';
-            return <CodeMessage key={m.id} msg={m} streaming={streaming} actions={m.id === last?.id ? actions : undefined} />;
+            return <CodeMessage key={m.id} msg={m} streaming={streaming} actions={m.id === last?.id ? actions : undefined} onRewind={generating ? undefined : rewind} />;
           })}
         </div>
         {showJump && (
@@ -254,6 +282,7 @@ export function CodeSessionPage() {
       {sheet === 'changes' && chatId && (
         <ChangesSheet chatId={chatId} running={Boolean(generating)} onClose={() => setSheet(null)} onDiff={(path) => setDiffPath({ path })} />
       )}
+      {filesOpen && chatId && <FilesSheet chatId={chatId} onClose={() => setFilesOpen(false)} />}
       {diffPath && chatId && <DiffSheet chatId={chatId} path={diffPath.path} onClose={() => setDiffPath(null)} />}
     </div>
   );

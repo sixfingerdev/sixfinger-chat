@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Text as RNText, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { Ellipsis, GitPullRequest, Trash2 } from 'lucide-react-native';
+import { Ellipsis, FolderOpen, GitPullRequest, Trash2 } from 'lucide-react-native';
 import { Linking } from 'react-native';
 import type { CodePullDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
@@ -17,7 +17,7 @@ import { useUi } from '../../store/ui.ts';
 import { Sheet } from '../../components/Sheet.tsx';
 import { Button, Press } from '../../components/Ui.tsx';
 import { CodeHeader } from '../../components/code/CodeUi.tsx';
-import { DiffSheet } from '../../components/code/CodeGitSheets.tsx';
+import { DiffSheet, FilesSheet } from '../../components/code/CodeGitSheets.tsx';
 import { CodeComposer } from '../../components/code/CodeComposer.tsx';
 import { CodeSheetHost, type SheetTarget } from '../../components/code/CodeParts.tsx';
 import { ChangesSheet, ContextRing, PullsSheet, UsageSheet } from '../../components/code/CodeSheets.tsx';
@@ -37,6 +37,7 @@ export default function CodeSession() {
   const [menu, setMenu] = useState(false);
   const [sheet, setSheet] = useState<'usage' | 'pulls' | 'changes' | null>(null);
   const [diff, setDiff] = useState<{ path?: string } | null>(null);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [target, setTarget] = useState<SheetTarget | null>(null);
   const [missing, setMissing] = useState(false);
   const [focusSignal, setFocusSignal] = useState(0);
@@ -131,6 +132,21 @@ export default function CodeSession() {
     sentFirst.current = true;
     void useChats.getState().send({ content: text, chatId: id });
   }, [id, hasDetail, generating]);
+
+  const rewind = useCallback(
+    async (messageId: string) => {
+      if (!id) return;
+      try {
+        const r = await api.codeRewind(id, messageId);
+        useCode.getState().upsertSession(r.session);
+        await useChats.getState().openChat(id, true);
+        useUi.getState().toast({ kind: 'success', text: t('code.rewind.done') });
+      } catch (err) {
+        reportError(err);
+      }
+    },
+    [id, t],
+  );
 
   const remove = () =>
     useUi.getState().askConfirm({
@@ -240,14 +256,27 @@ export default function CodeSession() {
       )}
       <CodeComposer session={session} ready={hasDetail} focusSignal={focusSignal} />
 
-      <CodeSheetHost chatId={id} target={target} onClose={() => setTarget(null)} />
+      <CodeSheetHost chatId={id} target={target} onClose={() => setTarget(null)} onRewind={generating ? undefined : rewind} />
       <UsageSheet visible={sheet === 'usage'} onClose={() => setSheet(null)} tokens={session.contextTokens} limit={session.contextLimit} />
       <PullsSheet visible={sheet === 'pulls'} onClose={() => setSheet(null)} chatId={id} onChanged={() => { void loadSession(); void useChats.getState().openChat(id, true); }} />
       <ChangesSheet visible={sheet === 'changes'} onClose={() => setSheet(null)} chatId={id} additions={session.additions} deletions={session.deletions} files={session.filesChanged} onDiff={(path) => setDiff({ path })} />
+      <FilesSheet visible={filesOpen} onClose={() => setFilesOpen(false)} chatId={id} />
       <DiffSheet visible={Boolean(diff)} onClose={() => setDiff(null)} chatId={id} path={diff?.path} />
 
       <Sheet visible={menu} onClose={() => setMenu(false)}>
         <View style={{ paddingHorizontal: 10, paddingBottom: 6 }}>
+          <Press
+            haptics="tap"
+            scale={0.985}
+            onPress={() => {
+              setMenu(false);
+              setFilesOpen(true);
+            }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 14, height: 52, paddingHorizontal: 12, borderRadius: radius.md }}
+          >
+            <FolderOpen size={19} color={c.text} />
+            <RNText style={[type.body, { color: c.text }]}>{t('code.menu.files')}</RNText>
+          </Press>
           <Press
             haptics="tap"
             scale={0.985}

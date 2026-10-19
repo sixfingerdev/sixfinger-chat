@@ -120,3 +120,15 @@ export function compactNumber(n: number): string {
   if (n < 1_000_000) return `${Math.round(n / 1_000)}k`;
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
 }
+
+/** Bir Blob'u (ör. indirilen arşiv) dosya olarak kaydettirir. */
+export function downloadBlob(name: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

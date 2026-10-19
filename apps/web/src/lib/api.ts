@@ -325,6 +325,15 @@ export const api = {
   codeDiff: (id: string, path?: string) => request<CodeDiffDTO>('GET', `/code/sessions/${id}/diff`, undefined, { query: { path } }),
   codeCommands: (id: string) => request<{ commands: SlashCommand[] }>('GET', `/code/sessions/${id}/commands`),
   codeFiles: (id: string, q?: string) => request<{ files: string[]; truncated: boolean }>('GET', `/code/sessions/${id}/files`, undefined, { query: { q } }),
+  codeFile: (id: string, path: string) => request<{ path: string; content: string; truncated: boolean }>('GET', `/code/sessions/${id}/file`, undefined, { query: { path } }),
+  /** Çalışma alanı arşivini (tar.gz) indirir. */
+  async codeArchive(id: string): Promise<{ blob: Blob; filename: string }> {
+    const res = await send('GET', `/code/sessions/${id}/archive`, undefined, {});
+    if (!res.ok) throw await parseError(res);
+    const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'workspace.tar.gz';
+    return { blob: await res.blob(), filename: name };
+  },
+  codeRewind: (id: string, messageId: string) => request<{ sha: string; session: CodeSessionDTO }>('POST', `/code/sessions/${id}/rewind`, { messageId }),
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
   /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */
   codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),

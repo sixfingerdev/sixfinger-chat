@@ -492,6 +492,18 @@ export const tr = {
   'code.mention.none': 'Dosya bulunamadı',
   'code.env.instructions': 'Talimatlar',
   'code.env.instructionsHint': 'Her turda ajana verilir (ör. "pnpm kullan"). Repodaki AGENTS.md/CLAUDE.md\'ye ek olarak.',
+  'code.files.title': 'Dosyalar',
+  'code.files.download': 'Arşivi indir (.tar.gz)',
+  'code.files.empty': 'Dosya yok',
+  'code.files.root': 'Kök',
+  'code.files.truncated': 'Dosyanın yalnızca başı gösteriliyor.',
+  'code.files.listTruncated': 'Liste kısaltıldı.',
+  'code.files.busy': 'Ajan çalışırken dosya listesi yenilenmez.',
+  'code.rewind.title': 'Bu noktaya geri sar',
+  'code.rewind.hint': 'Çalışma alanı bu turun sonundaki hâline döner. Sonraki turlar ayrı bir dal olarak kalır.',
+  'code.rewind.confirm': 'Çalışma alanı bu noktaya geri sarılsın mı? Sonraki turlardaki değişiklikler çalışma alanından kaldırılır.',
+  'code.rewind.done': 'Geri sarıldı',
+  'code.menu.files': 'Dosyalar',
   'code.session.menu': 'Oturum menüsü',
 } as const;
 

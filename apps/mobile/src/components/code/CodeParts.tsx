@@ -11,7 +11,8 @@ import { useChats } from '../../store/chats.ts';
 import { RichText } from '../RichText.tsx';
 import { Sheet } from '../Sheet.tsx';
 import { ToolCard } from '../ToolCard.tsx';
-import { Press } from '../Ui.tsx';
+import { Button, Press } from '../Ui.tsx';
+import { useUi } from '../../store/ui.ts';
 import { PlanCard, QuestionCard, type MessageActions } from './CodeCards.tsx';
 
 export type ToolPart = Extract<MessagePartDTO, { type: 'tool' }>;
@@ -447,7 +448,7 @@ function FileDetail({ part }: { part: ToolPart }) {
 }
 
 /** Dokunulan satırın ayrıntı sayfası (komutlar, dosya farkı, çalışma alanı/commit çıktısı). */
-export function CodeSheetHost({ chatId, target, onClose }: { chatId: string; target: SheetTarget | null; onClose: () => void }) {
+export function CodeSheetHost({ chatId, target, onClose, onRewind }: { chatId: string; target: SheetTarget | null; onClose: () => void; onRewind?: (messageId: string) => void }) {
   const { c } = useTheme();
   const t = useT();
   const { height } = useWindowDimensions();
@@ -460,6 +461,8 @@ export function CodeSheetHost({ chatId, target, onClose }: { chatId: string; tar
   }, [messages]);
 
   const shown = target;
+  // Bu parçanın ait olduğu asistan mesajı (geri sarma için).
+  const rewindMessage = shown?.kind === 'output' ? (messages ?? []).find((m) => (m.parts ?? []).some((p) => p.type === 'tool' && p.id === shown.id))?.id : undefined;
   let title = '';
   let body: React.ReactNode = null;
   if (shown?.kind === 'group') {
@@ -493,9 +496,33 @@ export function CodeSheetHost({ chatId, target, onClose }: { chatId: string; tar
         )}
       </View>
     ) : (
-      <Block>
-        <Mono>{cap(p.output, 4_000) || t('code.cmd.noOutput')}</Mono>
-      </Block>
+      <View style={{ gap: 12 }}>
+        <Block>
+          <Mono>{cap(p.output, 4_000) || t('code.cmd.noOutput')}</Mono>
+        </Block>
+        {p.name === 'commit' && !!onRewind && !!rewindMessage && (
+          <>
+            <RNText style={[type.small, { color: c.text3 }]}>{t('code.rewind.hint')}</RNText>
+            <Button
+              variant="secondary"
+              label={t('code.rewind.title')}
+              onPress={() =>
+                useUi.getState().askConfirm({
+                  title: t('code.rewind.title'),
+                  message: t('code.rewind.confirm'),
+                  confirmLabel: t('code.rewind.title'),
+                  cancelLabel: t('common.cancel'),
+                  destructive: true,
+                  onConfirm: () => {
+                    onClose();
+                    onRewind(rewindMessage);
+                  },
+                })
+              }
+            />
+          </>
+        )}
+      </View>
     );
   }
 

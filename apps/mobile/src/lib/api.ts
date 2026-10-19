@@ -299,6 +299,10 @@ export const api = {
   codeFiles: (id: string, q?: string) => request<{ files: string[]; truncated: boolean }>('GET', `/code/sessions/${id}/files${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   codePulls: (id: string) => request<{ pulls: CodePullDTO[] }>('GET', `/code/sessions/${id}/pulls`),
   codeDiff: (id: string, path?: string) => request<CodeDiffDTO>('GET', `/code/sessions/${id}/diff${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+  codeFile: (id: string, path: string) => request<{ path: string; content: string; truncated: boolean }>('GET', `/code/sessions/${id}/file?path=${encodeURIComponent(path)}`),
+  codeRewind: (id: string, messageId: string) => request<{ sha: string; session: CodeSessionDTO }>('POST', `/code/sessions/${id}/rewind`, { messageId }),
+  /** Arşiv indirme adresi ve yetki başlığı (dosya sistemi indiricisine verilir). */
+  codeArchiveRequest: (id: string) => ({ url: `${getApiBase()}/api/code/sessions/${id}/archive`, headers: { authorization: `Bearer ${sessionStore.read()?.accessToken ?? ''}` } }),
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
   /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */
   codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),

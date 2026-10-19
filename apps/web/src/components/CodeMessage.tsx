@@ -5,6 +5,7 @@ import {
   Bot,
   CircleHelp,
   ListChecks,
+  Undo2,
   ChevronRight,
   CircleAlert,
   CircleDot,
@@ -222,7 +223,7 @@ function WorkspaceRow({ part }: { part: ToolPart }) {
   );
 }
 
-function CommitRow({ part }: { part: ToolPart }) {
+function CommitRow({ part, onRewind }: { part: ToolPart; onRewind?: () => void }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const subject = str(part.meta?.subject) || str(part.args.message);
@@ -241,6 +242,23 @@ function CommitRow({ part }: { part: ToolPart }) {
       {open && (
         <Sheet title={t('code.commit.title')} onClose={() => setOpen(false)}>
           <pre className="step-out">{part.output}</pre>
+          {onRewind && (
+            <>
+              <p className="muted">{t('code.rewind.hint')}</p>
+              <div className="pr-actions">
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    if (!window.confirm(t('code.rewind.confirm'))) return;
+                    setOpen(false);
+                    onRewind();
+                  }}
+                >
+                  <Undo2 size={15} /> {t('code.rewind.title')}
+                </button>
+              </div>
+            </>
+          )}
         </Sheet>
       )}
     </>
@@ -506,9 +524,11 @@ interface Props {
   msg: MessageDTO;
   streaming: boolean;
   actions?: MessageActions;
+  /** Bu mesajın sonuna geri sar (ajan çalışmıyorken). */
+  onRewind?: (messageId: string) => void;
 }
 
-export const CodeMessage = memo(function CodeMessage({ msg, streaming, actions }: Props) {
+export const CodeMessage = memo(function CodeMessage({ msg, streaming, actions, onRewind }: Props) {
   const t = useT();
   if (msg.role === 'user') {
     return (
@@ -540,7 +560,7 @@ export const CodeMessage = memo(function CodeMessage({ msg, streaming, actions }
             case 'workspace':
               return <WorkspaceRow key={b.part.id} part={b.part} />;
             case 'commit':
-              return <CommitRow key={b.part.id} part={b.part} />;
+              return <CommitRow key={b.part.id} part={b.part} onRewind={onRewind ? () => onRewind(msg.id) : undefined} />;
             case 'compaction':
               return <CompactionRow key={b.part.id} part={b.part} />;
             case 'pull_request':
