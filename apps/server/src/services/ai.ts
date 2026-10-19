@@ -397,14 +397,14 @@ export function createAi(
 
   /** Bu mod için denenecek sağlayıcılar, sırayla (yapılandırılmamış olanlar atlanır). */
   const chain = (mode: ChatMode | undefined, route?: 'code'): Array<{ name: string; ai: AiProvider }> => {
-    // Code: önce Qwen (deep), olmazsa Claude. Hızlı (Pollinations) modeline ASLA düşülmez: kod ajanında sessizce zayıf modele geçmek kötü sonuç verir.
+    // Code (Auto): Qwen, olmazsa Claude; ücretsiz modeller açıksa DeepSeek → GLM → Qwen → Claude. Hızlı (Pollinations) modeline ASLA düşülmez: kod ajanında sessizce zayıf modele geçmek kötü sonuç verir.
     if (route === 'code') {
-      // İsteğe bağlı: güçlü ücretsiz modeller (DeepSeek, GLM) Qwen'den sonra, ücretli Claude'dan önce. MiniMax koda yetmez.
+      // Güç sırası (DeepSeek > GLM > Qwen > Claude). Ücretsiz üçüncü taraf modeller yalnızca `AI_FREE_FOR_CODE` açıksa girer; MiniMax koda yetmez.
       const strong = config.AI_FREE_FOR_CODE ? free.filter((f) => f.name !== 'minimax') : [];
-      return [deep && { name: 'qwen', ai: deep }, ...strong, backup && { name: 'claude', ai: backup }].filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
+      return [...strong, deep && { name: 'qwen', ai: deep }, backup && { name: 'claude', ai: backup }].filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
     }
     // Güç: DeepSeek > GLM > Qwen > MiniMax = Claude > gpt-oss-120b > gpt-oss-20b (Pollinations). Hız: DeepSeek > MiniMax > diğerleri eşit.
-    // Hızlı mod hız sırasını, Dengeli ikisinin ortasını, Derin güç sırasını izler. Ücretsizler ücretli Claude'dan önce gelir.
+    // Hızlı: başta MiniMax (hızlı ve ücretsiz), ardından hız sırası. Dengeli: başta gpt-oss-120b, ardından güç sırası. Derin: güç sırası. Ücretsizler ücretli Claude'dan önce gelir.
     const pool: Record<string, { name: string; ai: AiProvider } | undefined> = {
       deepseek: free.find((f) => f.name === 'deepseek'),
       glm: free.find((f) => f.name === 'glm'),
@@ -415,8 +415,8 @@ export function createAi(
       gptoss20: { name: 'fast', ai: fast },
     };
     const ORDER: Record<ChatMode, string[]> = {
-      fast: ['deepseek', 'minimax', 'glm', 'qwen', 'gptoss120', 'gptoss20', 'claude'],
-      balanced: ['deepseek', 'glm', 'minimax', 'qwen', 'claude', 'gptoss120', 'gptoss20'],
+      fast: ['minimax', 'deepseek', 'glm', 'qwen', 'gptoss120', 'gptoss20', 'claude'],
+      balanced: ['gptoss120', 'deepseek', 'glm', 'minimax', 'qwen', 'claude', 'gptoss20'],
       deep: ['deepseek', 'glm', 'qwen', 'minimax', 'claude', 'gptoss120', 'gptoss20'],
     };
     return ORDER[mode ?? 'fast'].map((k) => pool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;

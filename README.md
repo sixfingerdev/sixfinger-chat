@@ -69,19 +69,19 @@ Yapay zekâ sağlayıcıları (`apps/server/src/services/ai.ts`). Her mod, yapı
 | Amazon Bedrock | Claude (isteğe bağlı yedek, bkz. [docs/bedrock.md](docs/bedrock.md)) | `BEDROCK_*` |
 | Pollinations | `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
 
-Güç sırası: DeepSeek > GLM > Qwen > MiniMax = Claude > gpt-oss-120b > gpt-oss-20b. Hız sırası: DeepSeek > MiniMax > diğerleri (eşit). Modlar bunlara göre dizilir:
+Güç sırası: DeepSeek > GLM > Qwen > MiniMax = Claude > gpt-oss-120b > gpt-oss-20b. Hız sırası: DeepSeek > MiniMax > diğerleri (eşit). Modların başındaki model sabit (Hızlı: MiniMax, Dengeli: gpt-oss-120b, Derin: DeepSeek); gerisi güç/hız sırasına göre dizilir:
 
 | Mod | Sıra |
 |---|---|
-| Hızlı | DeepSeek → MiniMax → GLM → Qwen → gpt-oss-120b → gpt-oss-20b → Claude |
-| Dengeli | DeepSeek → GLM → MiniMax → Qwen → Claude → gpt-oss-120b → gpt-oss-20b |
+| Hızlı | **MiniMax** → DeepSeek → GLM → Qwen → gpt-oss-120b → gpt-oss-20b → Claude |
+| Dengeli | **gpt-oss-120b** → DeepSeek → GLM → MiniMax → Qwen → Claude → gpt-oss-20b |
 | Derin | DeepSeek → GLM → Qwen → MiniMax → Claude → gpt-oss-120b → gpt-oss-20b |
 
 Yapılandırılmamış sağlayıcılar (`*_BASE_URL` boş, Bedrock yok) atlanır; `AI_FREE_ENABLED=false` DeepSeek/GLM/MiniMax'i zincirden çıkarır. Başlık üretimi ve hafıza gibi arka plan işleri de aynı zinciri kullanır.
 Hepsi OpenAI uyumlu uçlardır. `reasoning_effort` destekleyen modellere her zaman en yüksek düzey gider (gpt-oss: `high`, DeepSeek/GLM/MiniMax: `max`; Qwen göndermez — bununla boş yanıt verir); menüdeki düşünme düzeyi bunlarda etkisizdir, `AI_MAX_EFFORT=false` kullanıcının seçtiği düzeye döner.
 
 **Ücretsiz sağlayıcıların koruması:** `LLM7_API_KEY` isteğe bağlıdır; anahtar reddedilir (401/402/403) ya da kotası dolarsa (429) 10 dakika anahtarsız denenir; ≥ 1 dk beklemesi istenen uç o süre atlanır. **Code**'da varsayılan olarak
-kullanılmazlar (depo içeriği üçüncü taraf servislere gider): Code zinciri Qwen → Claude'dur; `AI_FREE_FOR_CODE=true` ile Qwen'den sonra, Claude'dan önce DeepSeek/GLM denenir.
+kullanılmazlar (depo içeriği üçüncü taraf servislere gider): Code (Auto) zinciri Qwen → Claude'dur; `AI_FREE_FOR_CODE=true` ile DeepSeek → GLM → Qwen → Claude olur (güç sırası). Önce Pi'de `apps/server/scripts/code-smoke.ts` ile ölçüp aç.
 
 İstemci iki ayrı değer gönderir: `mode` (`fast`/`balanced`/`deep`, hangi model) ve `effort` (`low`/`medium`/`high`, düşünme düzeyi).
 Düşünme düzeyi Hızlı ve Dengeli'de uygulanır; Derin'de menüde gizlenir. `mode` göndermeyen eski istemcilerde `effort` modu belirler.

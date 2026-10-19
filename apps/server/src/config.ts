@@ -39,7 +39,7 @@ const schema = z.object({
   /**
    * Ücretsiz sağlayıcılar (OpenAI uyumlu). LLM7: DeepSeek ana, GLM ikinci; anahtar isteğe bağlıdır (anahtar 401/402/403/kota verirse
    * anahtarsız denenir). Kilo: MiniMax, anahtarsız. Chat'te mod sırası `ai.ts`'tedir (DeepSeek her modda önde). `*_BASE_URL` boşsa o
-   * sağlayıcı kapalıdır. Code'da yalnızca `AI_FREE_FOR_CODE` açıksa Qwen'den sonra, Claude'dan önce denenir (depo içeriği üçüncü taraf
+   * sağlayıcı kapalıdır. Code'da yalnızca `AI_FREE_FOR_CODE` açıksa Auto zinciri DeepSeek → GLM → Qwen → Claude olur (depo içeriği üçüncü taraf
    * ücretsiz servislere gideceği için varsayılan kapalı).
    */
   AI_FREE_ENABLED: z

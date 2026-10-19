@@ -166,13 +166,16 @@ describe('Pollinations sağlayıcısı', () => {
     };
     const llm7 = cfg.LLM7_BASE_URL;
 
-    it('hız sırası (fast): DeepSeek (anahtarla) → MiniMax → GLM → Qwen → gpt-oss-120b → gpt-oss-20b', async () => {
+    it('Hızlı: MiniMax önde, sonra DeepSeek (anahtarla) → GLM → Qwen → gpt-oss-120b → gpt-oss-20b', async () => {
       const first = await run('fast', ok);
-      expect(first.calls).toEqual([{ url: llm7, model: 'DeepSeek-V4-Flash-0731', auth: 'Bearer k-test' }]);
-      const r = await run('fast', (url) => (url === llm7 ? new Response('{}', { status: 400 }) : ok()));
-      expect(r.calls.map((c) => c.model)).toEqual(['DeepSeek-V4-Flash-0731', 'minimax/minimax-m3.1-flash:free']);
+      expect(first.calls.map((c) => c.model)).toEqual(['minimax/minimax-m3.1-flash:free']);
+      const second = await run('fast', (url) => (url === llm7 ? ok() : new Response('{}', { status: 400 })));
+      expect(second.calls).toEqual([
+        { url: cfg.KILO_BASE_URL, model: 'minimax/minimax-m3.1-flash:free', auth: undefined },
+        { url: llm7, model: 'DeepSeek-V4-Flash-0731', auth: 'Bearer k-test' },
+      ]);
       const all = await run('fast', (url) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 })));
-      expect(all.calls.map((c) => c.model)).toEqual(['DeepSeek-V4-Flash-0731', 'minimax/minimax-m3.1-flash:free', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'gpt-oss-120b', 'openai-fast']);
+      expect(all.calls.map((c) => c.model)).toEqual(['minimax/minimax-m3.1-flash:free', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'gpt-oss-120b', 'openai-fast']);
     });
 
     it('LLM7 anahtarı reddedilirse (402) aynı istek anahtarsız yeniden denenir ve bir süre anahtar kullanılmaz', async () => {
@@ -184,7 +187,7 @@ describe('Pollinations sağlayıcısı', () => {
         return auth && n++ === 0 ? new Response('{"error":"balance"}', { status: 402 }) : ok();
       };
       const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
-      const req = { messages: [{ role: 'user' as const, content: 'x' }], mode: 'fast' as const };
+      const req = { messages: [{ role: 'user' as const, content: 'x' }], mode: 'deep' as const };
       expect(await ai.complete(req)).toBe('ok');
       expect(await ai.complete(req)).toBe('ok');
       expect(calls).toEqual(['Bearer k-test', undefined, undefined]);
@@ -207,15 +210,15 @@ describe('Pollinations sağlayıcısı', () => {
       expect(calls.length - before).toBeLessThanOrEqual(2);
     });
 
-    it('güç sırası (deep): DeepSeek → GLM → Qwen → MiniMax → gpt-oss-120b → gpt-oss-20b; balanced: DeepSeek → GLM → MiniMax → Qwen …', async () => {
+    it('Derin: DeepSeek → GLM → Qwen → MiniMax → gpt-oss-120b → gpt-oss-20b; Dengeli: gpt-oss-120b önde, sonra DeepSeek → GLM → MiniMax → Qwen …', async () => {
       const failAll = (url: string) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 }));
       const deep = await run('deep', failAll);
       expect(deep.calls.map((c) => c.model)).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'minimax/minimax-m3.1-flash:free', 'gpt-oss-120b', 'openai-fast']);
       const mid = await run('balanced', failAll);
-      expect(mid.calls.map((c) => c.model)).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'minimax/minimax-m3.1-flash:free', 'Qwen3.8-27B', 'gpt-oss-120b', 'openai-fast']);
+      expect(mid.calls.map((c) => c.model)).toEqual(['gpt-oss-120b', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'minimax/minimax-m3.1-flash:free', 'Qwen3.8-27B', 'openai-fast']);
     });
 
-    it('Code: varsayılan Qwen→(Claude); AI_FREE_FOR_CODE açıkken Qwen→DeepSeek→GLM (MiniMax yok)', async () => {
+    it('Code: varsayılan Qwen→(Claude); AI_FREE_FOR_CODE açıkken DeepSeek→GLM→Qwen (MiniMax yok)', async () => {
       const code = async (c: typeof cfg) => {
         const models: string[] = [];
         const fetchMock = async (_u: string, init: RequestInit) => {
@@ -227,7 +230,7 @@ describe('Pollinations sağlayıcısı', () => {
         return models;
       };
       expect(await code(cfg)).toEqual(['Qwen3.8-27B']);
-      expect(await code({ ...cfg, AI_FREE_FOR_CODE: true })).toEqual(['Qwen3.8-27B', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash']);
+      expect(await code({ ...cfg, AI_FREE_FOR_CODE: true })).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B']);
     });
 
     it('reasoning_effort: ücretsiz modellere max, gpt-oss\'a high gider; AI_MAX_EFFORT kapalıysa kullanıcı düzeyi', async () => {
