@@ -16,7 +16,7 @@ Her tur sonunda değişiklikler **kullanıcının kimliğiyle** commit edilir (`
 ortam ayarına bağlı) ve oturumun +N −M özeti güncellenir. Kullanıcı durdursa bile o ana kadarki iş commit edilir.
 
 Güvenlik/sınır kuralları: **adım sınırı yoktur** (ajan işi bitirene kadar sürer); aynı araç+argüman+çıktı 3. kez gelince uyarı,
-5. kezde durur; çıktı uzunluk sınırında en çok 2 kez "devam et" notu; bağlam `CODE_CONTEXT_TOKENS`'ı aşarsa eski araç çıktıları kırpılır, çok aşarsa tur durur;
+5. kezde durur; çıktı uzunluk sınırında en çok 2 kez "devam et" notu; bağlam (`CODE_CONTEXT_TOKENS`, varsayılan 262144) `CODE_COMPACT_AT` (0,8) oranına dolunca önce eski araç çıktıları kırpılır, yetmezse eski konuşma modele özetlettirilir (son tur olduğu gibi kalır; özet mesajın `compaction` parçasında saklanır ve sonraki turların geçmişi "özet + sonrası" olarak kurulur; özetleme başarısız olursa kırpmayla sürülür); yine de taşarsa tur durur;
 kredi çalışırken biterse tur durur. Model zinciri: Qwen3.8-27B → Claude yedeği (Hızlı modele asla düşülmez).
 
 ## Kurulum

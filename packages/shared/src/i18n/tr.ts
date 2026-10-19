@@ -377,7 +377,7 @@ export const tr = {
   'code.usage.title': 'Kullanım',
   'code.usage.context': 'Bağlam penceresi',
   'code.usage.tokens': '{used} / {limit} token',
-  'code.usage.hint': 'Bağlam dolmaya yaklaşınca eski araç çıktıları otomatik kırpılır.',
+  'code.usage.hint': 'Bağlam dolmaya yaklaşınca önce eski araç çıktıları kırpılır, sonra konuşma otomatik özetlenir.',
   'code.usage.credits': 'Günlük Code kredisi',
   'code.pr.title': 'Pull request\'ler',
   'code.pr.none': 'Bu branch için PR yok',
@@ -419,6 +419,10 @@ export const tr = {
   'code.session.readyHint': 'Ne yapmamı istersin? Kodu okuyabilir, değiştirebilir, çalıştırıp test edebilirim.',
   'code.session.stopped': 'Durduruldu',
   'code.session.failed': 'Bu tur tamamlanamadı',
+  'code.compact.running': 'Bağlam özetleniyor',
+  'code.compact.done': 'Bağlam özetlendi',
+  'code.compact.failed': 'Bağlam özetlenemedi',
+  'code.compact.tokens': '{before} → {after} token',
   'code.session.menu': 'Oturum menüsü',
 } as const;
 

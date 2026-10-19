@@ -24,6 +24,10 @@ describe('toBlocks', () => {
     expect(blocks[2]).toMatchObject({ kind: 'todo', part: { id: 't2' } });
   });
 
+  it('özetleme parçası kendi satırı olur ve komut grubunu böler', () => {
+    expect(toBlocks([tool('1', 'bash'), tool('c', 'compaction'), tool('2', 'bash')]).map((b) => b.kind)).toEqual(['group', 'compaction', 'group']);
+  });
+
   it('metinle bölünen komutlar ayrı gruplardır; düşünce son parçaysa işaretlenir', () => {
     const blocks = toBlocks([tool('1', 'bash'), { type: 'text', text: 'x' }, tool('2', 'bash'), { type: 'reasoning', text: 'düşünüyor', ms: null }]);
     expect(blocks.map((b) => b.kind)).toEqual(['group', 'text', 'group', 'reasoning']);

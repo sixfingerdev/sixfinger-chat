@@ -13,6 +13,7 @@ export type Block =
   | { kind: 'todo'; part: ToolPart }
   | { kind: 'workspace'; part: ToolPart }
   | { kind: 'commit'; part: ToolPart }
+  | { kind: 'compaction'; part: ToolPart }
   | { kind: 'tool'; part: ToolPart };
 
 /** Parçaları görünüm bloklarına çevirir: ardışık komut/okuma/arama parçaları tek satırda toplanır, yalnızca son todo listesi gösterilir. */
@@ -31,6 +32,7 @@ export function toBlocks(parts: MessagePartDTO[]): Block[] {
       if (i === lastTodo) out.push({ kind: 'todo', part: p });
     } else if (p.name === 'workspace') out.push({ kind: 'workspace', part: p });
     else if (p.name === 'commit') out.push({ kind: 'commit', part: p });
+    else if (p.name === 'compaction') out.push({ kind: 'compaction', part: p });
     else out.push({ kind: 'tool', part: p });
   });
   return out;

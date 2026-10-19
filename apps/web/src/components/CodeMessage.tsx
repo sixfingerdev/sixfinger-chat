@@ -8,13 +8,14 @@ import {
   FileText,
   GitCommitHorizontal,
   Globe,
+  Layers,
   Loader,
   Search,
   Terminal,
   Wrench,
 } from 'lucide-react';
 import { describeTool, messageParts, type MessageDTO } from '@sixfinger/shared';
-import { clsx } from '../lib/format.ts';
+import { clsx, compactNumber } from '../lib/format.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 import { diffLines, toBlocks, type ToolPart } from '../lib/code-blocks.ts';
 import type { CodeLive } from '../store/chats.ts';
@@ -238,6 +239,32 @@ function CommitRow({ part }: { part: ToolPart }) {
   );
 }
 
+function CompactionRow({ part }: { part: ToolPart }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const running = part.status === 'running';
+  const failed = part.status === 'error';
+  const before = num(part.meta?.before);
+  const after = num(part.meta?.after);
+  return (
+    <>
+      <button className={clsx('code-row quiet', running && 'running', failed && 'failed')} disabled={running || failed} onClick={() => setOpen(true)}>
+        <span className="code-row-icon">{running ? <Loader size={14} className="spin" /> : failed ? <CircleAlert size={14} /> : <Layers size={14} />}</span>
+        <span className="code-row-label">
+          {running ? t('code.compact.running') : failed ? t('code.compact.failed') : t('code.compact.done')}
+          {!running && !failed && before > 0 && <small> · {t('code.compact.tokens', { before: compactNumber(before), after: compactNumber(after) })}</small>}
+        </span>
+        {!running && !failed && <ChevronRight size={14} className="code-row-go" />}
+      </button>
+      {open && (
+        <Sheet title={t('code.compact.done')} onClose={() => setOpen(false)}>
+          <pre className="step-out">{part.output}</pre>
+        </Sheet>
+      )}
+    </>
+  );
+}
+
 function GenericTool({ part }: { part: ToolPart }) {
   const [open, setOpen] = useState(false);
   return (
@@ -309,6 +336,8 @@ export const CodeMessage = memo(function CodeMessage({ msg, streaming, live }: P
               return <WorkspaceRow key={b.part.id} part={b.part} />;
             case 'commit':
               return <CommitRow key={b.part.id} part={b.part} />;
+            case 'compaction':
+              return <CompactionRow key={b.part.id} part={b.part} />;
             default:
               return <GenericTool key={b.part.id} part={b.part} />;
           }

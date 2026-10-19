@@ -113,7 +113,7 @@ export function expandAssistant(item: HistoryItem): AiMessage[] {
   };
   for (const p of parts) {
     if (p.type === 'reasoning') continue; // düşünce modele geri verilmez
-    if (p.type === 'tool' && (p.name === 'workspace' || p.name === 'commit')) continue; // arayüz için sahte araç parçaları: modelin araç listesinde yok
+    if (p.type === 'tool' && (p.name === 'workspace' || p.name === 'commit' || p.name === 'compaction')) continue; // arayüz için sahte araç parçaları: modelin araç listesinde yok
     if (p.type === 'text') {
       flush();
       text += p.text;

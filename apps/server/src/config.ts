@@ -82,7 +82,9 @@ const schema = z.object({
   CODE_MAX_RUNS: z.coerce.number().int().min(1).default(2),
   CODE_MAX_QUEUE: z.coerce.number().int().min(0).default(10),
   /** Modele gönderilen bağlam için tahmini token bütçesi (Qwen3.8 penceresi 262k; güvenli pay bırakılır). */
-  CODE_CONTEXT_TOKENS: z.coerce.number().int().min(8_000).default(120_000),
+  CODE_CONTEXT_TOKENS: z.coerce.number().int().min(8_000).default(262_144),
+  /** Bağlam bu orana dolunca eski konuşma özetlenir (kırpma yetmediğinde). */
+  CODE_COMPACT_AT: z.coerce.number().min(0.4).max(0.95).default(0.8),
   /** Qwen başarısız olunca Claude'a (Bedrock) düşen Code isteklerinin tüm kullanıcılar için günlük token tavanı. 0 = yedek kapalı. */
   CODE_CLAUDE_DAILY_TOKENS: z.coerce.number().int().min(0).default(2_000_000),
 

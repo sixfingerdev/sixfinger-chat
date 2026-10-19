@@ -61,7 +61,8 @@ services:
       CODE_CLAUDE_DAILY_TOKENS: ${CODE_CLAUDE_DAILY_TOKENS:-2000000}
       CODE_MAX_RUNS: ${CODE_MAX_RUNS:-2}
       CODE_MAX_QUEUE: ${CODE_MAX_QUEUE:-10}
-      CODE_CONTEXT_TOKENS: ${CODE_CONTEXT_TOKENS:-120000}
+      CODE_CONTEXT_TOKENS: ${CODE_CONTEXT_TOKENS:-262144}
+      CODE_COMPACT_AT: ${CODE_COMPACT_AT:-0.8}
 
   # Modelin komut çalıştırdığı yalıtılmış ortamın yöneticisi. Docker soketi YALNIZCA bu serviste bulunur.
   sandboxd:

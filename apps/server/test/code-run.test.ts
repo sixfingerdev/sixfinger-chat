@@ -5,6 +5,7 @@ import type { AiChunk } from '../src/services/ai.ts';
 import { createGithub } from '../src/services/github.ts';
 import { auth, member, parseSse, resetDb, setup, type TestEnv } from './helpers.ts';
 import { fakeCode } from './fake-code.ts';
+import { SUMMARIZER_PROMPT, SUMMARY_HEADER } from '../src/services/code-context.ts';
 
 type Fake = ReturnType<typeof fakeCode>;
 let env: TestEnv;
@@ -92,7 +93,7 @@ describe('Code ajan döngüsü: mutlu yol', () => {
 
     // oturum durumu ve istatistikleri
     const sess = (await env.app.inject({ method: 'GET', url: `/api/code/sessions/${s.chatId}`, headers: auth(a) })).json().session;
-    expect(sess).toMatchObject({ status: 'idle', additions: 1, filesChanged: 1, contextLimit: 120_000 });
+    expect(sess).toMatchObject({ status: 'idle', additions: 1, filesChanged: 1, contextLimit: 262_144 });
     expect(sess.contextTokens).toBeGreaterThan(500);
     expect(sess.headSha).toMatch(/^c+/);
 
@@ -223,18 +224,60 @@ describe('Code ajan döngüsü: güvenlik ve sınırlar', () => {
     expect(agentCalls().length).toBeLessThan(3);
   });
 
-  it('bağlam dolarsa eski araç çıktıları kırpılır; çok büyükse durur ve commit eder', async () => {
+  it('bağlam dolunca eski konuşma özetlenir; özet sonraki turun geçmişine girer, kırpma yetmeyince öylece kesilmez', async () => {
     await boot({ CODE_CONTEXT_TOKENS: 8_000 });
     const { a, s } = await prepared();
     fc.state.execImpl = (c) => (c.startsWith('gen') ? { stdout: 'x'.repeat(9_000) } : {});
-    env.ai.steps = [...Array.from({ length: 12 }, (_, i) => [call(`c${i}`, 'bash', { command: `gen ${i}` })]), text('bitti')];
-    await send(a, s.chatId, 'bol çıktı');
+    env.ai.completeText = 'GOAL: büyük çıktıları üret. DONE: gen 0..N çalıştırıldı.';
+    env.ai.steps = [...Array.from({ length: 14 }, (_, i) => [call(`c${i}`, 'bash', { command: `gen ${i}` })]), text('bitti')];
+    const r = await send(a, s.chatId, 'bol çıktı üret');
+    expect(of(r.events, 'error')).toHaveLength(0);
+
+    const d = await detail(a, s.chatId);
+    const last = lastAssistant(d);
+    expect(last.content).toContain('bitti');
+    const comp = (last.parts as Array<Record<string, any>>).filter((p) => p.name === 'compaction');
+    expect(comp.length).toBeGreaterThan(0);
+    expect(comp[0]).toMatchObject({ status: 'done', meta: { keepUser: false } });
+    expect(comp[0]!.output).toContain('GOAL: büyük çıktıları üret');
+    expect(comp[0]!.output).toContain('bol çıktı üret'); // kullanıcının isteği özetin yanında taşınır
+
+    // özetleme çağrısı yapıldı ve ajanın sonraki istekleri "[özet, ...kuyruk]" ile başlıyor
+    expect(env.ai.calls.some((c) => c.messages[0]?.content === SUMMARIZER_PROMPT)).toBe(true);
     const reqs = agentCalls();
-    const toolMsgs = (r: (typeof reqs)[number]) => r.messages.filter((m) => m.role === 'tool');
-    const late = toolMsgs(reqs.at(-1)!);
+    const after = reqs.at(-1)!;
+    expect(after.messages[1]!.role).toBe('user');
+    expect(after.messages[1]!.content).toContain(SUMMARY_HEADER);
+    expect(after.messages.length).toBeLessThan(reqs.length * 2); // baş atıldı
+    expect(after.messages.filter((m) => m.role === 'tool').at(-1)!.content).not.toContain('trimmed'); // en son sonuç korunur
+    expect(fc.state.commits.length).toBeLessThanOrEqual(1);
+
+    // sonraki tur: geçmiş "özet + sonrası" olarak kurulur, eski komutlar geri gelmez
+    env.ai.steps = [text('devam ettim')];
+    await send(a, s.chatId, 'şimdi README ekle');
+    const next = agentCalls().at(-1)!;
+    expect(next.messages[1]!.content).toContain(SUMMARY_HEADER);
+    expect(next.messages.at(-1)).toMatchObject({ role: 'user' });
+    expect(next.messages.filter((m) => m.role === 'tool').length).toBeLessThan(10); // yalnızca korunan kuyruk geri gelir
+    expect(JSON.stringify(next.messages)).not.toContain('gen 3');
+  });
+
+  it('özetleme başarısız olursa kırpmayla sürer (araç satırı hata gösterir)', async () => {
+    await boot({ CODE_CONTEXT_TOKENS: 8_000 });
+    const { a, s } = await prepared();
+    fc.state.execImpl = (c) => (c.startsWith('gen') ? { stdout: 'x'.repeat(9_000) } : {});
+    const complete = env.ai.complete.bind(env.ai);
+    env.ai.complete = async (req) => {
+      if (req.messages[0]?.content === SUMMARIZER_PROMPT) throw new Error('özetleyici düştü');
+      return complete(req);
+    };
+    env.ai.steps = [...Array.from({ length: 10 }, (_, i) => [call(`c${i}`, 'bash', { command: `gen ${i}` })]), text('bitti')];
+    await send(a, s.chatId, 'bol çıktı');
+    const last = lastAssistant(await detail(a, s.chatId));
+    expect((last.parts as Array<Record<string, any>>).find((p) => p.name === 'compaction')).toMatchObject({ status: 'error' });
+    expect(agentCalls().length).toBeGreaterThan(3);
+    const late = agentCalls().at(-1)!.messages.filter((m) => m.role === 'tool');
     expect(late.filter((m) => m.content.includes('trimmed')).length).toBeGreaterThan(0);
-    expect(late.at(-1)!.content).not.toContain('trimmed'); // en son sonuç korunur
-    expect(reqs.length).toBeGreaterThan(2);
   });
 });
 

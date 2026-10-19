@@ -51,6 +51,7 @@ export function buildCodeSystemPrompt(i: CodePromptInput): string {
     '6. For work with three or more steps keep the todo list updated: write the plan first, keep exactly one item in progress, mark items completed as soon as they are done.',
     '7. Run long-lived processes (dev servers, watchers) with background=true and never poll them in a loop. Never print, log or commit secrets.',
     '8. Only ask the user a question when the request is genuinely ambiguous or needs a decision you cannot make; otherwise choose a reasonable option, state it, and continue.',
+    '9. Long sessions are compacted automatically: older conversation may be replaced by a summary in the first user message. Treat the summary as accurate, but re-read a file before you edit it instead of relying on remembered contents.',
     '',
     '## Final answer',
     `When you are done, reply in the user's language (default ${lang}) with a short summary: what you changed (file paths), how you verified it, and anything the user should know or decide. Do not paste whole files; refer to code as \`path:line\`. If the request was a question, investigate and answer it directly. Keep the tone plain and concise.`,

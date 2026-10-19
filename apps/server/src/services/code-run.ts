@@ -17,10 +17,10 @@ import type { AuthUser } from '../lib/types.ts';
 import type { AiMessage, AiProvider, AiToolCall } from './ai.ts';
 import { MESSAGE_COLUMNS, toMessageDTO, type ChatRow, type MessageRow } from './chats.ts';
 import type { Code } from './code.ts';
-import { messagesTokens, pruneToolResults } from './code-context.ts';
+import { applyCompaction, buildCodeHistory, messagesTokens, pruneToolResults, renderTranscript, splitForCompaction, SUMMARIZER_PROMPT } from './code-context.ts';
 import { buildCodeSystemPrompt, commitMessagePrompt, WORKSPACE_BRIEF_COMMAND } from './code-prompt.ts';
 import type { CodeQueue } from './code-queue.ts';
-import { cleanTitle, fallbackTitle, fitHistory, titlePrompt, type HistoryItem } from './prompt.ts';
+import { cleanTitle, fallbackTitle, titlePrompt, type HistoryItem } from './prompt.ts';
 import type { Run } from './runs.ts';
 import { runToolCall, toolSpecs, type Tools } from './tools/index.ts';
 import type { CodeSandboxClient, CodeScope } from './tools/code-client.ts';
@@ -242,7 +242,10 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
       allowedDomains: env.allowedDomains, diskMb: env.diskMb, brief,
       setupFailure: prepared.setupRan && prepared.setupOk === false ? prepared.setupOutput.slice(-1_500) : undefined,
     });
-    const messages: AiMessage[] = [{ role: 'system', content: system }, ...fitHistory(g.history, Math.floor(config.CODE_CONTEXT_TOKENS * 0.6))];
+    let messages: AiMessage[] = [{ role: 'system', content: system }, ...buildCodeHistory(g.history, Math.floor(config.CODE_CONTEXT_TOKENS * 0.6))];
+    /** Bu turun kullanıcı mesajının dizini (özetlemede kuyruk yalnızca bu turdan alınır). */
+    let turnStart = messages.length - 1;
+    let compactedAt = -10;
     const specs = toolSpecs(defs);
     const specTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(specs)));
     const toolCtx = { user, signal, chatId: chat.id, code: { session: scope.session, diskMb: env.diskMb, prepare } };
@@ -253,8 +256,59 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     for (let step = 0; ; step++) {
       if (signal.aborted) throw new DOMException('aborted', 'AbortError');
 
-      const pruned = pruneToolResults(messages, { keepRecent: 8, trimTo: 700, budgetTokens: config.CODE_CONTEXT_TOKENS - specTokens });
+      const prune = () => pruneToolResults(messages, { keepRecent: 8, trimTo: 700, budgetTokens: config.CODE_CONTEXT_TOKENS - specTokens });
+      let pruned = prune();
       contextTokens = messagesTokens(pruned) + specTokens;
+      // Kırpma yetmedi: eski konuşmayı modele özetlet (son tur olduğu gibi kalır). Başarısızlıkta birkaç adım sonra yeniden denenir.
+      if (contextTokens > config.CODE_CONTEXT_TOKENS * config.CODE_COMPACT_AT && step - compactedAt >= 3) {
+        compactedAt = step;
+        const split = splitForCompaction(pruned, turnStart, Math.floor(config.CODE_CONTEXT_TOKENS * 0.25));
+        if (split) {
+          const part: Extract<MessagePartDTO, { type: 'tool' }> = { type: 'tool', id: `compact-${Date.now().toString(36)}`, name: 'compaction', args: {}, status: 'running' };
+          buf.addTool(part);
+          send({ type: 'tool_start', id: part.id, name: part.name, args: part.args });
+          const started = Date.now();
+          const before = contextTokens;
+          const finish = (status: 'done' | 'error', output: string, summary: string, meta?: Record<string, unknown>) => {
+            Object.assign(part, { status, output, summary, meta, ms: Date.now() - started });
+            send({ type: 'tool_end', id: part.id, status, output, summary, meta, ms: part.ms ?? 0 });
+            buf.persist(true);
+          };
+          try {
+            const transcript = renderTranscript(split.head, Math.floor(config.CODE_CONTEXT_TOKENS * 0.55 * 3.5));
+            const summary = (
+              await ai.complete({
+                messages: [{ role: 'system', content: SUMMARIZER_PROMPT }, { role: 'user', content: transcript }],
+                route: 'code', mode: 'deep', effort: 'low', temperature: 0.2, maxTokens: 4_096, signal,
+              })
+            ).trim();
+            if (!summary) throw new Error('boş özet');
+            try {
+              await code.spend(user.id, creditsFor({ model: provider === 'claude' ? 'claude' : 'qwen', tokens: weightedTokens(estimate(transcript), estimate(summary)), diskUsedMb, diskQuotaMb: env.diskMb }));
+            } catch (err) {
+              if (err instanceof HttpError && err.code === 'quota_exceeded') {
+                finish('error', 'credits', 'credits');
+                stopNote = t.credits;
+                break;
+              }
+              throw err;
+            }
+            const r = applyCompaction(pruned, split, turnStart, summary, g.userText);
+            messages = r.messages;
+            turnStart = r.turnStart;
+            pruned = prune();
+            contextTokens = messagesTokens(pruned) + specTokens;
+            finish('done', r.summaryMessage, `${before} → ${contextTokens}`, { before, after: contextTokens, keepFromId: r.keepFromId, keepUser: r.keepUser });
+          } catch (err) {
+            if (signal.aborted || (err as Error)?.name === 'AbortError') {
+              finish('error', 'aborted', 'aborted');
+              throw err;
+            }
+            log.warn({ err: String(err) }, 'bağlam özetlenemedi, kırpmayla sürülüyor');
+            finish('error', String(err instanceof Error ? err.message : err), 'failed');
+          }
+        }
+      }
       if (contextTokens > config.CODE_CONTEXT_TOKENS * 1.1) {
         stopNote = t.context;
         break;

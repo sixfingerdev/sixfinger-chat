@@ -365,7 +365,7 @@ export const en: Record<DictKey, string> = {
   'code.usage.title': 'Usage',
   'code.usage.context': 'Context window',
   'code.usage.tokens': '{used} of {limit} tokens',
-  'code.usage.hint': 'When the context gets close to full, old tool output is trimmed automatically.',
+  'code.usage.hint': 'When the context gets close to full, old tool output is trimmed first, then the conversation is summarized automatically.',
   'code.usage.credits': 'Daily Code credits',
   'code.pr.title': 'Pull requests',
   'code.pr.none': 'No pull request for this branch',
@@ -407,5 +407,9 @@ export const en: Record<DictKey, string> = {
   'code.session.readyHint': 'What should I do? I can read, change, run and test the code.',
   'code.session.stopped': 'Stopped',
   'code.session.failed': 'This turn did not finish',
+  'code.compact.running': 'Summarizing context',
+  'code.compact.done': 'Context summarized',
+  'code.compact.failed': 'Could not summarize context',
+  'code.compact.tokens': '{before} → {after} token',
   'code.session.menu': 'Session menu',
 };
