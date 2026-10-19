@@ -14,6 +14,7 @@ import { ToolCard } from '../ToolCard.tsx';
 import { Button, Press } from '../Ui.tsx';
 import { useUi } from '../../store/ui.ts';
 import { PlanCard, QuestionCard, type MessageActions } from './CodeCards.tsx';
+import { PreviewRow, ShareFileRow } from './CodePreview.tsx';
 
 export type ToolPart = Extract<MessagePartDTO, { type: 'tool' }>;
 
@@ -332,6 +333,10 @@ export const CodeSegment = memo(function CodeSegment({ chatId, parts, lastTodoId
             return <PlanCard key={b.key} part={p} actions={actions} />;
           case 'task':
             return <TaskRow key={b.key} part={p} onOpen={onOpen} />;
+          case 'preview':
+            return <PreviewRow key={b.key} part={p} chatId={chatId} />;
+          case 'share_file':
+            return <ShareFileRow key={b.key} part={p} chatId={chatId} />;
           default:
             return <ToolCard key={b.key} part={p} />;
         }

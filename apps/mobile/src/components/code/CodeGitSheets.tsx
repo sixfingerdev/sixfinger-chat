@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text as RNText, View, useWindowDimensions } from 'react-native';
-import { ChevronLeft, ChevronRight, Download, File as FileIcon, Folder } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Download, File as FileIcon, Folder, Monitor } from 'lucide-react-native';
 import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { listDir, parentDirs, parseUnifiedDiff, type CodeDiffDTO, type DiffFile } from '@sixfinger/shared';
@@ -12,6 +12,7 @@ import { haptic } from '../../lib/haptics.ts';
 import { useT } from '../../lib/i18n/index.ts';
 import { Sheet } from '../Sheet.tsx';
 import { Press } from '../Ui.tsx';
+import { openPreview, shareWorkspaceFile } from './CodePreview.tsx';
 
 const Title = ({ children }: { children: string }) => {
   const { c } = useTheme();
@@ -189,7 +190,14 @@ export function FilesSheet({ visible, onClose, chatId }: { visible: boolean; onC
           <>
             {!!dir && row('up', <ChevronLeft size={16} color={c.text3} />, '..', () => setDir(parentDirs(`${dir}/x`).at(-2) ?? ''))}
             {view.dirs.map((d) => row(`d${d}`, <Folder size={16} color={c.text3} />, d, () => setDir(dir ? `${dir}/${d}` : d)))}
-            {view.files.map((f) => row(f, <FileIcon size={16} color={c.text3} />, f, () => void show(dir ? `${dir}/${f}` : f)))}
+            {view.files.map((f) => (
+              <View key={f} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ flex: 1, minWidth: 0 }}>{row(f, <FileIcon size={16} color={c.text3} />, f, () => void show(dir ? `${dir}/${f}` : f))}</View>
+                <Press accessibilityLabel={t('code.share.download')} haptics="tap" scale={0.88} hitSlop={6} onPress={() => void shareWorkspaceFile(chatId, dir ? `${dir}/${f}` : f)} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                  <Download size={16} color={c.text2} />
+                </Press>
+              </View>
+            ))}
             {!view.dirs.length && !view.files.length && <RNText style={[type.small, { color: c.text3, textAlign: 'center', paddingVertical: 24 }]}>{t('code.files.empty')}</RNText>}
             {truncated && <RNText style={[type.small, { color: c.text3, paddingTop: 8 }]}>{t('code.files.listTruncated')}</RNText>}
           </>
@@ -200,6 +208,26 @@ export function FilesSheet({ visible, onClose, chatId }: { visible: boolean; onC
               <ChevronLeft size={16} color={c.text2} />
               <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13.5, color: c.text2 }}>{name(open.path)}</RNText>
             </Press>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Press haptics="tap" scale={0.97} onPress={() => void shareWorkspaceFile(chatId, open.path)} style={{ height: 36, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: c.surface2 }}>
+                <Download size={15} color={c.text} />
+                <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text }}>{t('code.share.download')}</RNText>
+              </Press>
+              {/\.html?$/i.test(open.path) && (
+                <Press
+                  haptics="tap"
+                  scale={0.97}
+                  onPress={() => {
+                    onClose();
+                    openPreview(chatId, { path: open.path });
+                  }}
+                  style={{ height: 36, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: c.surface2 }}
+                >
+                  <Monitor size={15} color={c.text} />
+                  <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text }}>{t('code.files.preview')}</RNText>
+                </Press>
+              )}
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: c.codeBg, borderRadius: radius.md, borderWidth: 1, borderColor: c.line }}>
               <View style={{ paddingVertical: 8 }}>
                 {open.content.split('\n').slice(0, 1_500).map((l, i) => (

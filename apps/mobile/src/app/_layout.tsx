@@ -81,6 +81,7 @@ function Shell() {
           <Stack.Screen name="code/new" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="code/env" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="code/[id]" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="code/preview" options={{ animation: 'slide_from_right' }} />
         </Stack>
       </ChatDrawer>
       <ConfirmHost />

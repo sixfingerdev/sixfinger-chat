@@ -6,6 +6,8 @@ import type {
   CodeDiffDTO,
   SlashCommand,
   CodeEnvironmentDTO,
+  CodePreviewDTO,
+  CodeUploadDTO,
   CodePullDTO,
   CodeSessionDTO,
   CodeStatusDTO,
@@ -303,6 +305,11 @@ export const api = {
   codeRewind: (id: string, messageId: string) => request<{ sha: string; session: CodeSessionDTO }>('POST', `/code/sessions/${id}/rewind`, { messageId }),
   /** Arşiv indirme adresi ve yetki başlığı (dosya sistemi indiricisine verilir). */
   codeArchiveRequest: (id: string) => ({ url: `${getApiBase()}/api/code/sessions/${id}/archive`, headers: { authorization: `Bearer ${sessionStore.read()?.accessToken ?? ''}` } }),
+  /** Önizleme bağlantısı (kısa ömürlü token'lı); `url` sunucu köküne göredir. */
+  codePreview: (id: string, body: { path?: string; port?: number; root?: string }) => request<CodePreviewDTO>('POST', `/code/sessions/${id}/preview`, body),
+  codeUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/code/sessions/${id}/upload`, { name, dataBase64 }),
+  /** Tek dosya indirme adresi ve yetki başlığı. */
+  codeDownloadRequest: (id: string, path: string) => ({ url: `${getApiBase()}/api/code/sessions/${id}/download?path=${encodeURIComponent(path)}`, headers: { authorization: `Bearer ${sessionStore.read()?.accessToken ?? ''}` } }),
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
   /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */
   codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),

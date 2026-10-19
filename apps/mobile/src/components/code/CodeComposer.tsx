@@ -7,7 +7,7 @@ import { BUILTIN_COMMANDS, activeMention, expandTemplate, matchCommands, parseSl
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { api } from '../../lib/api.ts';
 import { reportError } from '../../lib/errors.ts';
-import { pickTextFiles } from '../../lib/files.ts';
+import { pickTextFiles, readBase64 } from '../../lib/files.ts';
 import { haptic } from '../../lib/haptics.ts';
 import type { PendingAttachment } from '../../lib/types.ts';
 import { useT } from '../../lib/i18n/index.ts';
@@ -87,12 +87,25 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
     if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.attachMax', { n: limits?.maxAttachments ?? 0 }) });
     const next: PendingAttachment[] = [];
     for (const r of await pickTextFiles(room)) {
-      if (!r.ok) {
-        ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: r.name }) });
+      // Metin dosyaları mesaja gömülür; ikili, boş ya da büyük dosyalar çalışma alanına yüklenir (.sixfinger/uploads/).
+      if (r.ok && !r.file.truncated) {
+        next.push(r.file);
         continue;
       }
-      if (r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: r.file.name, n: r.file.text.length }) });
-      next.push(r.file);
+      const name = r.ok ? r.file.name : r.name;
+      const size = r.size;
+      const mime = r.ok ? r.file.mime : r.mime || 'application/octet-stream';
+      if (size > 2_000_000) {
+        ui.toast({ kind: 'error', text: t('code.upload.tooBig', { name }) });
+        continue;
+      }
+      try {
+        const up = await api.codeUpload(chatId, name, await readBase64(r.uri));
+        next.push({ name: up.name, mime, text: `[File uploaded to ${up.path} (${up.bytes} bytes). It lives outside the repository's tracked files; use it from that path.]`, truncated: false });
+      } catch (err) {
+        ui.toast({ kind: 'error', text: t('code.upload.failed', { name }) });
+        reportError(err);
+      }
     }
     if (next.length) setAttached((cur) => [...cur, ...next]);
   };
