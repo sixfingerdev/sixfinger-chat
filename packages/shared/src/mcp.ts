@@ -4,6 +4,8 @@
  * (sunucu, web ve mobil ortak); hazır katalog `mcp-presets.ts`'tedir.
  */
 
+import type { McpPreset } from './mcp-presets.ts';
+
 export type McpAuthKind = 'none' | 'headers' | 'oauth';
 export type McpScope = 'chat' | 'code';
 
@@ -97,3 +99,29 @@ export function mcpHost(url: string): string {
     return url;
   }
 }
+
+/** `/mcp/presets` yanıtındaki kart: katalog + bu sunucuda kullanılabilir mi (`reason`: yakında / yönetici kaydı gerekiyor). */
+export interface McpPresetView extends McpPreset {
+  available: boolean;
+  reason: 'soon' | 'admin' | null;
+}
+export interface McpPresetsResponse {
+  enabled: boolean;
+  presets: McpPresetView[];
+}
+export interface McpServersResponse {
+  enabled: boolean;
+  servers: McpServerDTO[];
+  limits: typeof MCP_LIMITS;
+  /** OAuth geri dönüş adresi (yönetici istemci kaydı için). */
+  redirectUrl: string;
+}
+
+/** Araç parçasının meta'sında onay kartı verisi var mı (Chat ve Code kartları aynı yolu kullanır). */
+export function approvalOf(meta: Record<string, unknown> | undefined): McpApprovalMeta | null {
+  const a = meta?.approval as Record<string, unknown> | undefined;
+  return a && typeof a.id === 'string' && typeof a.tool === 'string' ? (a as unknown as McpApprovalMeta) : null;
+}
+
+/** Onay kartı düğmelerinin ardından modele giden kısa kullanıcı mesajı anahtarları (i18n). */
+export const MCP_APPROVAL_REPLY = { once: 'mcp.approval.approvedMsg', always: 'mcp.approval.approvedMsg', deny: 'mcp.approval.deniedMsg' } as const;
