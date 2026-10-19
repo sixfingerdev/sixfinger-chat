@@ -20,7 +20,8 @@ import {
   Terminal,
   Wrench,
 } from 'lucide-react';
-import { describeTool, messageParts, type MessageDTO } from '@sixfinger/shared';
+import { approvalOf, describeTool, messageParts, type MessageDTO } from '@sixfinger/shared';
+import { ApprovalCard } from './McpApproval.tsx';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { useChats } from '../store/chats.ts';
@@ -494,19 +495,22 @@ function TaskRow({ part }: { part: ToolPart }) {
   );
 }
 
-function GenericTool({ part }: { part: ToolPart }) {
+function GenericTool({ part, chatId }: { part: ToolPart; chatId: string }) {
   const [open, setOpen] = useState(false);
+  const locale = useLocale();
+  if (approvalOf(part.meta)) return <ApprovalCard part={part} chatId={chatId} />;
+  const label = describeTool(part, locale).label;
   return (
     <>
       <button className="code-row" onClick={() => setOpen(true)}>
         <span className="code-row-icon">
           <Wrench size={14} />
         </span>
-        <span className="code-row-label">{part.name}</span>
+        <span className="code-row-label">{label}</span>
         <ChevronRight size={14} className="code-row-go" />
       </button>
       {open && (
-        <Sheet title={part.name} onClose={() => setOpen(false)}>
+        <Sheet title={label} onClose={() => setOpen(false)}>
           <StepDetail part={part} />
         </Sheet>
       )}
@@ -590,7 +594,7 @@ export const CodeMessage = memo(function CodeMessage({ msg, streaming, actions, 
             case 'skill':
               return <SkillRow key={b.part.id} part={b.part} />;
             default:
-              return <GenericTool key={b.part.id} part={b.part} />;
+              return <GenericTool key={b.part.id} part={b.part} chatId={msg.chatId} />;
           }
         })}
         {!streaming && msg.status === 'stopped' && <div className="msg-note">{t('code.session.stopped')}</div>}

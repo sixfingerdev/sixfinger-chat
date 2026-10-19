@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronRight, CircleAlert, FilePlus, FileText, Globe, Loader, Check, Pencil, Search, Terminal, Wrench } from 'lucide-react';
-import { describeTool, type MessagePartDTO } from '@sixfinger/shared';
+import { approvalOf, describeTool, type MessagePartDTO } from '@sixfinger/shared';
+import { ApprovalCard } from './McpApproval.tsx';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 
 type ToolPart = Extract<MessagePartDTO, { type: 'tool' }>;
@@ -8,7 +9,7 @@ type ToolPart = Extract<MessagePartDTO, { type: 'tool' }>;
 const ICONS = { web_search: Search, web_fetch: Globe, bash: Terminal, read: FileText, write: FilePlus, edit: Pencil } as const;
 
 /** Modelin çağırdığı bir aracın katlanabilir kartı: durum, özet ve (açılınca) girdi/çıktı. */
-export function ToolCard({ part }: { part: ToolPart }) {
+export function ToolCard({ part, chatId }: { part: ToolPart; chatId?: string }) {
   const t = useT();
   const locale = useLocale();
   const [open, setOpen] = useState(false);
@@ -17,6 +18,7 @@ export function ToolCard({ part }: { part: ToolPart }) {
   const running = part.status === 'running';
   const failed = part.status === 'error';
   const canOpen = !running && Boolean(part.output);
+  if (chatId && approvalOf(part.meta)) return <ApprovalCard part={part} chatId={chatId} />;
 
   return (
     <div className={`tool-card${running ? ' running' : ''}${failed ? ' failed' : ''}${open ? ' open' : ''}`}>

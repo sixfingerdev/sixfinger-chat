@@ -1,3 +1,4 @@
+import type { Mcp } from './services/mcp/index.ts';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Config } from './config.ts';
 import type { Db } from './db/pool.ts';
@@ -43,6 +44,8 @@ export interface AppContext {
   codePreview: CodePreview;
   /** Skill'ler: yerleşik, kullanıcı ve repo kaynaklı playbook'lar. */
   skills: Skills;
+  /** MCP bağlayıcıları: kullanıcının uzak MCP sunucuları, OAuth ve araç onayları. */
+  mcp: Mcp;
   /** Sır şifreleme; CODE_SECRET_KEY yoksa null (Code kapalı). */
   secrets: SecretBox | null;
 }

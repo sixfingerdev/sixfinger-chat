@@ -9,6 +9,11 @@ import type {
   CodePreviewDTO,
   SkillDetailDTO,
   SkillListItemDTO,
+  McpApprovalDTO,
+  McpPresetsResponse,
+  McpScope,
+  McpServerDTO,
+  McpServersResponse,
   CodeUploadDTO,
   CodePullDTO,
   CodeSessionDTO,
@@ -321,6 +326,20 @@ export const api = {
   codeImportSkill: (url: string, overwrite = false) => request<{ imported: SkillListItemDTO[]; skipped: number }>('POST', '/code/skills/import', { url, overwrite }),
   codeShareSkill: (name: string, enabled: boolean) => request<{ shareToken: string | null }>('POST', `/code/skills/${encodeURIComponent(name)}/share`, { enabled }),
   codeSharedSkill: (token: string) => request<SkillDetailDTO>('GET', `/code/skills/shared/${encodeURIComponent(token)}`),
+  // ---- MCP bağlayıcıları ----
+  mcpPresets: () => request<McpPresetsResponse>('GET', '/mcp/presets'),
+  mcpServers: () => request<McpServersResponse>('GET', '/mcp/servers'),
+  mcpCreate: (body: { label: string; url: string; preset?: string; headers?: Record<string, string>; scopes?: McpScope[] }) => request<{ server: McpServerDTO }>('POST', '/mcp/servers', body),
+  mcpUpdate: (id: string, body: { label?: string; url?: string; headers?: Record<string, string>; enabled?: boolean; scopes?: McpScope[]; autoApprove?: boolean; allowTools?: string[] }) =>
+    request<{ server: McpServerDTO }>('PATCH', `/mcp/servers/${id}`, body),
+  mcpDelete: (id: string) => request<void>('DELETE', `/mcp/servers/${id}`),
+  mcpRefresh: (id: string) => request<{ server: McpServerDTO }>('POST', `/mcp/servers/${id}/refresh`),
+  /** OAuth: tarayıcıda açılacak adresi döndürür (zaten yetkiliyse authorizeUrl null). */
+  mcpConnect: (id: string, target: 'web' | 'app') => request<{ authorizeUrl: string | null; server: McpServerDTO }>('POST', `/mcp/servers/${id}/connect`, { target }),
+  mcpDisconnect: (id: string) => request<{ server: McpServerDTO }>('POST', `/mcp/servers/${id}/disconnect`),
+  mcpComplete: (code: string, state: string) => request<{ server: McpServerDTO }>('POST', '/mcp/oauth/complete', { code, state }),
+  mcpApproval: (id: string) => request<{ approval: McpApprovalDTO }>('GET', `/mcp/approvals/${id}`),
+  mcpDecide: (id: string, decision: 'once' | 'always' | 'deny') => request<{ approval: McpApprovalDTO }>('POST', `/mcp/approvals/${id}`, { decision }),
   codeImportShared: (token: string, overwrite = false) => request<SkillDetailDTO>('POST', `/code/skills/shared/${encodeURIComponent(token)}/import`, { overwrite }),
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
   /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */

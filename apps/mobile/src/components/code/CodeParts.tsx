@@ -341,7 +341,7 @@ export const CodeSegment = memo(function CodeSegment({ chatId, parts, lastTodoId
           case 'skill':
             return <SkillRow key={b.key} part={p} onOpen={onOpen} />;
           default:
-            return <ToolCard key={b.key} part={p} />;
+            return <ToolCard key={b.key} part={p} chatId={chatId} actions={actions} />;
         }
       })}
     </View>

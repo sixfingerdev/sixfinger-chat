@@ -121,7 +121,7 @@ describe('yedek zinciri', () => {
       return new Response('{}', { status: 429 });
     };
     const calls: string[] = [];
-    const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch, fake('bedrock', calls, 'ok'));
+    const ai = createAi({ ...cfg, AI_DEEP_BASE_URL: '', AI_BALANCED_BASE_URL: '' }, undefined, fetchMock as unknown as typeof fetch, fake('bedrock', calls, 'ok'));
     const t0 = Date.now();
     expect(await collect(ai.stream({ messages: [{ role: 'user', content: 'x' }], mode: 'fast' }))).toEqual([{ type: 'content', text: 'bedrock' }]);
     expect(upstreamCalls).toBe(1);

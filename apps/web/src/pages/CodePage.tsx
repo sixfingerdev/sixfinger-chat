@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Archive, BookOpen, Cloud, Code2, GitBranch, Github, Pin, Plus, Search } from 'lucide-react';
+import { Archive, BookOpen, Cloud, Code2, GitBranch, Github, Pin, Plug, Plus, Search } from 'lucide-react';
 import type { CodeEnvironmentDTO, CodeSessionDTO } from '@sixfinger/shared';
 import { clsx, timeAgo } from '../lib/format.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
@@ -135,6 +135,9 @@ export function CodePage() {
         <section className="code-section">
           <div className="code-section-head">
             <h3>{t('code.environments')}</h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => nav('/connectors')}>
+              <Plug size={14} /> {t('mcp.nav')}
+            </button>
             <button className="btn btn-ghost btn-sm" onClick={() => nav('/code/skills')}>
               <BookOpen size={14} /> {t('code.skills.title')}
             </button>

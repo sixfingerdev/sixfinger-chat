@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.ts';
-import { createAi } from '../src/services/ai.ts';
+import { createAi, stripToolMarkup } from '../src/services/ai.ts';
 
 const config = loadConfig();
+/** Yalnızca Pollinations (Hızlı) yapılandırılmış: uç nokta davranışı testleri için. */
+const solo = { ...config, AI_DEEP_BASE_URL: '', AI_BALANCED_BASE_URL: '' };
 const sse = (chunks: object[]) =>
   new Response(
     new ReadableStream({
@@ -21,7 +23,7 @@ describe('Pollinations sağlayıcısı', () => {
   it('akıştaki reasoning ve content parçalarını ayırır', async () => {
     const fetchMock = async () =>
       sse([delta({ role: 'assistant', content: '' }), delta({ reasoning: 'hmm' }), delta({ content: 'Mer' }), delta({ content: 'haba' })]);
-    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(solo, undefined, fetchMock as unknown as typeof fetch);
     const out: Array<[string, string]> = [];
     for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }] })) if (c.type === 'reasoning' || c.type === 'content') out.push([c.type, c.text]);
     expect(out).toEqual([
@@ -40,7 +42,7 @@ describe('Pollinations sağlayıcısı', () => {
         tc({ index: 0, function: { arguments: 'tanbul"}' } }),
         tc({ index: 1, id: 'c2', type: 'function', function: { name: 'web_fetch', arguments: '{"url":"https://a.com"}' } }),
       ]);
-    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(solo, undefined, fetchMock as unknown as typeof fetch);
     const calls = [];
     for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }] })) if (c.type === 'tool_calls') calls.push(...c.calls);
     expect(calls.map((c) => [c.id, c.function.name, c.function.arguments])).toEqual([
@@ -55,7 +57,7 @@ describe('Pollinations sağlayıcısı', () => {
       sent = JSON.parse(String(init.body));
       return sse([delta({ content: 'ok' })]);
     };
-    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(solo, undefined, fetchMock as unknown as typeof fetch);
     const tools = [{ type: 'function' as const, function: { name: 't', description: 'd', parameters: { type: 'object' } } }];
     for await (const _ of ai.stream({ messages: [{ role: 'user', content: 'x' }], tools })) void _;
     expect(sent.tools).toEqual(tools);
@@ -68,7 +70,7 @@ describe('Pollinations sağlayıcısı', () => {
       calls++;
       return calls === 1 ? new Response('{}', { status: 402 }) : sse([delta({ content: 'tamam' })]);
     };
-    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(solo, undefined, fetchMock as unknown as typeof fetch);
     let text = '';
     for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' })) if (c.type === 'content') text += c.text;
     expect(text).toBe('tamam');
@@ -81,7 +83,7 @@ describe('Pollinations sağlayıcısı', () => {
       calls++;
       return new Response('{}', { status: 400 });
     };
-    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(solo, undefined, fetchMock as unknown as typeof fetch);
     await expect(ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' })).rejects.toMatchObject({
       code: 'upstream_unavailable',
     });
@@ -94,14 +96,14 @@ describe('Pollinations sağlayıcısı', () => {
       sent = JSON.parse(String(init.body));
       return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
     };
-    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(solo, undefined, fetchMock as unknown as typeof fetch);
     expect(await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' })).toBe('ok');
-    expect(sent).toMatchObject({ model: 'openai-fast', stream: false, reasoning_effort: 'low' });
+    expect(sent).toMatchObject({ model: 'openai-fast', stream: false, reasoning_effort: 'high' });
   });
 
   it('iptal sinyali beklemeyi keser', async () => {
     const fetchMock = async () => new Response('{}', { status: 402 });
-    const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+    const ai = createAi(solo, undefined, fetchMock as unknown as typeof fetch);
     const ac = new AbortController();
     setTimeout(() => ac.abort(), 100);
     await expect(
@@ -111,7 +113,7 @@ describe('Pollinations sağlayıcısı', () => {
     ).rejects.toMatchObject({ name: 'AbortError' });
   });
 
-  describe('moda göre sağlayıcı', () => {
+  describe('moda göre sağlayıcı (ücretsizler kapalı)', () => {
     const ok = () => new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
     const run = async (mode: 'fast' | 'balanced' | 'deep', handler: (url: string, body: any) => Response) => {
       const calls: Array<{ url: string; body: any }> = [];
@@ -125,21 +127,145 @@ describe('Pollinations sağlayıcısı', () => {
       return { calls, text };
     };
 
-    it('fast Pollinations, balanced gpt-oss-120b, deep Qwen kullanır; düşünme derinliği Qwen\'e gitmez', async () => {
-      const low = await run('fast', ok);
-      expect(low.calls[0]).toMatchObject({ url: config.AI_BASE_URL, body: { model: 'openai-fast', reasoning_effort: 'medium' } });
-      const mid = await run('balanced', ok);
-      expect(mid.calls[0]!.url).toBe(config.AI_BALANCED_BASE_URL);
-      expect(mid.calls[0]!.body).toMatchObject({ model: 'gpt-oss-120b', reasoning_effort: 'medium' });
-      const high = await run('deep', ok);
-      expect(high.calls[0]!.body.model).toBe('Qwen3.8-27B');
-      expect(high.calls[0]!.body).not.toHaveProperty('reasoning_effort');
+    it('güç sırası: Qwen önde, sonra gpt-oss-120b, en sonda gpt-oss-20b; Qwen\'e düşünme düzeyi gitmez, gpt-oss\'a high gider', async () => {
+      const first = await run('deep', ok);
+      expect(first.calls).toHaveLength(1);
+      expect(first.calls[0]!.body.model).toBe('Qwen3.8-27B');
+      expect(first.calls[0]!.body).not.toHaveProperty('reasoning_effort');
+      const all = await run('deep', (url) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 })));
+      expect(all.calls.map((c) => c.body.model)).toEqual(['Qwen3.8-27B', 'gpt-oss-120b', 'openai-fast']);
+      expect(all.calls[1]!.body.reasoning_effort).toBe('high');
+      expect(all.calls[2]!.body.reasoning_effort).toBe('high');
     });
 
-    it('Dengeli/Derin sağlayıcı hata verirse Hızlı sağlayıcıya düşer', async () => {
-      const r = await run('deep', (url) => (url === config.AI_DEEP_BASE_URL ? new Response('{}', { status: 400 }) : ok()));
-      expect(r.text).toBe('ok');
-      expect(r.calls.map((c) => c.body.model)).toEqual(['Qwen3.8-27B', 'openai-fast']);
+    it('AI_BALANCED_BASE_URL boşsa Dengeli o adımı atlar', async () => {
+      const calls: string[] = [];
+      const ai = createAi({ ...config, AI_BALANCED_BASE_URL: '' }, undefined, (async (_u: string, init: RequestInit) => {
+        calls.push(JSON.parse(String(init.body)).model);
+        return new Response('{}', { status: 400 });
+      }) as unknown as typeof fetch);
+      await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'balanced' }).catch(() => '');
+      expect(calls).toEqual(['Qwen3.8-27B', 'openai-fast']);
+    });
+  });
+
+  describe('ücretsiz sağlayıcılar (LLM7 + Kilo)', () => {
+    const cfg = { ...config, AI_FREE_ENABLED: true, LLM7_API_KEY: 'k-test' };
+    const ok = () => new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
+    const run = async (mode: 'fast' | 'balanced' | 'deep', handler: (url: string, body: any, auth: string | undefined) => Response, c = cfg) => {
+      const calls: Array<{ url: string; model: string; auth?: string }> = [];
+      const fetchMock = async (url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body));
+        const auth = (init.headers as Record<string, string>).authorization;
+        calls.push({ url, model: body.model, auth });
+        return handler(url, body, auth);
+      };
+      const ai = createAi(c, undefined, fetchMock as unknown as typeof fetch);
+      const text = await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode, effort: 'medium' });
+      return { calls, text };
+    };
+    const llm7 = cfg.LLM7_BASE_URL;
+
+    it('Hızlı: MiniMax önde, sonra DeepSeek (anahtarla) → GLM → Qwen → gpt-oss-120b → gpt-oss-20b', async () => {
+      const first = await run('fast', ok);
+      expect(first.calls.map((c) => c.model)).toEqual(['minimax/minimax-m3.1-flash:free']);
+      const second = await run('fast', (url) => (url === llm7 ? ok() : new Response('{}', { status: 400 })));
+      expect(second.calls).toEqual([
+        { url: cfg.KILO_BASE_URL, model: 'minimax/minimax-m3.1-flash:free', auth: undefined },
+        { url: llm7, model: 'DeepSeek-V4-Flash-0731', auth: 'Bearer k-test' },
+      ]);
+      const all = await run('fast', (url) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 })));
+      expect(all.calls.map((c) => c.model)).toEqual(['minimax/minimax-m3.1-flash:free', 'DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'gpt-oss-120b', 'openai-fast']);
+    });
+
+    it('LLM7 anahtarı reddedilirse (402) aynı istek anahtarsız yeniden denenir ve bir süre anahtar kullanılmaz', async () => {
+      let n = 0;
+      const calls: Array<string | undefined> = [];
+      const fetchMock = async (_u: string, init: RequestInit) => {
+        const auth = (init.headers as Record<string, string>).authorization;
+        calls.push(auth);
+        return auth && n++ === 0 ? new Response('{"error":"balance"}', { status: 402 }) : ok();
+      };
+      const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
+      const req = { messages: [{ role: 'user' as const, content: 'x' }], mode: 'deep' as const };
+      expect(await ai.complete(req)).toBe('ok');
+      expect(await ai.complete(req)).toBe('ok');
+      expect(calls).toEqual(['Bearer k-test', undefined, undefined]);
+    });
+
+    it('kota dolduğunda (429 + uzun retry-after) anahtarsız dener; o da dolarsa uç bir süre atlanır', async () => {
+      const calls: Array<string | undefined> = [];
+      const fetchMock = async (_u: string, init: RequestInit) => {
+        calls.push((init.headers as Record<string, string>).authorization);
+        return new Response('{"error":{"message":"Daily token quota exceeded","type":"insufficient_quota"}}', { status: 429, headers: { 'retry-after': '3600' } });
+      };
+      const only = { ...cfg, KILO_BASE_URL: '', LLM7_MODEL_2: '', AI_BASE_URL: 'https://p.example/x', AI_BALANCED_BASE_URL: '', AI_DEEP_BASE_URL: '' };
+      const ai = createAi(only, undefined, fetchMock as unknown as typeof fetch);
+      const req = { messages: [{ role: 'user' as const, content: 'x' }], mode: 'fast' as const, failFast: true };
+      await expect(ai.complete(req)).rejects.toMatchObject({ status: 503 });
+      expect(calls.slice(0, 2)).toEqual(['Bearer k-test', undefined]);
+      const before = calls.length;
+      await expect(ai.complete(req)).rejects.toMatchObject({ status: 503 });
+      // LLM7 artık denenmez (bekleme süresi), yalnızca son sağlayıcıya gidilir.
+      expect(calls.length - before).toBeLessThanOrEqual(2);
+    });
+
+    it('Derin: DeepSeek → GLM → Qwen → MiniMax → gpt-oss-120b → gpt-oss-20b; Dengeli: gpt-oss-120b → MiniMax → GLM → DeepSeek → Qwen …', async () => {
+      const failAll = (url: string) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 }));
+      const deep = await run('deep', failAll);
+      expect(deep.calls.map((c) => c.model)).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B', 'minimax/minimax-m3.1-flash:free', 'gpt-oss-120b', 'openai-fast']);
+      const mid = await run('balanced', failAll);
+      expect(mid.calls.map((c) => c.model)).toEqual(['gpt-oss-120b', 'minimax/minimax-m3.1-flash:free', 'GLM-5.3-Flash', 'DeepSeek-V4-Flash-0731', 'Qwen3.8-27B', 'openai-fast']);
+    });
+
+    it('Code: varsayılan Qwen→(Claude); AI_FREE_FOR_CODE açıkken DeepSeek→GLM→Qwen (MiniMax yok)', async () => {
+      const code = async (c: typeof cfg) => {
+        const models: string[] = [];
+        const fetchMock = async (_u: string, init: RequestInit) => {
+          models.push(JSON.parse(String(init.body)).model);
+          return new Response('{}', { status: 400 });
+        };
+        const ai = createAi(c, undefined, fetchMock as unknown as typeof fetch);
+        await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'deep', route: 'code' }).catch(() => '');
+        return models;
+      };
+      expect(await code(cfg)).toEqual(['Qwen3.8-27B']);
+      expect(await code({ ...cfg, AI_FREE_FOR_CODE: true })).toEqual(['DeepSeek-V4-Flash-0731', 'GLM-5.3-Flash', 'Qwen3.8-27B']);
+    });
+
+    it('reasoning_effort: ücretsiz modellere max, gpt-oss\'a high gider; AI_MAX_EFFORT kapalıysa kullanıcı düzeyi', async () => {
+      const efforts: Record<string, string> = {};
+      const fetchMock = async (_u: string, init: RequestInit) => {
+        const b = JSON.parse(String(init.body));
+        efforts[b.model] = b.reasoning_effort;
+        return new Response('{}', { status: 400 });
+      };
+      const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
+      await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' }).catch(() => '');
+      expect(efforts).toEqual({ 'DeepSeek-V4-Flash-0731': 'max', 'GLM-5.3-Flash': 'max', 'minimax/minimax-m3.1-flash:free': 'max', 'Qwen3.8-27B': undefined, 'gpt-oss-120b': 'high', 'openai-fast': 'high' });
+      const user: Record<string, string> = {};
+      const ai2 = createAi({ ...cfg, AI_MAX_EFFORT: false }, undefined, (async (_u: string, init: RequestInit) => {
+        const b = JSON.parse(String(init.body));
+        user[b.model] = b.reasoning_effort;
+        return new Response('{}', { status: 400 });
+      }) as unknown as typeof fetch);
+      await ai2.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast', effort: 'low' }).catch(() => '');
+      expect(Object.entries(user).filter(([m]) => m !== 'Qwen3.8-27B').every(([, v]) => v === 'low')).toBe(true);
+    });
+
+    it('AI_FREE_ENABLED kapalıyken zincire girmez', async () => {
+      const r = await run('fast', (url) => (url === config.AI_BASE_URL ? ok() : new Response('{}', { status: 400 })), { ...cfg, AI_FREE_ENABLED: false });
+      expect(r.calls.map((c) => c.model)).toEqual(['Qwen3.8-27B', 'gpt-oss-120b', 'openai-fast']);
+    });
+
+    it('aynı araç çağrısını tekrar eden modelde (GLM) tek çağrı kalır; DeepSeek ayraçları düz metinden silinir', async () => {
+      const tc = (i: number, id: string, args: string) => delta({ tool_calls: [{ index: i, id, type: 'function', function: { name: 'get', arguments: args } }] });
+      const fetchMock = async () => sse([tc(0, 'a', '{"c":"x"}'), tc(1, 'b', '{"c":"x"}'), tc(2, 'c', '{"c":"y"}')]);
+      const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
+      const calls = [];
+      for await (const c of ai.stream({ messages: [{ role: 'user', content: 'x' }], mode: 'fast' })) if (c.type === 'tool_calls') calls.push(...c.calls);
+      expect(calls.map((c) => c.id)).toEqual(['a', 'c']);
+      expect(stripToolMarkup('Merhaba<｜｜tool▁calls▁begin｜｜><｜｜tool▁call▁begin｜｜>get<｜｜tool▁sep｜｜>{}<｜｜tool▁call▁end｜｜><｜｜tool▁calls▁end｜｜>')).toBe('Merhaba');
     });
   });
 
@@ -165,7 +291,7 @@ describe('Pollinations sağlayıcısı', () => {
       );
 
     it('toplam süre bağlanma süresini aşan ama akmaya devam eden yanıtı kesmez', async () => {
-      const cfg = { ...config, AI_TIMEOUT_MS: 80 };
+      const cfg = { ...solo, AI_TIMEOUT_MS: 80 };
       const fetchMock = async (_u: string, init: RequestInit) => slow(init.signal, Array.from({ length: 12 }, (_, i) => `p${i} `), 25);
       const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
       let text = '';
@@ -174,7 +300,7 @@ describe('Pollinations sağlayıcısı', () => {
     });
 
     it('akış arası sessizlik uzun sürerse anlaşılır bir hatayla kesilir', async () => {
-      const cfg = { ...config, AI_IDLE_TIMEOUT_MS: 150 };
+      const cfg = { ...solo, AI_IDLE_TIMEOUT_MS: 150 };
       const fetchMock = async (_u: string, init: RequestInit) => slow(init.signal, ['bir'], 10, true);
       const ai = createAi(cfg, undefined, fetchMock as unknown as typeof fetch);
       const got: string[] = [];
@@ -192,7 +318,7 @@ describe('Pollinations sağlayıcısı', () => {
         sent = JSON.parse(String(init.body));
         return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 });
       };
-      const ai = createAi(config, undefined, fetchMock as unknown as typeof fetch);
+      const ai = createAi(solo, undefined, fetchMock as unknown as typeof fetch);
       await ai.complete({ messages: [{ role: 'user', content: 'x' }], mode: 'fast' });
       expect(sent.max_tokens).toBe(config.AI_MAX_TOKENS);
       expect(config.AI_MAX_TOKENS).toBeGreaterThanOrEqual(16_000);

@@ -59,19 +59,29 @@ packages/
 docs/       API, dağıtım ve Android rehberleri
 ```
 
-Yapay zekâ sağlayıcıları (çalışma moduna göre, `apps/server/src/services/ai.ts`):
+Yapay zekâ sağlayıcıları (`apps/server/src/services/ai.ts`). Her mod, yapılandırılmış sağlayıcıları bir **sırayla** dener; biri yanıt vermeye başlamadan hata verirse (200 dışı yanıt, hız sınırı, kesinti, boş yanıt) sıradakine geçilir.
 
-| Mod | Sağlayıcı / model | Ayarlar |
+| Sağlayıcı | Model | Ayarlar |
 |---|---|---|
-| Hızlı | Pollinations `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
-| Dengeli | OVH AI Endpoints `gpt-oss-120b` | `AI_BALANCED_BASE_URL`, `AI_BALANCED_MODEL`, `AI_BALANCED_API_KEY` |
-| Derin | OVH AI Endpoints `Qwen3.8-27B` (akıl yürütmeli) | `AI_DEEP_BASE_URL`, `AI_DEEP_MODEL`, `AI_DEEP_API_KEY` |
+| LLM7 | `DeepSeek-V4-Flash-0731` (en güçlü, en hızlı) ve `GLM-5.3-Flash` — ücretsiz, anahtarsız da çalışır | `LLM7_BASE_URL`, `LLM7_MODEL`, `LLM7_MODEL_2`, `LLM7_API_KEY` |
+| Kilo | `minimax/minimax-m3.1-flash:free` — ücretsiz, anahtarsız | `KILO_BASE_URL`, `KILO_MODEL`, `KILO_API_KEY` |
+| OVH AI Endpoints | `Qwen3.8-27B` (Derin; Code'un ana modeli) ve `gpt-oss-120b` (Dengeli) | `AI_DEEP_*`, `AI_BALANCED_*` |
+| Amazon Bedrock | Claude (isteğe bağlı yedek, bkz. [docs/bedrock.md](docs/bedrock.md)) | `BEDROCK_*` |
+| Pollinations | `openai-fast` (GPT-OSS 20B) | `AI_BASE_URL`, `AI_MODEL`, `AI_API_KEY` |
 
-Hepsi OpenAI uyumlu uçlardır (Dengeli `reasoning_effort` gönderir; Derin göndermez — Qwen bununla boş yanıt verir, o yüzden Derin'e başka bir model koyarsan `ai.ts`'teki bayrağı gözden geçir). Dengeli/Derin sağlayıcı yanıt vermeye başlamadan hata verirse istek otomatik olarak Hızlı
-sağlayıcıya düşer; `AI_BALANCED_BASE_URL=` (boş) vermek o modu doğrudan Hızlı'ya yönlendirir.
-Başlık üretimi ve hafıza gibi arka plan işleri Hızlı sağlayıcıyı kullanır.
-**Yedek:** bunlardan biri hata verir, hız sınırına takılır ya da boş yanıt dönerse istek otomatik olarak Amazon Bedrock'taki
-Claude'a düşer (isteğe bağlı; bkz. [docs/bedrock.md](docs/bedrock.md)).
+Güç sırası: DeepSeek > GLM > Qwen > MiniMax = Claude > gpt-oss-120b > gpt-oss-20b. Hız sırası: DeepSeek > MiniMax > diğerleri (eşit). Modların başındaki model sabit (Hızlı: MiniMax, Dengeli: gpt-oss-120b, Derin: DeepSeek); gerisi güç/hız sırasına göre dizilir:
+
+| Mod | Sıra |
+|---|---|
+| Hızlı | **MiniMax** → DeepSeek → GLM → Qwen → gpt-oss-120b → gpt-oss-20b → Claude |
+| Dengeli | **gpt-oss-120b** → MiniMax → GLM → DeepSeek → Qwen → Claude → gpt-oss-20b |
+| Derin | DeepSeek → GLM → Qwen → MiniMax → Claude → gpt-oss-120b → gpt-oss-20b |
+
+Yapılandırılmamış sağlayıcılar (`*_BASE_URL` boş, Bedrock yok) atlanır; `AI_FREE_ENABLED=false` DeepSeek/GLM/MiniMax'i zincirden çıkarır. Başlık üretimi ve hafıza gibi arka plan işleri de aynı zinciri kullanır.
+Hepsi OpenAI uyumlu uçlardır. `reasoning_effort` destekleyen modellere her zaman en yüksek düzey gider (gpt-oss: `high`, DeepSeek/GLM/MiniMax: `max`; Qwen göndermez — bununla boş yanıt verir); menüdeki düşünme düzeyi bunlarda etkisizdir, `AI_MAX_EFFORT=false` kullanıcının seçtiği düzeye döner.
+
+**Ücretsiz sağlayıcıların koruması:** `LLM7_API_KEY` isteğe bağlıdır; anahtar reddedilir (401/402/403) ya da kotası dolarsa (429) 10 dakika anahtarsız denenir; ≥ 1 dk beklemesi istenen uç o süre atlanır. **Code**'da varsayılan olarak
+kullanılmazlar (depo içeriği üçüncü taraf servislere gider): Code (Auto) zinciri Qwen → Claude'dur; `AI_FREE_FOR_CODE=true` ile DeepSeek → GLM → Qwen → Claude olur (güç sırası). Önce Pi'de `apps/server/scripts/code-smoke.ts` ile ölçüp aç.
 
 İstemci iki ayrı değer gönderir: `mode` (`fast`/`balanced`/`deep`, hangi model) ve `effort` (`low`/`medium`/`high`, düşünme düzeyi).
 Düşünme düzeyi Hızlı ve Dengeli'de uygulanır; Derin'de menüde gizlenir. `mode` göndermeyen eski istemcilerde `effort` modu belirler.

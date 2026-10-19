@@ -1,0 +1,300 @@
+/* Bağlayıcılar (MCP): katalog kartları, sunucu ayrıntısı ve araç onay kartı. Tek renkli; mevcut token'lar. */
+.mcp-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+}
+.mcp-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.mcp-card.disabled {
+  opacity: 0.6;
+}
+.mcp-card-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mcp-card-title {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.mcp-card-title strong {
+  font-size: 14.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mcp-rank {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.mcp-tag {
+  font-style: normal;
+  font-weight: 500;
+  font-size: 11px;
+  padding: 1px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--text-2);
+}
+.mcp-card-desc {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.mcp-card-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.mcp-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 15px;
+}
+.mcp-logo {
+  display: block;
+  object-fit: contain;
+}
+.mcp-logo.dark {
+  display: none;
+}
+:root[data-theme='dark'] .mcp-logo.dark {
+  display: block;
+}
+:root[data-theme='dark'] .mcp-avatar .mcp-logo.light:not(:only-child) {
+  display: none;
+}
+.mcp-row-title {
+  font-family: var(--font-sans);
+}
+.mcp-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
+}
+.mcp-chip.ok {
+  color: var(--text);
+}
+.mcp-chip.auth,
+.mcp-chip.write {
+  border-style: dashed;
+}
+.mcp-chip.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.mcp-chip.off {
+  color: var(--text-3);
+}
+.mcp-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mcp-detail-head > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mcp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.mcp-danger {
+  color: var(--danger);
+}
+.mcp-warn {
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  margin: 8px 0;
+  font-size: 13.5px;
+}
+.mcp-warn p {
+  margin: 0;
+}
+.mcp-tools-title {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.mcp-tools-title em {
+  font-style: normal;
+  margin-left: 6px;
+  color: var(--text-2);
+}
+.mcp-tools {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.mcp-tools li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.mcp-tool-main {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.mcp-tool-main code {
+  font-size: 13px;
+}
+.mcp-tool-main span {
+  font-size: 12.5px;
+  color: var(--text-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mcp-allow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.mcp-header-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.mcp-choice {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0;
+}
+.mcp-choice button {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.mcp-choice button.on {
+  border-color: var(--text);
+  color: var(--text);
+  background: var(--surface-2);
+}
+.sidebar-link {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+/* Araç onay kartı (Chat ve Code mesajlarında) */
+.mcp-approval {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  border: 1px solid var(--text-3);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.mcp-approval.done {
+  border-color: var(--line);
+}
+.mcp-approval-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mcp-approval-state {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.mcp-approval-state.ok {
+  color: var(--text);
+}
+.mcp-approval-body {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.mcp-args-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.mcp-args-toggle svg {
+  transition: transform var(--t-fast);
+}
+.mcp-args-toggle svg.open {
+  transform: rotate(90deg);
+}
+.mcp-args {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 12.5px;
+  overflow: auto;
+  max-height: 220px;
+}
+.mcp-approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.switch.sm {
+  transform: scale(0.82);
+  transform-origin: left center;
+}

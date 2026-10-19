@@ -154,7 +154,7 @@ export const AssistantSegment = memo(function AssistantSegment({ msg, parts, onM
         }}
         style={{ minWidth: 0 }}
       >
-        {parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : p.type === 'tool' ? <ToolCard key={p.id} part={p} /> : null))}
+        {parts.map((p, i) => (p.type === 'text' ? <RichText key={`t${i}`} text={p.text} /> : p.type === 'tool' ? <ToolCard key={p.id} part={p} chatId={msg.chatId} /> : null))}
       </Press>
     </View>
   );

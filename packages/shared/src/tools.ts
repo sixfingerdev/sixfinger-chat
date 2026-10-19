@@ -1,6 +1,7 @@
 import type { MessagePartDTO } from './types.ts';
 import { en } from './i18n/en.ts';
 import { tr } from './i18n/tr.ts';
+import { splitMcpToolName } from './mcp.ts';
 
 type ToolPart = Extract<MessagePartDTO, { type: 'tool' }>;
 
@@ -31,7 +32,10 @@ export function describeTool(part: ToolPart, locale: 'tr' | 'en'): { label: stri
       return { label: running ? d['tool.running.write'] : d['tool.write'], detail: String(part.args.path ?? '') };
     case 'edit':
       return { label: running ? d['tool.running.edit'] : d['tool.edit'], detail: String(part.args.path ?? '') };
-    default:
+    default: {
+      const m = splitMcpToolName(part.name);
+      if (m) return { label: `${String(part.meta?.server ?? m.server)} › ${String(part.meta?.tool ?? m.tool)}`, detail: '' };
       return { label: part.name, detail: '' };
+    }
   }
 }

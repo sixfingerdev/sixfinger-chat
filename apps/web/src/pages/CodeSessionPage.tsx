@@ -143,6 +143,12 @@ export function CodeSessionPage() {
   // Çalışma süresi sayacı ve çalışan alt ajan sayısı (durum çubuğu).
   const [startedAt, setStartedAt] = useState(0);
   useEffect(() => setStartedAt(generating ? Date.now() : 0), [Boolean(generating)]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Sunucu evre süresi göndermese bile sayaç yanıtın sunucudaki oluşturulma zamanından sürer (yeniden açılışta sıfırlanmaz).
+  const streamingSince = useMemo(() => {
+    const m = path.find((x) => x.id === generating?.assistantId);
+    const t = m ? Date.parse(m.createdAt) : NaN;
+    return Number.isFinite(t) && t <= Date.now() && Date.now() - t < 6 * 3_600_000 ? t : 0;
+  }, [path, generating?.assistantId]);
   const runningTasks = useMemo(() => {
     const m = path.find((x) => x.id === generating?.assistantId);
     return m ? m.parts.filter((p) => p.type === 'tool' && p.name === 'task' && p.status === 'running').length : 0;
@@ -285,7 +291,7 @@ export function CodeSessionPage() {
         )}
       </div>
       <div className="code-bottom">
-        {generating && <CodeRunStatus live={live} startedAt={live?.startedAt ?? startedAt} runningTasks={runningTasks} />}
+        {generating && <CodeRunStatus live={live} startedAt={live?.startedAt ?? (streamingSince || startedAt)} runningTasks={runningTasks} />}
         {session && ((changes && (changes.additions > 0 || changes.deletions > 0)) || pr) && (
           <div className="chip-row">
             {changes && (changes.additions > 0 || changes.deletions > 0) && (

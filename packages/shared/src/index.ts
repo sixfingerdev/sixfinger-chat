@@ -20,3 +20,6 @@ export * from './code-commands.ts';
 export * from './code-files.ts';
 export * from './code-export.ts';
 export * from './skills.ts';
+export * from './mcp.ts';
+export * from './mcp-presets.ts';
+export * from './mcp-logos.ts';

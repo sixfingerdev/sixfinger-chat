@@ -188,7 +188,7 @@ function AssistantMessage({ msg, versions, isLast, live, busy }: Props) {
           ) : p.type === 'text' ? (
             <RichText key={`t${i}`} text={p.text} />
           ) : (
-            <ToolCard key={p.id} part={p} />
+            <ToolCard key={p.id} part={p} chatId={msg.chatId} />
           ),
         )}
         {!streaming && msg.status === 'stopped' && <div className="msg-note">{t('msg.stopped')}</div>}

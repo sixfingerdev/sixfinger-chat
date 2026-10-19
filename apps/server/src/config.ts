@@ -37,6 +37,24 @@ const schema = z.object({
   AI_DEEP_MODEL: z.string().default('Qwen3.8-27B'),
   AI_DEEP_API_KEY: z.string().optional().default(''),
   /**
+   * Ücretsiz sağlayıcılar (OpenAI uyumlu). LLM7: DeepSeek ana, GLM ikinci; anahtar isteğe bağlıdır (anahtar 401/402/403/kota verirse
+   * anahtarsız denenir). Kilo: MiniMax, anahtarsız. Chat'te mod sırası `ai.ts`'tedir (DeepSeek her modda önde). `*_BASE_URL` boşsa o
+   * sağlayıcı kapalıdır. Code'da yalnızca `AI_FREE_FOR_CODE` açıksa Auto zinciri DeepSeek → GLM → Qwen → Claude olur (depo içeriği üçüncü taraf
+   * ücretsiz servislere gideceği için varsayılan kapalı).
+   */
+  AI_FREE_ENABLED: z
+    .enum(['true', 'false', '1', '0', ''])
+    .optional()
+    .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
+  AI_FREE_FOR_CODE: bool,
+  LLM7_BASE_URL: z.string().default('https://api.llm7.io/v1/chat/completions'),
+  LLM7_API_KEY: z.string().optional().default(''),
+  LLM7_MODEL: z.string().default('DeepSeek-V4-Flash-0731'),
+  LLM7_MODEL_2: z.string().default('GLM-5.3-Flash'),
+  KILO_BASE_URL: z.string().default('https://api.kilo.ai/api/gateway/chat/completions'),
+  KILO_API_KEY: z.string().optional().default(''),
+  KILO_MODEL: z.string().default('minimax/minimax-m3.1-flash:free'),
+  /**
    * Yedek: Amazon Bedrock'taki Claude (Converse API). Diğer sağlayıcılar hata verirse (hız sınırı, kesinti, 200 dışı yanıt,
    * boş yanıt) istek buraya düşer. `BEDROCK_MODEL_ID` ve bir kimlik bilgisi (API anahtarı ya da IAM anahtarı) verilmezse kapalıdır.
    */
@@ -46,6 +64,11 @@ const schema = z.object({
   BEDROCK_ACCESS_KEY_ID: z.string().optional().default(''),
   BEDROCK_SECRET_ACCESS_KEY: z.string().optional().default(''),
   BEDROCK_SESSION_TOKEN: z.string().optional().default(''),
+  /** Açıkken `reasoning_effort` destekleyen modellere kullanıcı düzeyi yerine modelin en yüksek düzeyi gönderilir (gpt-oss `high`, ücretsiz modeller `max`). */
+  AI_MAX_EFFORT: z
+    .enum(['true', 'false', '1', '0', ''])
+    .optional()
+    .transform((v) => v === undefined || v === '' || v === 'true' || v === '1'),
   AI_MAX_CONCURRENCY: z.coerce.number().int().min(1).default(2),
   /** Üst servise bağlanma / ilk yanıt (başlıklar) ve akışsız çağrılar için süre. Akış başladıktan sonra uygulanmaz. */
   AI_TIMEOUT_MS: z.coerce.number().int().min(5_000).default(120_000),
@@ -70,6 +93,15 @@ const schema = z.object({
    * SixFinger Code. GitHub OAuth uygulaması (Client ID/Secret) ve token'ları şifreleyen anahtar (en az 32 karakter,
    * JWT_SECRET'tan ayrı; değiştirilirse kayıtlı GitHub bağlantıları ve ortam değişkenleri çözülemez). Üçü de yoksa Code kapalıdır.
    */
+  /** MCP bağlayıcıları: istemci kaydı sunucu yöneticisinde olan OAuth sağlayıcıları (Google, Slack, HubSpot). Boşsa o kartlar pasif. */
+  MCP_GOOGLE_CLIENT_ID: z.string().optional().default(''),
+  MCP_GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+  MCP_SLACK_CLIENT_ID: z.string().optional().default(''),
+  MCP_SLACK_CLIENT_SECRET: z.string().optional().default(''),
+  MCP_HUBSPOT_CLIENT_ID: z.string().optional().default(''),
+  MCP_HUBSPOT_CLIENT_SECRET: z.string().optional().default(''),
+  /** MCP bağlayıcıları açık mı (CODE_SECRET_KEY de gerekir). */
+  MCP_ENABLED: z.string().optional().default('true'),
   GITHUB_CLIENT_ID: z.string().optional().default(''),
   GITHUB_CLIENT_SECRET: z.string().optional().default(''),
   /** OAuth geri dönüş adresi. Boşsa PUBLIC_WEB_URL + /api/code/github/callback. GitHub uygulamasındaki adresle birebir aynı olmalı. */

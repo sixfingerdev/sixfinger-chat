@@ -19,6 +19,8 @@ import { runCodeGeneration, type CodeRunInput } from '../services/code-run.ts';
 import { HttpError, badRequest, conflict, forbidden, notFound, tierRestricted } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
 import type { AiMessage, AiToolCall, Effort } from '../services/ai.ts';
+import { isMcpToolName, type McpApprovalMeta } from '@sixfinger/shared';
+import { connectorsSection } from '../services/mcp/prompt.ts';
 import { runToolCall, toolSpecs } from '../services/tools/index.ts';
 import {
   MESSAGE_COLUMNS,
@@ -180,7 +182,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     // Code çalıştırmasında süre ya da adım sınırı yoktur: frenler döngü kırıcı, kredi, bağlam doluluğu ve kullanıcının Durdur'udur.
     void (async () => {
       try {
-        await runCodeGeneration({ db, ai, tools, sandbox: ctx.codeSandbox, code, queue: ctx.codeQueue, config, log, git: ctx.codeGit, skills: ctx.skills }, run, g);
+        await runCodeGeneration({ db, ai, tools, sandbox: ctx.codeSandbox, code, queue: ctx.codeQueue, config, log, git: ctx.codeGit, skills: ctx.skills, mcp: ctx.mcp }, run, g);
       } catch (err) {
         log.error({ err }, 'Code üretimi beklenmedik şekilde sonlandı');
         run.emit({ type: 'error', code: 'internal', message: 'Beklenmeyen bir hata oluştu.' });
@@ -197,7 +199,10 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     const { chat, user } = g;
     // Eski kodla uyum: `stream` üretimin olay gönderici ve iptal sinyali görünümüdür.
     const stream = { signal: run.signal, send: (e: StreamEvent) => run.emit(e) };
-    const system = await loadPromptContext(user, chat.persona_id).catch(() => '');
+    // Bağlayıcılar (MCP): araç listesi veritabanı önbelleğinden gelir; misafir kullanamaz.
+    const mcpSet = user.isGuest ? null : await ctx.mcp.toolsFor(user.id, 'chat').catch(() => null);
+    const connectors = mcpSet ? connectorsSection(mcpSet) : '';
+    const system = ((await loadPromptContext(user, chat.persona_id).catch(() => '')) + (connectors ? `\n\n${connectors}` : '')).trim();
     const assistantRow = await db.query<MessageRow>(`select ${MESSAGE_COLUMNS} from messages where id = $1`, [g.assistantId]);
     stream.send({ type: 'start', userMessage: g.userMessage, assistantMessage: toMessageDTO(assistantRow.rows[0]!) });
 
@@ -236,7 +241,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       ]).catch(() => {});
     };
 
-    const defs = toolsFor(user);
+    const defs = [...toolsFor(user), ...(mcpSet?.defs ?? [])];
     const specs = toolSpecs(defs);
     // Araç yoksa tek tur; varsa kullanıcı katmanının izin verdiği kadar tur. Son turda araç verilmez:
     // model elindekiyle cevabı yazmak zorunda kalır.
@@ -311,6 +316,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
 
         // Modelin araç isteğini konuşmaya ekle, sonra çalıştır.
         messages.push({ role: 'assistant', content: stepText, tool_calls: calls });
+        let waitingApproval: McpApprovalMeta | null = null;
         for (const call of calls.slice(0, 4)) {
           let shownArgs: Record<string, unknown> = {};
           try {
@@ -345,13 +351,31 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           part.output = run.output;
           part.summary = run.summary;
           part.ms = run.ms;
-          stream.send({ type: 'tool_end', id: part.id, status: run.status, output: run.output, summary: run.summary, ms: run.ms });
+          // MCP araçlarının meta'sı (onay kartı verisi) istemciye de gider; diğer araçların meta'sı değişmedi.
+          const mcpMeta = isMcpToolName(call.function.name) ? run.meta : undefined;
+          if (mcpMeta) part.meta = mcpMeta;
+          stream.send({ type: 'tool_end', id: part.id, status: run.status, output: run.output, summary: run.summary, ms: run.ms, ...(mcpMeta ? { meta: mcpMeta } : {}) });
           messages.push({ role: 'tool', tool_call_id: call.id, content: run.output });
+          if (mcpMeta?.terminal === true && mcpMeta.approval) {
+            waitingApproval = mcpMeta.approval as McpApprovalMeta;
+            break;
+          }
         }
         for (const extra of calls.slice(4)) {
           messages.push({ role: 'tool', tool_call_id: extra.id, content: 'Hata: Aynı turda en fazla 4 araç çağrılabilir.' });
         }
         await saveParts();
+        if (waitingApproval) {
+          // Onay bekleniyor: tur biter, kullanıcı kartta karar verince yeni mesajla devam eder.
+          const note = `${content.trim() ? '\n\n' : ''}*${user.locale === 'tr' ? `${waitingApproval.server} › ${waitingApproval.tool} için onayını bekliyorum.` : `Waiting for your approval: ${waitingApproval.server} › ${waitingApproval.tool}.`}*`;
+          closeReasoning();
+          content += note;
+          const last = parts[parts.length - 1];
+          if (last?.type === 'text') last.text += note;
+          else parts.push({ type: 'text', text: note });
+          stream.send({ type: 'delta', delta: note });
+          break;
+        }
       }
       if (!content.trim()) {
         status = 'error';

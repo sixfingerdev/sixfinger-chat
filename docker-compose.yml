@@ -38,6 +38,14 @@ services:
       AI_DEEP_MODEL: ${AI_DEEP_MODEL:-Qwen3.8-27B}
       AI_DEEP_API_KEY: ${AI_DEEP_API_KEY:-}
       # Yedek model (Amazon Bedrock'ta Claude): diğer sağlayıcılar hata verirse devreye girer. Boşsa kapalı (bkz. docs/bedrock.md).
+      AI_MAX_EFFORT: ${AI_MAX_EFFORT:-true}
+      AI_FREE_ENABLED: ${AI_FREE_ENABLED:-true}
+      AI_FREE_FOR_CODE: ${AI_FREE_FOR_CODE:-false}
+      LLM7_API_KEY: ${LLM7_API_KEY:-}
+      LLM7_MODEL: ${LLM7_MODEL:-DeepSeek-V4-Flash-0731}
+      LLM7_MODEL_2: ${LLM7_MODEL_2:-GLM-5.3-Flash}
+      KILO_API_KEY: ${KILO_API_KEY:-}
+      KILO_MODEL: ${KILO_MODEL:-minimax/minimax-m3.1-flash:free}
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
       BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
       BEDROCK_API_KEY: ${BEDROCK_API_KEY:-}
@@ -56,6 +64,14 @@ services:
       SANDBOXD_URL: ${SANDBOXD_URL:-}
       SANDBOXD_TOKEN: ${SANDBOXD_TOKEN:-}
       # SixFinger Code (docs/code.md): GitHub OAuth uygulaması + sır anahtarı + izin listesi. Üçü de boşsa Code kapalıdır.
+      # MCP bağlayıcıları (docs/mcp.md): istemci kaydı sunucu yöneticisinde olan OAuth sağlayıcıları. Boşsa o kartlar pasif kalır.
+      MCP_ENABLED: ${MCP_ENABLED:-true}
+      MCP_GOOGLE_CLIENT_ID: ${MCP_GOOGLE_CLIENT_ID:-}
+      MCP_GOOGLE_CLIENT_SECRET: ${MCP_GOOGLE_CLIENT_SECRET:-}
+      MCP_SLACK_CLIENT_ID: ${MCP_SLACK_CLIENT_ID:-}
+      MCP_SLACK_CLIENT_SECRET: ${MCP_SLACK_CLIENT_SECRET:-}
+      MCP_HUBSPOT_CLIENT_ID: ${MCP_HUBSPOT_CLIENT_ID:-}
+      MCP_HUBSPOT_CLIENT_SECRET: ${MCP_HUBSPOT_CLIENT_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GITHUB_REDIRECT_URL: ${GITHUB_REDIRECT_URL:-}
