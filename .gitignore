@@ -22,3 +22,6 @@ apps/web/android/capacitor-cordova-android-plugins/
 *.keystore
 *.jks
 dist-apk/
+
+__pycache__/
+*.pyc

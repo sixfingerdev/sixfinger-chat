@@ -1,9 +1,9 @@
 import { memo, useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, AppState, FlatList, Image, RefreshControl, ScrollView, Text as RNText, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, Image, RefreshControl, ScrollView, Text as RNText, TextInput, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { Lock, Plus, Unplug } from 'lucide-react-native';
+import { Archive, BookOpen, Lock, Pin, Plus, Search, Unplug } from 'lucide-react-native';
 import type { CodeEnvironmentDTO, CodeSessionDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
@@ -18,6 +18,7 @@ import { useUi } from '../../store/ui.ts';
 import { useDrawer } from '../../components/Drawer.tsx';
 import { Button, Press } from '../../components/Ui.tsx';
 import { Mascot } from '../../components/code/Mascot.tsx';
+import { SessionMenu } from '../../components/code/SessionMenu.tsx';
 import { Chip, CodeHeader, GithubMark, NETWORK_ICON, SectionLabel, SlashProgress, StatusDot } from '../../components/code/CodeUi.tsx';
 
 const SessionCard = memo(function SessionCard({ s, onOpen, onMenu }: { s: CodeSessionDTO; onOpen: (s: CodeSessionDTO) => void; onMenu: (s: CodeSessionDTO) => void }) {
@@ -42,6 +43,7 @@ const SessionCard = memo(function SessionCard({ s, onOpen, onMenu }: { s: CodeSe
         </View>
         <View style={{ flex: 1, gap: 2 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {s.pinned && <Pin size={13} color={c.text3} />}
             <RNText numberOfLines={1} style={{ flex: 1, fontFamily: fonts.sansMedium, fontSize: 16, color: c.text }}>
               {s.title === 'Yeni oturum' ? (s.repo.split('/')[1] ?? t('code.session.untitled')) : s.title}
             </RNText>
@@ -220,7 +222,12 @@ export default function CodeHome() {
   }, []);
 
   const open = useCallback((s: CodeSessionDTO) => router.push(`/code/${s.chatId}`), []);
-  const menu = useCallback(
+  const [menuFor, setMenuFor] = useState<CodeSessionDTO | null>(null);
+  const [query, setQuery] = useState('');
+  const [showArchive, setShowArchive] = useState(false);
+  const archived = useCode((s) => s.archived);
+  const menu = useCallback((s: CodeSessionDTO) => setMenuFor(s), []);
+  const del = useCallback(
     (s: CodeSessionDTO) =>
       useUi.getState().askConfirm({
         title: t('code.session.delete'),
@@ -240,6 +247,17 @@ export default function CodeHome() {
       }),
     [t],
   );
+
+  useEffect(() => {
+    if (showArchive) void useCode.getState().loadArchived();
+  }, [showArchive]);
+
+  const q = query.trim().toLowerCase();
+  const filter = (list: CodeSessionDTO[] | null) => (list ?? []).filter((s) => !q || `${s.title} ${s.repo} ${s.preview ?? ''}`.toLowerCase().includes(q));
+  const shown = filter(sessions);
+  const shownArchived = showArchive ? filter(archived) : [];
+  const data = [...shown, ...shownArchived];
+  const firstArchivedId = shownArchived[0]?.chatId;
 
   const refresh = async () => {
     setRefreshing(true);
@@ -264,9 +282,15 @@ export default function CodeHome() {
     body = (
       <>
         <FlatList
-          data={sessions ?? []}
+          data={data}
           keyExtractor={(s) => s.chatId}
-          renderItem={({ item }) => <SessionCard s={item} onOpen={open} onMenu={menu} />}
+          keyboardShouldPersistTaps="handled"
+          renderItem={({ item }) => (
+            <>
+              {item.chatId === firstArchivedId && <SectionLabel>{t('code.session.archived')}</SectionLabel>}
+              <SessionCard s={item} onOpen={open} onMenu={menu} />
+            </>
+          )}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={c.text3} />}
           contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
           ListHeaderComponent={
@@ -275,10 +299,29 @@ export default function CodeHome() {
               <Credits />
               <EnvStrip />
               <SectionLabel>{t('code.sessions')}</SectionLabel>
+              {(sessions?.length ?? 0) > 3 && (
+                <View style={{ marginHorizontal: 16, marginBottom: 10, height: 42, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface }}>
+                  <Search size={16} color={c.text3} />
+                  <TextInput
+                    value={query}
+                    onChangeText={setQuery}
+                    placeholder={t('code.session.search')}
+                    placeholderTextColor={c.text3}
+                    cursorColor={c.accent}
+                    style={{ flex: 1, fontFamily: fonts.sans, fontSize: 15, color: c.text, padding: 0 }}
+                  />
+                </View>
+              )}
             </View>
           }
+          ListFooterComponent={
+            <Press haptics="tap" scale={0.97} onPress={() => setShowArchive((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', marginHorizontal: 16, marginTop: 6, paddingHorizontal: 12, height: 40, borderRadius: radius.md, backgroundColor: showArchive ? c.surface2 : undefined }}>
+              <Archive size={16} color={c.text3} />
+              <RNText style={[type.small, { color: c.text3 }]}>{showArchive && archived && archived.length === 0 ? t('code.session.archivedEmpty') : t('code.session.archived')}</RNText>
+            </Press>
+          }
           ListEmptyComponent={
-            sessions && !loading ? (
+            sessions && sessions.length === 0 && !loading ? (
               <Animated.View entering={FadeInDown.duration(380)} style={{ alignItems: 'center', gap: 10, paddingTop: 22, paddingHorizontal: 40 }}>
                 <Mascot size={104} animate={false} />
                 <RNText style={[type.heading as never, { color: c.text, marginTop: 8 }]}>{t('code.empty')}</RNText>
@@ -287,6 +330,7 @@ export default function CodeHome() {
             ) : undefined
           }
         />
+        <SessionMenu session={menuFor} onClose={() => setMenuFor(null)} onDelete={del} />
         <Press
           haptics="tap"
           scale={0.95}
@@ -318,7 +362,17 @@ export default function CodeHome() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg }}>
-      <CodeHeader title={t('code.title')} onMenu={drawer.open} />
+      <CodeHeader
+        title={t('code.title')}
+        onMenu={drawer.open}
+        right={
+          status?.allowed ? (
+            <Press accessibilityLabel={t('code.skills.title')} haptics="tap" scale={0.88} onPress={() => router.push('/code/skills' as never)} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}>
+              <BookOpen size={19} color={c.text} />
+            </Press>
+          ) : undefined
+        }
+      />
       {body}
     </View>
   );

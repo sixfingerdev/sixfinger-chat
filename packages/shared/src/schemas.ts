@@ -94,6 +94,8 @@ export const sendMessageSchema = z.object({
   /** Yeni mesajın bağlanacağı mesaj. Verilmezse sohbetin aktif ucu. Düzenlemede, düzenlenen mesajın üstü. */
   parentId: z.string().uuid().nullable().optional(),
   attachments: z.array(attachmentSchema).max(8).optional(),
+  /** Code: plan modu (yalnızca okuma araçları; ajan değişiklik yapmaz, plan sunar). */
+  planMode: z.boolean().optional(),
 });
 export const regenerateSchema = z.object({
   /** Yeniden üretilecek asistan mesajı. */
@@ -132,6 +134,12 @@ export const codeEnvFields = z.object({
   setupScript: z.string().max(4_000),
   diskMb: z.number().int().min(CODE_DISK_MIN_MB).max(CODE_DISK_MAX_MB),
   commitSessionLink: z.boolean(),
+  /** Ajan tur sonunda commit'i GitHub'a itip PR açsın mı. */
+  autoPr: z.boolean(),
+  /** Her turun sistem istemine eklenen kalıcı talimatlar (CLAUDE.md gibi). */
+  instructions: z.string().max(8_000),
+  /** Bu ortamda kapatılan skill adları (varsayılan: hepsi açık). */
+  skillsOff: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(64)).max(200).transform((a) => [...new Set(a)]),
   envVars: z
     .record(z.string().max(4_000))
     .refine((o) => Object.keys(o).length <= CODE_MAX_ENV_VARS, `en fazla ${CODE_MAX_ENV_VARS} değişken`)
@@ -144,6 +152,9 @@ export const createCodeEnvSchema = codeEnvFields.partial({
   setupScript: true,
   diskMb: true,
   commitSessionLink: true,
+  autoPr: true,
+  instructions: true,
+  skillsOff: true,
   envVars: true,
 });
 export const updateCodeEnvSchema = codeEnvFields.partial();
@@ -157,11 +168,34 @@ export const createCodeSessionSchema = z.object({
   baseBranch: z.string().trim().min(1).max(200),
   environmentId: z.string().uuid().optional(),
 });
+/** Boş gövde = başlık/açıklamayı model yazar. */
 export const createPrSchema = z.object({
-  title: z.string().trim().min(1).max(256),
-  body: z.string().max(20_000).default(''),
+  title: z.string().trim().min(1).max(256).optional(),
+  body: z.string().max(20_000).optional(),
   draft: z.boolean().default(false),
 });
+export const rewindSchema = z.object({ messageId: z.string().uuid() });
+export const filesQuery = z.object({ q: z.string().trim().max(200).optional() });
+/** Önizleme: çalışma alanındaki bir dosya (statik site/artifact) ya da konteynerde çalışan bir dev-server portu. */
+export const previewSchema = z
+  .object({
+    path: z.string().trim().min(1).max(400).optional(),
+    port: z.number().int().min(1024).max(65535).optional(),
+    /** Statik önizlemede kök dizin (varsayılan: dosyanın klasörü); köke göre yazılmış (`/x.js`) bağlantılar buna göre çözülür. */
+    root: z.string().trim().max(400).optional(),
+  })
+  .refine((v) => Boolean(v.path) !== Boolean(v.port), { message: 'path ya da port verilmeli (ikisi birden değil).' });
+/** Kullanıcının çalışma alanına dosya yüklemesi (base64). */
+export const uploadSchema = z.object({ name: z.string().trim().min(1).max(200), dataBase64: z.string().min(1).max(3_000_000) });
 export const diffQuery = z.object({ path: z.string().trim().min(1).max(500).optional() });
 export const listReposQuery = z.object({ q: z.string().trim().max(100).optional() });
 export const branchesQuery = z.object({ repo: createCodeSessionSchema.shape.repo });
+
+/** Skill kaydet: tam SKILL.md metni + ek metin dosyaları. */
+export const saveSkillSchema = z.object({
+  markdown: z.string().min(10).max(60_000),
+  files: z.record(z.string().max(60_000)).optional(),
+});
+export const importSkillSchema = z.object({ url: z.string().trim().min(3).max(500), overwrite: z.boolean().optional() });
+export const shareSkillSchema = z.object({ enabled: z.boolean() });
+export const importSharedSkillSchema = z.object({ overwrite: z.boolean().optional() });

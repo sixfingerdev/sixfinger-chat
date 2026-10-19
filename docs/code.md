@@ -4,9 +4,10 @@ GitHub reposu seçip kendi branch'inde çalışan bulut kodlama oturumları. Bir
 sohbettir; mesajlar, arka planda üretim ve akış sohbetle aynı altyapıyı paylaşır. Ajanın nasıl çalışacağı
 [code-agent.md](code-agent.md)'de.
 
-> **Durum:** Faz 1 (hesap bağlama, ortamlar, oturumlar, kredi, ekranlar) hazır. Faz 2'de sunucu tarafı tamam: kalıcı çalışma alanı,
-> filtreli internet, Code araçları, ajan döngüsü (Qwen → Claude yedeği, adım/döngü/bağlam/kredi sınırları, kuyruk, tur sonu
-> commit). Oturum ekranı (mesajlar, araç kartları, bağlam halkası, PR listesi) sırada.
+> **Durum:** Hesap bağlama, ortamlar, oturumlar, kredi, kalıcı çalışma alanı, filtreli internet, Code araçları, ajan döngüsü
+> (Qwen → Claude yedeği), bağlam sıkıştırma, tur sonu commit + otomatik PR, alt ajan / soru / plan modu, slash komutları, dosya gezgini,
+> geri sarma, oturum yönetimi ve metin ekleri hazır (web + Android). Gerçek Docker, gerçek Qwen ve gerçek GitHub OAuth ile sınama Pi'de
+> yapılmalı (aşağıdaki "Doğrulama" betikleri).
 
 ## Ajan nasıl çalışır
 
@@ -77,7 +78,7 @@ adresleri, DNS rebinding dahil reddedilir); yalnızca 80 ve 443 portlarına izin
 npm, PyPI, GitHub, crates.io, Go, Maven, RubyGems, jsDelivr/unpkg/cdnjs, Google Fonts, Playwright (`packages/…/egress.ts`).
 
 **Token güvenliği:** GitHub token'ı yalnızca ilk klonlamada, tek seferlik bir yardımcı konteynere **ortam değişkeni olarak** verilir
-(komut satırına yazılmaz); çalışma alanındaki `.git/config`'te token olmaz ve ajanın konteynerine hiç girmez. **Push da böyle yapılır** (`POST /code/sessions/:id/push|pr`, yalnızca kullanıcı onaylayınca): ajanın yazabildiği `.git` dizinine
+(komut satırına yazılmaz); çalışma alanındaki `.git/config`'te token olmaz ve ajanın konteynerine hiç girmez. **Push da böyle yapılır** (ajan her turun sonunda kendisi iter; elle yeniden deneme: `POST /code/sessions/:id/push|pr`): ajanın yazabildiği `.git` dizinine
 (config, hook, credential helper…) token'lı süreçte **hiç güvenilmez**. `sandboxd`, çalışma alanı **salt okunur** bağlı tek seferlik bir
 yardımcı konteynerde bizim kontrolümüzde boş bir bare git dizini açar; ajanın nesnelerini yalnızca *alternates* ile veri olarak okur ve
 son commit'i `sixfinger/…` branch'ine iter (zorla itme yok). Token yalnızca o konteynerin ortamındadır, çıktılardan temizlenir.
@@ -104,6 +105,57 @@ Sınama: `docker compose logs sandboxd` içinde `Code çıkış proxy'si dinliyo
    (işlev + test yaz, hatayı bul ve düzelt, çok dosyada yeniden adlandır) ajan araçlarıyla dener; geçti/kaldı, adım sayısı, araç hatası ve bozuk
    JSON sayısını yazar. `--runs 3` kararlılığı, `--task N` tek görevi ölçer. Çalışma alanı geçici yerel klasördür (yalıtımsız): yalnızca kendi
    makinende çalıştır. Bozuk JSON/araç hatası oranı yüksekse `services/tools/repair.ts` takma adlarına ve `code-prompt.ts`'e bak.
+
+## PR'ı ajan açar
+
+Ortamda **Otomatik PR** açıkken (varsayılan) ajan her turun sonunda, turda değişiklik olduysa ve kullanıcı turu durdurmadıysa:
+commit'i GitHub'a iter (`sixfinger/…` branch'i, zorla itme yok); oturumun PR'ı yoksa modelin yazdığı başlık ve açıklamayla **PR'ı kendisi açar**
+(ajanın son raporu ve commit listesi modele verilir; açıklamanın sonuna "Created with SixFinger Code" satırı eklenir), varsa aynı PR yeni
+commit'le kendiliğinden güncellenir. Mesajda `pull_request` satırı görünür (açıldı/güncellendi, GitHub'a bağlantı); hata olursa satırdaki
+**Tekrar dene** ile yeniden denenir. Kapalıyken hiçbir şey GitHub'a gönderilmez; PR listesindeki **PR'ı ajan açsın** düğmesi aynı işi tek dokunuşla yapar.
+Kullanıcı elle başlık/açıklama yazmaz.
+
+## Oturum ekranı özellikleri
+
+- **Alt ajan (`task`)**: ağır araştırmayı ayrı bağlamda yürütür, ana ajana rapor döner (bkz. [code-agent.md](code-agent.md)).
+- **Soru ve plan modu**: ajan `ask_user` ile seçenekli soru sorabilir. Composer'daki **Plan** anahtarı (ya da `/plan`) açıkken ajan yalnızca okur,
+  plan sunar; **Onayla** ile uygulamaya geçer.
+- **Slash komutları**: `/plan`, `/compact` (bağlamı hemen özetle), `/pr`, `/init` (SIXFINGER.md yazar), `/review`, `/test` ve reponun `.claude/commands/*.md` ile
+  `.sixfinger/commands/*.md` dosyaları (`$ARGUMENTS` desteklenir). `/` yazınca menü açılır.
+- **`@dosya`**: yazarken repo dosyaları önerilir (`GET /files?q=`).
+- **Mesaj kuyruğu**: ajan çalışırken yazılan mesajlar kuyruğa girer, tur bitince sırayla gönderilir (kuyruktan silinebilir).
+- **Durum çubuğu**: çalışırken altta evre, geçen süre, çalışan alt ajan sayısı ve dönen eğlenceli bir sözcük (`packages/shared/src/code-status-words.ts`).
+  Üstte **Diff** (+N −M) ve **PR** çipleri.
+- **Dosya gezgini**: çalışma alanını gezer, dosya içeriğini gösterir, `.tar.gz` indirir (`CODE_ARCHIVE_MAX_MB`, varsayılan 64; `node_modules` ve `.git` hariç).
+- **Geri sarma (checkpoint)**: bir commit satırından o ana dön. Sonraki mesajlar o noktadan sürer; uzak branch ileride kalırsa bir sonraki push
+  `--force` ile yapılır (yalnızca bu oturumun `sixfinger/…` branch'inde).
+- **Ortam talimatları**: ortam ayarındaki serbest metin her turun sistem istemine eklenir (ör. "testleri `npm test` ile çalıştır").
+- **Oturum yönetimi**: yeniden adlandır, sabitle, arşivle (`PATCH /chats/:id` `{title|pinned|archived}`), listede arama, **Markdown olarak dışa aktar**.
+- **Ekler**: Code mesajına metin dosyası eklenebilir (doğrulanmış hesap); modele `<ek ad="…">` bloğu olarak gider.
+- **Bildirim (web)**: sekme arka plandayken tur bitince ya da ajan yanıt beklerken tarayıcı bildirimi (ilk mesajda izin istenir).
+
+Bilerek yapılmayanlar: MCP sunucuları, görsel girdi, sunucudan push bildirimi (FCM gerekir; mobilde yerel bildirim de yok — uygulama arka plandayken
+akış kesildiği için güvenilmez), GitHub webhook ile CI hatasını otomatik düzeltme, dev-server HMR (WebSocket), notebook, zamanlanmış görevler.
+
+## Skill'ler
+
+Ajanın uzman kılavuzları (SKILL.md): yerleşik kütüphane + kendi skill'lerin + repodaki `.sixfinger/skills`, `.claude/skills`, `.agents/skills`. Katalog istemde, gövde `skill` aracıyla
+istenince gelir; sunucu mesajı eşleştirip ipucu verir; slash menüsünde `/skill-adı`. Ayrıntı: [skills.md](skills.md).
+
+## Önizleme, dosya paylaşma ve yükleme
+
+- **Önizleme (artifact)**: ajan çalışma alanına `index.html` + `app.js` + `style.css` gibi dosyalar yazıp `preview` aracını çağırır; mesajın altında **Önizleme** kartı çıkar.
+  Statik sunumda dosyalar birbirini göreli ya da köke göre (`/app.js`) çağırabilir, ES modülleri ve CDN kütüphaneleri çalışır. Kök, HTML'in klasörüdür (`root` ile değişir).
+- **Dev-server önizleme**: `bash background=true` ile başlatılan sunucu `preview {port}` ile açılır. İstekler sandboxd'de `docker exec curl 127.0.0.1:<port>` ile iletilir
+  (ağsız ortamlarda da çalışır; sunucu yalnızca localhost'u dinleyebilir). Sınırlar: WebSocket/HMR yok (değişiklikten sonra yenile), uygulama göreli URL kullanmalı
+  (ör. Vite `base: './'`; çerçeveleri derleyip statik önizlemek daha sağlam), yanıt ≤ `CODE_PREVIEW_MAX_MB` (8), eşzamanlı istek ≤ `CODE_PREVIEW_CONCURRENCY` (8).
+- **Güvenlik**: iframe/WebView başlık gönderemediği için adres, oturum + kök/port taşıyan **imzalı 3 saatlik token** içerir (`/api/code/preview/<token>/…`).
+  Her yanıt `Content-Security-Policy: sandbox allow-scripts …` ile **opak kaynaklı** çalışır (SixFinger'ın depolamasına, oturum belirtecine ve API'sine erişemez; çerez ve
+  `localStorage` yok), çerçeve ayrıca `sandbox` özniteliğiyle (allow-same-origin YOK) açılır. Köke göre bağlantılar (`src="/x.js"`, `url(/x.png)`, `import "/x.js"`, `Location`)
+  önizleme önekine yeniden yazılır; kodun içindeki rastgele `fetch('/api')` dizgeleri yazılamaz. CORS yalnızca bu yol için herkese açıktır (kimlik bilgisi taşımaz).
+- **Dosya paylaşma**: `share_file` kartı ya da dosya gezgininin **İndir** düğmesi tek dosyayı ham bayt olarak indirir (`GET /code/sessions/:id/download?path=`).
+- **Yükleme**: composer'daki ataç metin dosyalarını mesaja gömer; ikili ya da büyük (>60 bin karakter) dosyaları çalışma alanına yükler (`POST …/upload`, ≤ 2 MB,
+  `CODE_FILE_MAX_BYTES`) → `.sixfinger/uploads/<ad>` (`.git/info/exclude` ile git dışı); ajan yolu mesajda görür.
 
 ## Ortamlar
 
@@ -146,13 +198,22 @@ Hepsi `/api` altında, Bearer token ister. İzin yoksa `403`, GitHub bağlı de�
 | `DELETE /code/github` | Bağlantıyı keser, GitHub yetkisini iptal etmeyi dener |
 | `GET /code/repos?q=` · `GET /code/branches?repo=owner/name` | Repo ve branch listesi |
 | `GET/POST /code/environments` · `GET/PATCH/DELETE /code/environments/:id` | Ortamlar (değişkenler yalnızca tekil okumada döner) |
-| `GET/POST /code/sessions` · `GET/DELETE /code/sessions/:id` | Oturumlar |
+| `GET/POST /code/sessions` · `GET/DELETE /code/sessions/:id` | Oturumlar. Liste sabitlenenleri başa alır; `?archived=true` arşivi verir |
 | `GET /code/sessions/:id/pulls` | Çalışma branch'indeki PR'lar |
 | `GET /code/sessions/:id/changes` | Değişen dosyalar (+N −M); ajan çalışırken `stale` |
 | `GET /code/sessions/:id/diff?path=` | Başlangıca göre birleşik fark (tüm dosyalar ya da tek dosya) |
-| `GET /code/sessions/:id/pr-draft` | Model yazımı PR başlığı/gövdesi (hiçbir şey itmez) |
+| `GET /code/sessions/:id/commands` | Reponun slash komutları |
+| `GET /code/sessions/:id/files?q=` | `@dosya` önerileri (yol araması) |
+| `GET /code/sessions/:id/file?path=` | Dosya ya da klasör içeriği (gezgin) |
+| `GET /code/sessions/:id/archive` | Çalışma alanı `.tar.gz` |
+| `POST /code/sessions/:id/rewind` `{messageId}` | Çalışma alanını ve konuşmayı o mesajın turuna geri sarar |
+| `POST /code/sessions/:id/preview` `{path\|port, root?}` | Önizleme bağlantısı `{url, expiresAt, kind, entry}` (3 saatlik token) |
+| `GET /code/preview/:token/*` | Önizleme içeriği (oturumsuz; yetki token'da). Statik dosya ya da dev-server proxy'si, CSP `sandbox` |
+| `GET /code/sessions/:id/ports` | Sandbox'ta dinleyen portlar |
+| `GET /code/sessions/:id/download?path=` | Tek dosyayı indirir (ham bayt, ≤ 64 MB) |
+| `POST /code/sessions/:id/upload` `{name, dataBase64}` | Dosyayı `.sixfinger/uploads/` altına yazar (≤ 2 MB) |
 | `POST /code/sessions/:id/push` | Branch'i GitHub'a gönderir (ajan çalışırken `409`) |
-| `POST /code/sessions/:id/pr` `{title, body, draft}` | Önce push, sonra PR açar; zaten açıksa onu döndürür (`existed`) |
+| `POST /code/sessions/:id/pr` | PR'ı ajan açar (başlık/açıklamayı model yazar): push + PR; PR zaten varsa yalnızca push. Otomatik adım başarısız olduğunda ya da ortamda **Otomatik PR** kapalıyken yeniden deneme içindir |
 
 ## Geliştirme
 

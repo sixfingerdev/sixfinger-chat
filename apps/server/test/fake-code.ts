@@ -6,28 +6,36 @@ import type { ExecOutcome } from '../src/services/tools/sandbox.ts';
 export function fakeCode(initial: Record<string, string> = {}) {
   const fs = new Map(Object.entries(initial));
   const base = new Map(Object.entries(initial));
+  /** Son commit'in içeriği (commit yalnızca ona göre değişiklik varsa atılır; `changes` ise başlangıca göre hesaplanır). */
+  const head = new Map(Object.entries(initial));
   const state = {
     prepares: [] as Array<Record<string, unknown>>,
     execs: [] as string[],
     commits: [] as string[],
-    pushes: [] as Array<{ token: string; sha: string }>,
+    pushes: [] as Array<{ token: string; sha: string; force: boolean }>,
     failPush: null as string | null,
     failPrepare: null as string | null,
     needPrepare: false,
     execImpl: (_c: string): Partial<ExecOutcome & { diskUsedMb: number }> => ({}),
     delayMs: 0,
     changesCalls: 0,
+    /** Sahte dev-server: port → istek işleyici (null: dinleyen yok). */
+    servers: new Map<number, (r: { method: string; path: string; headers: Record<string, string>; body?: Buffer }) => { status: number; headers?: Array<[string, string]>; body: Buffer | string }>(),
+    httpCalls: [] as Array<{ port: number; method: string; path: string; headers: Record<string, string> }>,
+    uploads: [] as Array<{ path: string; bytes: number }>,
   };
+  /** İkili dosyalar (ham okuma/indirme testleri için). */
+  const bin = new Map<string, Buffer>();
   const sleep = () => (state.delayMs ? new Promise((r) => setTimeout(r, state.delayMs)) : Promise.resolve());
   const lines = (t: string) => (t === '' ? 0 : t.split('\n').length - (t.endsWith('\n') ? 1 : 0));
-  const diff = () => {
+  const diff = (from = base) => {
     const files: Array<{ path: string; status: 'added' | 'modified' | 'deleted' | 'renamed'; additions: number; deletions: number }> = [];
     for (const [p, c] of fs) {
-      const b = base.get(p);
+      const b = from.get(p);
       if (b === undefined) files.push({ path: p, status: 'added', additions: lines(c), deletions: 0 });
       else if (b !== c) files.push({ path: p, status: 'modified', additions: Math.max(1, lines(c) - lines(b) + 1), deletions: 1 });
     }
-    for (const p of base.keys()) if (!fs.has(p)) files.push({ path: p, status: 'deleted', additions: 0, deletions: lines(base.get(p)!) });
+    for (const p of from.keys()) if (!fs.has(p)) files.push({ path: p, status: 'deleted', additions: 0, deletions: lines(from.get(p)!) });
     return files;
   };
   const client: CodeSandboxClient = {
@@ -67,21 +75,52 @@ export function fakeCode(initial: Record<string, string> = {}) {
       return { files, additions: files.reduce((n, f) => n + f.additions, 0), deletions: files.reduce((n, f) => n + f.deletions, 0), baseSha: 'b'.repeat(40) };
     },
     async commit(_s, message) {
-      if (!diff().length) return { sha: null };
+      if (!diff(head).length) return { sha: null };
       state.commits.push(message);
+      head.clear();
+      for (const [p, c] of fs) head.set(p, c);
       return { sha: `${state.commits.length}`.padStart(40, 'c') };
     },
-    async push(_s, token) {
+    async archive() {
+      return Buffer.from('1f8b0800', 'hex');
+    },
+    async push(_s, token, _signal, opts) {
       if (state.needPrepare) throw new NotPreparedError();
       if (state.failPush) throw new ToolError(state.failPush);
       const sha = state.commits.length ? `${state.commits.length}`.padStart(40, 'c') : 'a'.repeat(40);
-      state.pushes.push({ token, sha });
+      state.pushes.push({ token, sha, force: Boolean(opts?.force) });
       return { sha, branch: 'sixfinger/test', output: '' };
+    },
+    async raw(_s, path, maxMb) {
+      if (state.needPrepare) throw new NotPreparedError();
+      const data = bin.get(path) ?? (fs.has(path) ? Buffer.from(fs.get(path)!) : undefined);
+      if (!data) {
+        if ([...fs.keys()].some((k) => k.startsWith(`${path}/`))) throw new IsDirectoryError();
+        throw new FileNotFoundError();
+      }
+      if (data.length > maxMb * 1_048_576) throw new ToolError(`Dosya çok büyük (en fazla ${maxMb} MB).`);
+      return data;
+    },
+    async ports() {
+      return [...state.servers.keys()];
+    },
+    async http(_s, r) {
+      if (state.needPrepare) throw new NotPreparedError();
+      state.httpCalls.push({ port: r.port, method: r.method, path: r.path, headers: r.headers });
+      const h = state.servers.get(r.port);
+      if (!h) throw new FileNotFoundError(`Port ${r.port} üzerinde dinleyen bir sunucu yok.`);
+      const o = h({ method: r.method, path: r.path, headers: r.headers, body: r.body });
+      return { status: o.status, headers: o.headers ?? [], body: Buffer.isBuffer(o.body) ? o.body : Buffer.from(o.body) };
+    },
+    async upload(_s, path, data) {
+      state.uploads.push({ path, bytes: data.length });
+      bin.set(path, data);
+      return { bytes: data.length };
     },
     async usage() {
       return { diskUsedMb: 3, diskMb: 512, running: true };
     },
     async destroy() {},
   };
-  return { client, fs, state };
+  return { client, fs, bin, state };
 }

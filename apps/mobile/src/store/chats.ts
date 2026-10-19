@@ -25,6 +25,12 @@ export interface Generating {
 type EventSource = (onEvent: (e: StreamEvent) => void, signal: AbortSignal) => Promise<void>;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Code: süren turun evresi (durum çubuğu ve mesaj altı satır). */
+export interface CodeRun {
+  phase: 'queued' | 'preparing' | 'working' | 'committing' | 'publishing';
+  position?: number;
+}
+
 interface ChatsState {
   chats: ChatDTO[];
   archived: ChatDTO[] | null;
@@ -36,7 +42,7 @@ interface ChatsState {
   /** Sohbet kimliği → o sohbette süren üretim. Her sohbet bağımsızdır: birinde üretim sürerken diğerine mesaj gönderilebilir. */
   generating: Record<string, Generating>;
   /** Code: sohbet kimliği → çalışmanın evresi (sırada / hazırlanıyor / çalışıyor / commit). Üretim bitince silinir. */
-  codeRun: Record<string, { phase: 'queued' | 'preparing' | 'working' | 'committing'; position?: number }>;
+  codeRun: Record<string, CodeRun>;
   draftPersona: string | null;
 
   reset: () => void;
@@ -53,6 +59,8 @@ interface ChatsState {
     /** Düzenleme için: yeni mesajın bağlanacağı üst mesaj (null = kök). */
     parentId?: string | null;
     onChatCreated?: (id: string) => void;
+    /** Code: plan modu (ajan değişiklik yapmaz, plan sunar). */
+    planMode?: boolean;
   }) => Promise<void>;
   regenerate: (chatId: string, messageId: string) => Promise<void>;
   stop: (chatId: string) => void;
@@ -381,7 +389,7 @@ export const useChats = create<ChatsState>((set, get) => {
     newChat: () => set({ activeId: null, loadError: null, loadingId: null }),
     setDraftPersona: (draftPersona) => set({ draftPersona }),
 
-    async send({ content, attachments = [], chatId, parentId, onChatCreated }) {
+    async send({ content, attachments = [], chatId, parentId, onChatCreated, planMode }) {
       if (chatId && get().generating[chatId]) return;
       let id = chatId ?? null;
       try {
@@ -421,6 +429,7 @@ export const useChats = create<ChatsState>((set, get) => {
         mode: useUi.getState().mode,
         effort: useUi.getState().effort,
         attachments: attachments.length ? attachments.map(({ name, mime, text }) => ({ name, mime, text })) : undefined,
+        planMode: planMode || undefined,
       };
       const dropped = await runStream(chat, (onEvent, signal) => streamRequest(`/chats/${chat}/messages`, body, onEvent, signal), {
         userId: userTmp.id,

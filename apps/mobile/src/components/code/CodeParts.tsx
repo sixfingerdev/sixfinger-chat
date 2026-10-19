@@ -1,15 +1,21 @@
-import { memo, useMemo } from 'react';
-import { ActivityIndicator, ScrollView, Text as RNText, View, useWindowDimensions } from 'react-native';
-import { Check, ChevronRight, CircleAlert, CircleDashed, FileMinus, FilePen, FilePlus, FileText, Globe, GitCommitHorizontal, HardDrive, Layers, Search, Terminal, Wrench } from 'lucide-react-native';
+import { memo, useMemo, useState } from 'react';
+import { ActivityIndicator, Linking, ScrollView, Text as RNText, View, useWindowDimensions } from 'react-native';
+import { Check, ChevronRight, CircleAlert, CircleDashed, FileMinus, FilePen, FilePlus, FileText, Globe, GitCommitHorizontal, Bot, GitPullRequest, HardDrive, Layers, Search, Terminal, Wrench } from 'lucide-react-native';
 import { describeTool, type MessageDTO, type MessagePartDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
 import { useLocale, useT } from '../../lib/i18n/index.ts';
+import { api } from '../../lib/api.ts';
+import { reportError } from '../../lib/errors.ts';
 import { useChats } from '../../store/chats.ts';
 import { RichText } from '../RichText.tsx';
 import { Sheet } from '../Sheet.tsx';
 import { ToolCard } from '../ToolCard.tsx';
-import { Press } from '../Ui.tsx';
+import { Button, Press } from '../Ui.tsx';
+import { useUi } from '../../store/ui.ts';
+import { PlanCard, QuestionCard, type MessageActions } from './CodeCards.tsx';
+import { PreviewRow, ShareFileRow } from './CodePreview.tsx';
+import { SkillRow } from './SkillRow.tsx';
 
 export type ToolPart = Extract<MessagePartDTO, { type: 'tool' }>;
 
@@ -178,6 +184,27 @@ function WorkspaceRow({ part, onOpen }: { part: ToolPart; onOpen: (t: SheetTarge
   );
 }
 
+/** Alt ajan (task): satır; dokununca görev ve rapor. */
+function TaskRow({ part, onOpen }: { part: ToolPart; onOpen: (t: SheetTarget) => void }) {
+  const { c } = useTheme();
+  const t = useT();
+  const running = part.status === 'running';
+  const failed = part.status === 'error';
+  const title = str(meta(part).description) || str(part.args.description) || t('code.task.done');
+  return (
+    <Press haptics="select" scale={0.985} onPress={() => onOpen({ kind: 'output', id: part.id })} style={{ marginVertical: 5, minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface }}>
+      {running ? <ActivityIndicator size="small" color={c.text2} /> : failed ? <CircleAlert size={16} color={c.text2} /> : <Bot size={17} color={c.text} />}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <RNText numberOfLines={1} style={{ fontFamily: fonts.sansMedium, fontSize: 14, color: c.text }}>
+          {running ? t('code.task.running') : t('code.task.done')} · {title}
+        </RNText>
+        {!running && !failed && !!part.summary && <RNText style={{ fontFamily: fonts.sans, fontSize: 12, color: c.text3 }}>{part.summary}</RNText>}
+      </View>
+      <ChevronRight size={14} color={c.text3} />
+    </Press>
+  );
+}
+
 /** 60300 → "60.3k" */
 const compact = (n: number) => (n < 1_000 ? String(Math.round(n)) : n < 100_000 ? `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}k` : n < 1_000_000 ? `${Math.round(n / 1_000)}k` : `${(n / 1_000_000).toFixed(1)}M`);
 
@@ -196,6 +223,57 @@ function CompactionRow({ part, onOpen }: { part: ToolPart; onOpen: (t: SheetTarg
         {running ? `${t('code.compact.running')}…` : failed ? t('code.compact.failed') : `${t('code.compact.done')}${num(m.before) > 0 ? ` · ${t('code.compact.tokens', { before: compact(num(m.before)), after: compact(num(m.after)) })}` : ''}`}
       </RNText>
       {canOpen && <ChevronRight size={14} color={c.text3} />}
+    </Press>
+  );
+}
+
+/** Ajanın tur sonunda açtığı (ya da güncellediği) PR; satıra dokununca GitHub'da açılır. Hata olursa tek dokunuşla yeniden denenir. */
+function PullRequestRow({ part, chatId }: { part: ToolPart; chatId: string }) {
+  const { c } = useTheme();
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const running = part.status === 'running';
+  const failed = part.status === 'error';
+  const m = meta(part);
+  const url = str(m.url) || (part.output?.startsWith('http') ? part.output : '');
+  const created = m.created === true;
+  const label = running ? `${t('code.pr.opening')}…` : failed ? t('code.pr.failed') : created ? `${t('code.pr.opened')} · #${String(m.number)}` : t('code.pr.updated');
+  const retry = async () => {
+    setBusy(true);
+    try {
+      await api.codeOpenPr(chatId);
+      await useChats.getState().openChat(chatId, true);
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Press
+      haptics={failed || !url ? false : 'select'}
+      scale={0.985}
+      disabled={failed ? busy : !url}
+      onPress={() => (failed ? void retry() : void Linking.openURL(url))}
+      style={{ marginVertical: 5, minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, borderRadius: radius.md, borderWidth: 1, borderColor: c.line, backgroundColor: c.surface }}
+    >
+      {running || busy ? <ActivityIndicator size="small" color={c.text2} /> : failed ? <CircleAlert size={16} color={c.text2} /> : <GitPullRequest size={17} color={c.text} />}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <RNText numberOfLines={1} style={{ fontFamily: fonts.sansMedium, fontSize: 14, color: c.text }}>
+          {label}
+        </RNText>
+        {!running && !failed && created && !!str(m.title) && (
+          <RNText numberOfLines={1} style={{ fontFamily: fonts.sans, fontSize: 12, color: c.text3 }}>
+            {str(m.title)}
+          </RNText>
+        )}
+        {failed && !!part.summary && (
+          <RNText numberOfLines={2} style={{ fontFamily: fonts.sans, fontSize: 12, color: c.text3 }}>
+            {part.summary}
+          </RNText>
+        )}
+      </View>
+      {failed ? <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text2 }}>{t('code.pr.retry')}</RNText> : !!url && <ChevronRight size={14} color={c.text3} />}
     </Press>
   );
 }
@@ -228,7 +306,7 @@ function CommitRow({ part, onOpen }: { part: ToolPart; onOpen: (t: SheetTarget) 
 }
 
 /** Asistan mesajının (düşünce parçaları arasındaki) bir dilimi: metin, gruplanmış komutlar, dosya çipleri, görev listesi. */
-export const CodeSegment = memo(function CodeSegment({ parts, lastTodoId, onOpen }: { parts: MessagePartDTO[]; lastTodoId: string | null; onOpen: (t: SheetTarget) => void }) {
+export const CodeSegment = memo(function CodeSegment({ chatId, parts, lastTodoId, onOpen, actions }: { chatId: string; parts: MessagePartDTO[]; lastTodoId: string | null; onOpen: (t: SheetTarget) => void; actions?: MessageActions }) {
   const blocks = useMemo(() => toBlocks(parts), [parts]);
   return (
     <View style={{ paddingHorizontal: 16, paddingVertical: 2 }}>
@@ -248,6 +326,20 @@ export const CodeSegment = memo(function CodeSegment({ parts, lastTodoId, onOpen
             return <CommitRow key={b.key} part={p} onOpen={onOpen} />;
           case 'compaction':
             return <CompactionRow key={b.key} part={p} onOpen={onOpen} />;
+          case 'pull_request':
+            return <PullRequestRow key={b.key} part={p} chatId={chatId} />;
+          case 'ask_user':
+            return <QuestionCard key={b.key} part={p} actions={actions} />;
+          case 'exit_plan_mode':
+            return <PlanCard key={b.key} part={p} actions={actions} />;
+          case 'task':
+            return <TaskRow key={b.key} part={p} onOpen={onOpen} />;
+          case 'preview':
+            return <PreviewRow key={b.key} part={p} chatId={chatId} />;
+          case 'share_file':
+            return <ShareFileRow key={b.key} part={p} chatId={chatId} />;
+          case 'skill':
+            return <SkillRow key={b.key} part={p} onOpen={onOpen} />;
           default:
             return <ToolCard key={b.key} part={p} />;
         }
@@ -364,7 +456,7 @@ function FileDetail({ part }: { part: ToolPart }) {
 }
 
 /** Dokunulan satırın ayrıntı sayfası (komutlar, dosya farkı, çalışma alanı/commit çıktısı). */
-export function CodeSheetHost({ chatId, target, onClose }: { chatId: string; target: SheetTarget | null; onClose: () => void }) {
+export function CodeSheetHost({ chatId, target, onClose, onRewind }: { chatId: string; target: SheetTarget | null; onClose: () => void; onRewind?: (messageId: string) => void }) {
   const { c } = useTheme();
   const t = useT();
   const { height } = useWindowDimensions();
@@ -377,6 +469,8 @@ export function CodeSheetHost({ chatId, target, onClose }: { chatId: string; tar
   }, [messages]);
 
   const shown = target;
+  // Bu parçanın ait olduğu asistan mesajı (geri sarma için).
+  const rewindMessage = shown?.kind === 'output' ? (messages ?? []).find((m) => (m.parts ?? []).some((p) => p.type === 'tool' && p.id === shown.id))?.id : undefined;
   let title = '';
   let body: React.ReactNode = null;
   if (shown?.kind === 'group') {
@@ -395,12 +489,49 @@ export function CodeSheetHost({ chatId, target, onClose }: { chatId: string; tar
     body = p ? <FileDetail part={p} /> : null;
   } else if (shown?.kind === 'output') {
     const p = parts.get(shown.id);
-    title = p?.name === 'commit' ? t('code.commit.title') : p?.name === 'compaction' ? t('code.compact.done') : t('code.ws.done');
-    body = p ? (
-      <Block>
-        <Mono>{cap(p.output, 4_000) || t('code.cmd.noOutput')}</Mono>
-      </Block>
-    ) : null;
+    title = p?.name === 'commit' ? t('code.commit.title') : p?.name === 'compaction' ? t('code.compact.done') : p?.name === 'task' ? str(meta(p).description) || t('code.task.done') : t('code.ws.done');
+    body = !p ? null : p.name === 'task' ? (
+      <View style={{ gap: 12 }}>
+        <RNText style={[type.label, { color: c.text3 }]}>{t('code.task.prompt')}</RNText>
+        <Block>
+          <Mono>{cap(str(p.args.prompt), 4_000)}</Mono>
+        </Block>
+        {p.status !== 'running' && (
+          <>
+            <RNText style={[type.label, { color: c.text3 }]}>{t('code.task.report')}</RNText>
+            <RichText text={p.output ?? ''} />
+          </>
+        )}
+      </View>
+    ) : (
+      <View style={{ gap: 12 }}>
+        <Block>
+          <Mono>{cap(p.output, 4_000) || t('code.cmd.noOutput')}</Mono>
+        </Block>
+        {p.name === 'commit' && !!onRewind && !!rewindMessage && (
+          <>
+            <RNText style={[type.small, { color: c.text3 }]}>{t('code.rewind.hint')}</RNText>
+            <Button
+              variant="secondary"
+              label={t('code.rewind.title')}
+              onPress={() =>
+                useUi.getState().askConfirm({
+                  title: t('code.rewind.title'),
+                  message: t('code.rewind.confirm'),
+                  confirmLabel: t('code.rewind.title'),
+                  cancelLabel: t('common.cancel'),
+                  destructive: true,
+                  onConfirm: () => {
+                    onClose();
+                    onRewind(rewindMessage);
+                  },
+                })
+              }
+            />
+          </>
+        )}
+      </View>
+    );
   }
 
   return (

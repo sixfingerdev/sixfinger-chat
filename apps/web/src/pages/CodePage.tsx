@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Cloud, Code2, GitBranch, Github, Plus } from 'lucide-react';
+import { Archive, BookOpen, Cloud, Code2, GitBranch, Github, Pin, Plus, Search } from 'lucide-react';
 import type { CodeEnvironmentDTO, CodeSessionDTO } from '@sixfinger/shared';
 import { clsx, timeAgo } from '../lib/format.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
@@ -22,7 +22,10 @@ export function SessionCard({ s }: { s: CodeSessionDTO }) {
         <Code2 size={20} />
       </span>
       <span className="code-card-main">
-        <span className="code-card-title">{s.title === 'Yeni oturum' ? t('code.session.untitled') : s.title}</span>
+        <span className="code-card-title">
+          {s.pinned && <Pin size={12} className="code-card-pin" aria-label={t('code.session.pinned')} />}
+          {s.title === 'Yeni oturum' ? t('code.session.untitled') : s.title}
+        </span>
         <span className="code-card-sub">
           <Cloud size={13} /> {s.repo} <GitBranch size={13} /> {s.baseBranch}
         </span>
@@ -55,7 +58,10 @@ export function CodePage() {
   const sessions = useCode((s) => s.sessions);
   const loadError = useCode((s) => s.loadError);
   const user = useAuth((s) => s.user);
+  const archived = useCode((s) => s.archived);
   const [editing, setEditing] = useState<CodeEnvironmentDTO | 'new' | null>(null);
+  const [query, setQuery] = useState('');
+  const [showArchive, setShowArchive] = useState(false);
 
   useEffect(() => {
     void useCode.getState().refresh();
@@ -79,6 +85,15 @@ export function CodePage() {
       .completeGithub(code, state)
       .then((ok) => ok && ui.toast({ kind: 'success', text: t('code.github.ok') }));
   }, [params, setParams, t]);
+
+  useEffect(() => {
+    if (showArchive) void useCode.getState().loadArchived();
+  }, [showArchive]);
+
+  const match = (list: CodeSessionDTO[] | null) => {
+    const q = query.trim().toLowerCase();
+    return (list ?? []).filter((s) => !q || `${s.title} ${s.repo} ${s.preview ?? ''}`.toLowerCase().includes(q));
+  };
 
   const disconnect = async () => {
     if (window.confirm(t('code.github.disconnectConfirm'))) await useCode.getState().disconnect();
@@ -118,7 +133,12 @@ export function CodePage() {
         )}
 
         <section className="code-section">
-          <h3>{t('code.environments')}</h3>
+          <div className="code-section-head">
+            <h3>{t('code.environments')}</h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => nav('/code/skills')}>
+              <BookOpen size={14} /> {t('code.skills.title')}
+            </button>
+          </div>
           <div className="code-env-row">
             {(envs ?? []).map((e) => (
               <button key={e.id} className="env-chip" onClick={() => setEditing(e)}>
@@ -141,6 +161,12 @@ export function CodePage() {
               <Plus size={15} /> {t('code.newSession')}
             </button>
           </div>
+          {sessions && sessions.length > 3 && (
+            <label className="code-search">
+              <Search size={15} />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('code.session.search')} aria-label={t('code.session.search')} />
+            </label>
+          )}
           {sessions === null && <div className="code-skeleton">{[88, 70].map((w, i) => <div key={i} className="skeleton" style={{ width: `${w}%`, height: 84, borderRadius: 18 }} />)}</div>}
           {sessions && sessions.length === 0 && (
             <div className="code-empty">
@@ -148,7 +174,17 @@ export function CodePage() {
               <span>{t('code.emptyHint')}</span>
             </div>
           )}
-          <div className="code-cards">{sessions?.map((s) => <SessionCard key={s.chatId} s={s} />)}</div>
+          {sessions && sessions.length > 0 && match(sessions).length === 0 && <p className="code-muted">{t('code.session.noMatch')}</p>}
+          <div className="code-cards">{match(sessions).map((s) => <SessionCard key={s.chatId} s={s} />)}</div>
+          <button className="code-archive-toggle" onClick={() => setShowArchive((v) => !v)} aria-expanded={showArchive}>
+            <Archive size={14} /> {t('code.session.archived')}
+          </button>
+          {showArchive && (
+            <div className="code-cards">
+              {archived && archived.length === 0 && <p className="code-muted">{t('code.session.archivedEmpty')}</p>}
+              {match(archived).map((s) => <SessionCard key={s.chatId} s={s} />)}
+            </div>
+          )}
         </section>
       </>
     );

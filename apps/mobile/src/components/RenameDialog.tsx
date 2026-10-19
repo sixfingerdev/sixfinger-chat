@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, Text as RNText, TextInput, View } from 'react-native';
-import type { ChatDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { useT } from '../lib/i18n/index.ts';
@@ -8,7 +7,7 @@ import { useChats } from '../store/chats.ts';
 import { Button } from './Ui.tsx';
 
 /** Sohbet adını değiştirmek için küçük bir iletişim kutusu. */
-export function RenameDialog({ chat, onClose }: { chat: ChatDTO | null; onClose: () => void }) {
+export function RenameDialog({ chat, onClose, onSave }: { chat: { id: string; title: string } | null; onClose: () => void; onSave?: (id: string, title: string) => void }) {
   const { c } = useTheme();
   const t = useT();
   const [value, setValue] = useState('');
@@ -16,7 +15,7 @@ export function RenameDialog({ chat, onClose }: { chat: ChatDTO | null; onClose:
 
   const save = () => {
     const v = value.trim();
-    if (chat && v && v !== chat.title) void useChats.getState().renameChat(chat.id, v);
+    if (chat && v && v !== chat.title) (onSave ?? ((id, title) => void useChats.getState().renameChat(id, title)))(chat.id, v);
     onClose();
   };
 

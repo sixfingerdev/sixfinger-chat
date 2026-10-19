@@ -90,7 +90,54 @@ export function createGithub(config: Config, fetchImpl: FetchLike = fetch) {
     }
   };
 
+  /**
+   * Bir klasörün metin dosyalarını okur (skill içe aktarma): en çok 25 dosya, dosya başına 50 KB, derinlik 3.
+   * `token` yoksa herkese açık depolar okunur. Dosya listesi yoksa boş nesne.
+   */
+  async function readFolder(token: string | undefined, repo: string, path: string, ref?: string): Promise<{ files: Record<string, string>; skipped: number }> {
+    return wrapNetwork(async () => {
+      const files: Record<string, string> = {};
+      let skipped = 0;
+      const enc = (p: string) => p.split('/').map(encodeURIComponent).join('/');
+      const walk = async (dir: string, depth: number): Promise<void> => {
+        const q = ref ? `?ref=${encodeURIComponent(ref)}` : '';
+        const res = await call(`${API}/repos/${repo}/contents/${enc(dir)}${q}`, { token });
+        if (res.status === 404) return;
+        const list = await json<Array<{ type: string; path: string; size: number; name: string }> | { type: string }>(res, 'Klasör');
+        if (!Array.isArray(list)) return;
+        for (const e of list) {
+          if (Object.keys(files).length >= 25) {
+            skipped++;
+            continue;
+          }
+          if (e.type === 'dir') {
+            if (depth < 3) await walk(e.path, depth + 1);
+            continue;
+          }
+          if (e.type !== 'file' || e.size > 50_000) {
+            skipped++;
+            continue;
+          }
+          const raw = await call(`${API}/repos/${repo}/contents/${enc(e.path)}${q}`, { token, headers: { accept: 'application/vnd.github.raw+json' } });
+          if (!raw.ok) {
+            skipped++;
+            continue;
+          }
+          const text = await raw.text();
+          if (text.includes('\u0000')) {
+            skipped++;
+            continue;
+          }
+          files[path ? e.path.slice(path.length).replace(/^\//, '') : e.path] = text;
+        }
+      };
+      await walk(path, 0);
+      return { files, skipped };
+    });
+  }
+
   return {
+    readFolder,
     configured,
 
     authorizeUrl(state: string): string {

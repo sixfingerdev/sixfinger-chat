@@ -198,7 +198,7 @@ export class DockerRuntime implements Runtime {
     });
     // timeout: 124 (TERM ile), 137 (KILL ile)
     const timedOut = r.timedOut || ((r.exitCode === 124 || r.exitCode === 137) && r.durationMs >= opts.timeoutMs * 0.9);
-    return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, truncated: r.truncated, timedOut, durationMs: r.durationMs };
+    return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, truncated: r.truncated, timedOut, durationMs: r.durationMs, stdoutBuf: r.stdoutBuf };
   }
 
   async helper(opts: HelperOptions): Promise<ExecResult> {

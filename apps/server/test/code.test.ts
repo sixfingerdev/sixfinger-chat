@@ -295,6 +295,26 @@ describe('oturumlar', () => {
     expect(sessions.json().sessions.map((x: { chatId: string }) => x.chatId)).toEqual([s.chatId]);
   });
 
+  it('yeniden adlandırma, sabitleme ve arşivleme sohbet ucuyla yapılır; liste sabitlenenleri öne alır, arşivi ayırır', async () => {
+    const a = await prepared();
+    const mk = async () => (await env.app.inject({ method: 'POST', url: '/api/code/sessions', headers: auth(a), payload: { repo: 'octo/alpha', baseBranch: 'main' } })).json().session;
+    const s1 = await mk();
+    const s2 = await mk();
+    const s3 = await mk();
+    const patch = (id: string, payload: object) => env.app.inject({ method: 'PATCH', url: `/api/chats/${id}`, headers: auth(a), payload });
+    expect((await patch(s1.chatId, { title: 'Giriş hatası' })).statusCode).toBe(200);
+    expect((await patch(s1.chatId, { pinned: true })).statusCode).toBe(200);
+    expect((await patch(s3.chatId, { archived: true })).statusCode).toBe(200);
+    const list = (await env.app.inject({ method: 'GET', url: '/api/code/sessions', headers: auth(a) })).json().sessions;
+    expect(list.map((x: { chatId: string }) => x.chatId)).toEqual([s1.chatId, s2.chatId]);
+    expect(list[0]).toMatchObject({ title: 'Giriş hatası', pinned: true, archived: false });
+    const arch = (await env.app.inject({ method: 'GET', url: '/api/code/sessions?archived=true', headers: auth(a) })).json().sessions;
+    expect(arch.map((x: { chatId: string }) => x.chatId)).toEqual([s3.chatId]);
+    expect(arch[0].archived).toBe(true);
+    await patch(s3.chatId, { archived: false });
+    expect((await env.app.inject({ method: 'GET', url: '/api/code/sessions', headers: auth(a) })).json().sessions).toHaveLength(3);
+  });
+
   it('olmayan branch ya da bağlantısız hesap reddedilir', async () => {
     const a = await prepared();
     const r = await env.app.inject({ method: 'POST', url: '/api/code/sessions', headers: auth(a), payload: { repo: 'octo/alpha', baseBranch: 'yok' } });

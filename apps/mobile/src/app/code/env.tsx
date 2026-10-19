@@ -57,6 +57,10 @@ export default function EnvEditor() {
   const [disk, setDisk] = useState<number>(CODE_DISK_DEFAULT_MB);
   const [vars, setVars] = useState('');
   const [sessionLink, setSessionLink] = useState(false);
+  const [autoPr, setAutoPr] = useState(true);
+  const [instructions, setInstructions] = useState('');
+  const [skillsOff, setSkillsOff] = useState<string[]>([]);
+  const [allSkills, setAllSkills] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [varsBad, setVarsBad] = useState(false);
 
@@ -71,6 +75,9 @@ export default function EnvEditor() {
         setSetup(e.setupScript);
         setDisk(e.diskMb);
         setSessionLink(e.commitSessionLink ?? false);
+        setAutoPr(e.autoPr ?? true);
+        setInstructions(e.instructions ?? '');
+        setSkillsOff(e.skillsOff ?? []);
         setVars(Object.entries(e.envVars ?? {}).map(([k, v]) => `${k}=${v}`).join('\n'));
         setLoading(false);
       })
@@ -79,6 +86,10 @@ export default function EnvEditor() {
         router.back();
       });
   }, [id]);
+
+  useEffect(() => {
+    api.codeSkills().then((r) => setAllSkills([...new Set(r.skills.map((x) => x.name))])).catch(() => {});
+  }, []);
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/code'));
 
@@ -98,6 +109,9 @@ export default function EnvEditor() {
       setupScript: setup,
       diskMb: disk,
       commitSessionLink: sessionLink,
+      autoPr,
+      instructions,
+      skillsOff,
       envVars,
     };
     try {
@@ -212,6 +226,40 @@ export default function EnvEditor() {
               accessibilityLabel={t('code.env.disk')}
             />
             <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, color: c.text3 }}>{t('code.env.diskHint')}</RNText>
+          </View>
+
+          {allSkills.length > 0 && (
+            <View style={{ gap: 8 }}>
+              <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text2 }}>{t('code.skills.env')}</RNText>
+              <RNText style={[type.small, { color: c.text3 }]}>{t('code.skills.envHint')}</RNText>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {allSkills.map((n) => {
+                  const on = !skillsOff.includes(n);
+                  return (
+                    <Press key={n} haptics="select" scale={0.96} onPress={() => setSkillsOff((cur) => (on ? [...cur, n] : cur.filter((x) => x !== n)))} style={{ height: 34, paddingHorizontal: 12, borderRadius: 17, justifyContent: 'center', borderWidth: 1, borderColor: on ? c.accent : c.lineStrong, backgroundColor: on ? c.accentSoft : 'transparent' }}>
+                      <RNText style={{ fontFamily: fonts.mono, fontSize: 12.5, color: on ? c.text : c.text3, textDecorationLine: on ? 'none' : 'line-through' }}>{n}</RNText>
+                    </Press>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+          <Field label={t('code.env.instructions')} hint={t('code.env.instructionsHint')} value={instructions} onChangeText={setInstructions} multiline maxLength={8000} placeholder="pnpm kullan. Commit mesajları Türkçe olsun." />
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 14.5, color: c.text }}>{t('code.env.autoPr')}</RNText>
+              <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, lineHeight: 17, color: c.text3 }}>{t('code.env.autoPrHint')}</RNText>
+            </View>
+            <Switch
+              value={autoPr}
+              onValueChange={(v) => {
+                haptic.select();
+                setAutoPr(v);
+              }}
+              trackColor={{ false: c.line, true: c.accent }}
+              thumbColor={autoPr ? c.onAccent : c.text3}
+            />
           </View>
 
           <View style={{ gap: 10 }}>

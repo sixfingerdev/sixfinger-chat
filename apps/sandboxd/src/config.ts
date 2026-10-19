@@ -48,7 +48,13 @@ const schema = z.object({
   CODE_EXEC_DEFAULT_SECONDS: int(120, 1),
   CODE_EXEC_MAX_SECONDS: int(900, 1),
   CODE_FILE_MAX_BYTES: int(2_000_000, 1024),
+  /** İndirilen çalışma alanı arşivinin üst sınırı (MB). */
+  CODE_ARCHIVE_MAX_MB: z.coerce.number().int().min(1).max(512).default(64),
   CODE_IDLE_SECONDS: int(600, 5),
+  /** Önizleme (statik dosya ve dev-server proxy) yanıtının üst sınırı (MB). */
+  CODE_PREVIEW_MAX_MB: z.coerce.number().int().min(1).max(64).default(8),
+  /** Aynı anda süren önizleme isteği sayısı (docker exec başına bir süreç; Pi'yi boğmasın). */
+  CODE_PREVIEW_CONCURRENCY: int(8, 1),
   CODE_CLONE_TIMEOUT_SECONDS: int(300, 10),
   CODE_SETUP_TIMEOUT_SECONDS: int(900, 10),
   /** Boşta kalan çalışma alanı bu kadar gün sonra silinir (itilmemiş çalışma kaybolur!). */

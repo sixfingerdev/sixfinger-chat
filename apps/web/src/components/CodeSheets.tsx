@@ -82,10 +82,12 @@ export function UsageSheet({ tokens, limit, onClose }: { tokens: number; limit: 
 
 const PR_ICON = { open: GitPullRequest, merged: GitMerge, closed: GitPullRequestClosed } as const;
 
-export function PullsSheet({ chatId, onClose, onCreatePr }: { chatId: string; onClose: () => void; onCreatePr: () => void }) {
+export function PullsSheet({ chatId, onClose, onChanged }: { chatId: string; onClose: () => void; onChanged: () => void }) {
   const t = useT();
   const [pulls, setPulls] = useState<CodePullDTO[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let off = false;
@@ -100,7 +102,21 @@ export function PullsSheet({ chatId, onClose, onCreatePr }: { chatId: string; on
     return () => {
       off = true;
     };
-  }, [chatId]);
+  }, [chatId, tick]);
+
+  /** PR'ı ajan açar (başlık/açıklamayı model yazar): yalnızca otomatik adım çalışmadıysa gerekir. */
+  const agentOpens = async () => {
+    setBusy(true);
+    try {
+      await api.codeOpenPr(chatId);
+      onChanged();
+      setTick((n) => n + 1);
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Sheet title={t('code.pr.title')} onClose={onClose}>
@@ -134,9 +150,9 @@ export function PullsSheet({ chatId, onClose, onCreatePr }: { chatId: string; on
           </a>
         );
       })}
-      {(pulls || failed) && (
-        <button className="btn btn-primary pr-create" onClick={onCreatePr}>
-          <GitPullRequest size={15} /> {t('code.pr.create')}
+      {pulls && !pulls.some((p) => p.state === 'open') && (
+        <button className="btn btn-primary pr-create" disabled={busy} onClick={() => void agentOpens()}>
+          {busy ? <Loader size={15} className="spin" /> : <GitPullRequest size={15} />} {t('code.pr.autoOpen')}
         </button>
       )}
     </Sheet>
@@ -145,7 +161,7 @@ export function PullsSheet({ chatId, onClose, onCreatePr }: { chatId: string; on
 
 const STATUS_KEY = { added: 'code.file.added', modified: 'code.file.modified', deleted: 'code.file.deleted', renamed: 'code.file.renamed' } as const;
 
-export function ChangesSheet({ chatId, running, onClose, onDiff, onCreatePr }: { chatId: string; running: boolean; onClose: () => void; onDiff: (path?: string) => void; onCreatePr: () => void }) {
+export function ChangesSheet({ chatId, running, onClose, onDiff }: { chatId: string; running: boolean; onClose: () => void; onDiff: (path?: string) => void }) {
   const t = useT();
   const [data, setData] = useState<CodeChangesDTO | null>(null);
   const [failed, setFailed] = useState(false);
@@ -200,11 +216,8 @@ export function ChangesSheet({ chatId, running, onClose, onDiff, onCreatePr }: {
           {running && data.stale && data.files.length === 0 && <Loader size={14} className="spin" />}
           {!running && data.additions + data.deletions > 0 && (
             <div className="pr-actions">
-              <button className="btn btn-ghost" onClick={() => onDiff()}>
+              <button className="btn btn-primary" onClick={() => onDiff()}>
                 {t('code.diff.all')}
-              </button>
-              <button className="btn btn-primary" onClick={onCreatePr}>
-                <GitPullRequest size={15} /> {t('code.openPr')}
               </button>
             </div>
           )}

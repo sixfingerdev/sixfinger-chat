@@ -16,6 +16,12 @@ sandbox'ında çalışır; araçlar `sandboxd` HTTP API'siyle konuşur.
 | `edit` | `path`, `oldString`, `newString`, `replaceAll?`. Eşleştirme 3 kademe: birebir → tipografik tırnak/tire/özel boşluk normalizasyonu → satır sonu boşluklarını yok say. **Bulanık eşleştirme yok** (aider de bilinçli kapattı). Birden çok eşleşmede hata: "N yerde eşleşti, daha fazla bağlam ekle ya da replaceAll". Satır numarası önekini `oldString`'e koyma uyarısı açıklamada. CRLF/LF/BOM korunur. Dosya başına kilit. |
 | `bash` | `command`, `timeout?` (varsayılan 120 sn), `background?`. Arka planda `shellId` + çıktı dosyası döner, "tamamlanmayı yoklama" denir. Büyük çıktı dosyaya yazılır, sondan 2000 satır / 50 KiB gösterilir, not: `[showing lines X-Y of N; full output saved to …]`. Çıkış kodu notu eklenir. |
 | `glob`, `grep` | ripgrep tabanlı, sonuç sınırı 100. `grep` biçimi: `Found N matches` + dosya başlığı altında `Line N: …`. |
+| `job_output`, `job_kill` | `bash background` ile başlayan işin (`shellId`) çıktısını okur / sonlandırır. İş `/tmp/sf-bg-<id>.pid` ile izlenir; çıktı sondan kırpılır. |
+| `task` | **Alt ajan.** `description`, `prompt`, `agent: 'explore'\|'general'`. Kendi bağlamında iç içe döngü çalıştırır: `explore` yalnızca okur (`read/glob/grep`), `general` yazabilir. Ana ajana tek bir rapor döner (bulgular `yol:satır` ile). Ana bağlam şişmez; mesajda iç içe kart olarak izlenir. |
+| `ask_user` | Kullanıcıya çoktan seçmeli soru. **Turu bitirir**; cevap bir sonraki mesaj olarak gelir (kartta seçenek düğmeleri + serbest metin). |
+| `exit_plan_mode` | Plan modunda planı sunar; turu bitirir. Kullanıcı **Onayla** (plan modu kapanır, uygulama başlar) ya da **Düzelt** (yazıp yeniden plan) der. |
+| `preview` | Kullanıcıya canlı önizleme kartı. `path` = çalışma alanındaki bir HTML dosyası (ya da `index.html` içeren klasör): kardeş `.js/.css/varlık/ES modül` dosyalarıyla statik sunulur (çok dosyalı artifact). `port` = `bash background` ile başlatılmış bir dev-server (localhost'u dinleyebilir). `root` köke göre (`/app.js`) bağlantıların çözüldüğü klasör (varsayılan: HTML'in klasörü). Dosya/port doğrulanır; yoksa modele "önce sunucuyu başlat" gibi açıklayıcı hata döner. |
+| `share_file` | Kullanıcıya indirme kartı olarak çalışma alanından bir dosya verir (rapor, dışa aktarım, görsel, zip; en çok 64 MB). Kod değişiklikleri repo ile gider, bu araçla değil. |
 | `todo` | Arayüzde yapılacaklar kartı. (opencode'da yok; Claude Code tarzı, biz ekliyoruz.) |
 | `web_search`, `web_fetch` | Zaten var. |
 

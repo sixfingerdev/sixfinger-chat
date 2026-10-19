@@ -3,6 +3,7 @@ import type { ChatDTO, MessageDTO, MessagePartDTO, StreamEvent } from '@sixfinge
 import { ApiError, api, streamGet, streamRequest } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { translate } from '../lib/i18n/index.ts';
+import { notifyIfHidden } from '../lib/notify.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 import { activePath, deepestLeaf, indexMessages } from '../lib/tree.ts';
 import { useUi } from './ui.ts';
@@ -22,7 +23,7 @@ export interface Generating {
 
 /** Code: süren turun canlı durumu (evre, bağlam doluluğu, toplam değişiklik). Tur bitince `phase` temizlenir, diğerleri kalır. */
 export interface CodeLive {
-  phase?: 'queued' | 'preparing' | 'working' | 'committing';
+  phase?: 'queued' | 'preparing' | 'working' | 'committing' | 'publishing';
   position?: number;
   context?: { tokens: number; limit: number };
   changes?: { additions: number; deletions: number; files: number; sha: string | null };
@@ -59,6 +60,8 @@ interface ChatsState {
     /** Düzenleme için: yeni mesajın bağlanacağı üst mesaj (null = kök). */
     parentId?: string | null;
     onChatCreated?: (id: string) => void;
+    /** Code: plan modu (ajan değişiklik yapmaz, plan sunar). */
+    planMode?: boolean;
   }) => Promise<void>;
   regenerate: (chatId: string, messageId: string) => Promise<void>;
   stop: (chatId: string) => void;
@@ -293,6 +296,7 @@ export const useChats = create<ChatsState>((set, get) => {
           flush();
           patchMessage(chatId, assistantId, () => ({ ...e.assistantMessage, parts: e.assistantMessage.parts ?? [] }));
           clearGen(chatId, abort);
+          notifyCodeDone(chatId, e.assistantMessage);
           break;
       }
     };
@@ -386,7 +390,7 @@ export const useChats = create<ChatsState>((set, get) => {
     newChat: () => set({ activeId: null, loadError: null, loadingId: null }),
     setDraftPersona: (draftPersona) => set({ draftPersona }),
 
-    async send({ content, attachments = [], chatId, parentId, onChatCreated }) {
+    async send({ content, attachments = [], chatId, parentId, onChatCreated, planMode }) {
       if (chatId && get().generating[chatId]) return;
       let id = chatId ?? null;
       try {
@@ -426,6 +430,7 @@ export const useChats = create<ChatsState>((set, get) => {
         mode: useUi.getState().mode,
         effort: useUi.getState().effort,
         attachments: attachments.length ? attachments.map(({ name, mime, text }) => ({ name, mime, text })) : undefined,
+        planMode: planMode || undefined,
       };
       const dropped = await runStream(chat, (onEvent, signal) => streamRequest(`/chats/${chat}/messages`, body, onEvent, signal), {
         userId: userTmp.id,
@@ -565,4 +570,14 @@ export const useChats = create<ChatsState>((set, get) => {
 export function selectPath(detail: ChatDetail | undefined): MessageDTO[] {
   if (!detail) return [];
   return activePath(indexMessages(detail.messages), detail.chat.leafId);
+}
+
+/** Code turu bitince (sekme arka plandaysa) bildirim: tamamlandı ya da kullanıcıdan yanıt bekleniyor. */
+function notifyCodeDone(chatId: string, msg: MessageDTO): void {
+  const chat = useChats.getState().detail[chatId]?.chat;
+  if (chat?.kind !== 'code') return;
+  const waiting = (msg.parts ?? []).some((p) => p.type === 'tool' && (p.name === 'ask_user' || p.name === 'exit_plan_mode'));
+  const failed = msg.status === 'error';
+  const key = waiting ? 'code.notify.waiting' : failed ? 'code.notify.failed' : 'code.notify.done';
+  notifyIfHidden(chat.title === 'Yeni oturum' ? 'SixFinger Code' : chat.title, translate(key), `code-${chatId}`);
 }

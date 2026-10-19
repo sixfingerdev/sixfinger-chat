@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { CodeEnvironmentDTO, CodeSessionDTO, CodeStatusDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
+import type { PendingAttachment } from '../lib/types.ts';
 
 const DRAFT_KEY = 'sf.code.draft';
 
@@ -20,18 +21,36 @@ function readDraft(): CodeDraft {
   }
 }
 
+export interface QueuedMessage {
+  text: string;
+  plan: boolean;
+  attachments?: PendingAttachment[];
+}
+
 interface CodeState {
   status: CodeStatusDTO | null;
   envs: CodeEnvironmentDTO[] | null;
   sessions: CodeSessionDTO[] | null;
+  archived: CodeSessionDTO[] | null;
   loadError: string | null;
   /** Yeni oturum ekranında seçilenler (son seçim hatırlanır). */
   draft: CodeDraft;
+  /** Oturum başına plan modu anahtarı. */
+  plan: Record<string, boolean>;
+  /** Ajan çalışırken yazılan, tur bitince sırayla gönderilecek mesajlar. */
+  queue: Record<string, QueuedMessage[]>;
+  setPlan: (chatId: string, on: boolean) => void;
+  enqueue: (chatId: string, m: QueuedMessage) => void;
+  takeQueued: (chatId: string) => QueuedMessage | undefined;
+  removeQueued: (chatId: string, index: number) => void;
 
   setDraft: (patch: Partial<CodeDraft>) => void;
   loadStatus: () => Promise<void>;
   loadEnvs: () => Promise<void>;
   loadSessions: () => Promise<void>;
+  loadArchived: () => Promise<void>;
+  /** Ad / sabitleme / arşiv değişikliği; listeler yeniden çekilir (sıra sunucuda belirlenir). */
+  updateSession: (chatId: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) => Promise<boolean>;
   /** Ana ekran açılırken: durum + (izinliyse) ortamlar ve oturumlar. */
   refresh: () => Promise<void>;
   connect: () => Promise<void>;
@@ -48,8 +67,20 @@ export const useCode = create<CodeState>((set, get) => ({
   status: null,
   envs: null,
   sessions: null,
+  archived: null,
   loadError: null,
   draft: readDraft(),
+  plan: {},
+  queue: {},
+
+  setPlan: (chatId, on) => set((s) => ({ plan: { ...s.plan, [chatId]: on } })),
+  enqueue: (chatId, m) => set((s) => ({ queue: { ...s.queue, [chatId]: [...(s.queue[chatId] ?? []), m] } })),
+  takeQueued(chatId) {
+    const [first, ...rest] = get().queue[chatId] ?? [];
+    if (first) set((s) => ({ queue: { ...s.queue, [chatId]: rest } }));
+    return first;
+  },
+  removeQueued: (chatId, index) => set((s) => ({ queue: { ...s.queue, [chatId]: (s.queue[chatId] ?? []).filter((_, i) => i !== index) } })),
 
   setDraft(patch) {
     const draft = { ...get().draft, ...patch };
@@ -84,6 +115,23 @@ export const useCode = create<CodeState>((set, get) => ({
       set({ sessions: (await api.codeSessions()).sessions });
     } catch (err) {
       reportError(err);
+    }
+  },
+  async loadArchived() {
+    try {
+      set({ archived: (await api.codeSessions(true)).sessions });
+    } catch (err) {
+      reportError(err);
+    }
+  },
+  async updateSession(chatId, patch) {
+    try {
+      await api.updateChat(chatId, patch);
+      await Promise.all([get().loadSessions(), get().archived ? get().loadArchived() : Promise.resolve()]);
+      return true;
+    } catch (err) {
+      reportError(err);
+      return false;
     }
   },
   async refresh() {
@@ -154,7 +202,7 @@ export const useCode = create<CodeState>((set, get) => ({
   async deleteSession(chatId) {
     try {
       await api.deleteCodeSession(chatId);
-      set((s) => ({ sessions: (s.sessions ?? []).filter((x) => x.chatId !== chatId) }));
+      set((s) => ({ sessions: (s.sessions ?? []).filter((x) => x.chatId !== chatId), archived: s.archived && s.archived.filter((x) => x.chatId !== chatId) }));
       return true;
     } catch (err) {
       reportError(err);

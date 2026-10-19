@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, ScrollView, Switch, Text as RNText, View, useWindowDimensions } from 'react-native';
-import { ArrowUpRight, ChevronRight, GitPullRequest } from 'lucide-react-native';
-import { parseUnifiedDiff, type CodeDiffDTO, type CodePrDraftDTO, type CodePullDTO, type DiffFile } from '@sixfinger/shared';
+import { ActivityIndicator, ScrollView, Text as RNText, View, useWindowDimensions } from 'react-native';
+import { ChevronLeft, ChevronRight, Download, File as FileIcon, Folder, Monitor } from 'lucide-react-native';
+import { Directory, File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { listDir, parentDirs, parseUnifiedDiff, type CodeDiffDTO, type DiffFile } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
 import { api } from '../../lib/api.ts';
 import { reportError } from '../../lib/errors.ts';
 import { haptic } from '../../lib/haptics.ts';
 import { useT } from '../../lib/i18n/index.ts';
-import { useUi } from '../../store/ui.ts';
-import { Field } from '../Field.tsx';
 import { Sheet } from '../Sheet.tsx';
-import { Button, Press } from '../Ui.tsx';
+import { Press } from '../Ui.tsx';
+import { openPreview, shareWorkspaceFile } from './CodePreview.tsx';
 
 const Title = ({ children }: { children: string }) => {
   const { c } = useTheme();
@@ -102,36 +103,33 @@ export function DiffSheet({ visible, onClose, chatId, path }: { visible: boolean
   );
 }
 
-/** PR açma: model taslağı düzenlenir; "Gönder ve PR aç" kullanıcının açık onayıdır (push + PR birlikte). */
-export function CreatePrSheet({ visible, onClose, chatId, onDone }: { visible: boolean; onClose: () => void; chatId: string; onDone: () => void }) {
+/** Dosya gezgini: klasör klasör gezinir, dosyayı gösterir, çalışma alanını arşiv olarak indirip paylaşır. */
+export function FilesSheet({ visible, onClose, chatId }: { visible: boolean; onClose: () => void; chatId: string }) {
   const { c } = useTheme();
   const t = useT();
   const { height } = useWindowDimensions();
-  const [draft, setDraft] = useState<CodePrDraftDTO | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [asDraft, setAsDraft] = useState(false);
-  const [busy, setBusy] = useState<'pr' | 'push' | null>(null);
-  const [result, setResult] = useState<{ pull: CodePullDTO; existed: boolean } | null>(null);
+  const [paths, setPaths] = useState<string[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [dir, setDir] = useState('');
+  const [open, setOpen] = useState<{ path: string; content: string; truncated: boolean } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
-    setDraft(null);
-    setFailed(false);
-    setResult(null);
+    setPaths(null);
+    setOpen(null);
+    setDir('');
     let off = false;
     api
-      .codePrDraft(chatId)
-      .then(({ draft: d }) => {
+      .codeFiles(chatId)
+      .then((r) => {
         if (off) return;
-        setDraft(d);
-        setTitle(d.title);
-        setBody(d.body);
+        setPaths(r.files);
+        setTruncated(r.truncated);
       })
       .catch((err) => {
-        if (off) return;
-        setFailed(true);
+        if (!off) setPaths([]);
         reportError(err);
       });
     return () => {
@@ -139,88 +137,111 @@ export function CreatePrSheet({ visible, onClose, chatId, onDone }: { visible: b
     };
   }, [visible, chatId]);
 
-  const createPr = async () => {
-    if (!title.trim() || busy) return;
-    setBusy('pr');
+  const show = async (path: string) => {
+    setLoading(true);
     try {
-      const r = await api.codeCreatePr(chatId, { title: title.trim(), body, draft: asDraft });
-      haptic.success();
-      setResult(r);
-      onDone();
+      setOpen(await api.codeFile(chatId, path));
     } catch (err) {
       reportError(err);
     } finally {
-      setBusy(null);
-    }
-  };
-  const pushOnly = async () => {
-    if (busy) return;
-    setBusy('push');
-    try {
-      await api.codePush(chatId);
-      haptic.success();
-      useUi.getState().toast({ kind: 'success', text: t('code.pr.pushed') });
-      onDone();
-      onClose();
-    } catch (err) {
-      reportError(err);
-    } finally {
-      setBusy(null);
+      setLoading(false);
     }
   };
 
-  const noCommits = Boolean(draft && draft.commits === 0 && !draft.needsPush);
+  const download = async () => {
+    setBusy(true);
+    try {
+      const { url, headers } = api.codeArchiveRequest(chatId);
+      const file = await File.downloadFileAsync(url, new Directory(Paths.cache), { headers, idempotent: true });
+      haptic.success();
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri, { mimeType: 'application/gzip' });
+    } catch (err) {
+      reportError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const view = paths ? listDir(paths, dir) : { dirs: [], files: [] };
+  const name = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+  const row = (key: string, icon: React.ReactNode, label: string, onPress: () => void) => (
+    <Press key={key} haptics="select" scale={0.985} disabled={loading} onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 46, paddingHorizontal: 6 }}>
+      {icon}
+      <RNText numberOfLines={1} style={{ flex: 1, fontFamily: fonts.mono, fontSize: 13.5, color: c.text }}>
+        {label}
+      </RNText>
+    </Press>
+  );
+  const crumb = open ? open.path : dir || t('code.files.root');
+
   return (
     <Sheet visible={visible} onClose={onClose}>
-      <Title>{t('code.pr.create')}</Title>
-      <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: height * 0.72 }} contentContainerStyle={{ paddingHorizontal: 22, paddingBottom: 14, gap: 14 }}>
-        {!draft && !failed && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 22 }}>
-            <ActivityIndicator color={c.text3} />
-            <RNText style={[type.small, { color: c.text3 }]}>{t('code.pr.drafting')}</RNText>
-          </View>
-        )}
-        {failed && <RNText style={[type.small, { color: c.text2, textAlign: 'center', paddingVertical: 28 }]}>{t('error.generic')}</RNText>}
-        {result && (
-          <View style={{ alignItems: 'center', gap: 8, paddingVertical: 18 }}>
-            <GitPullRequest size={26} color={c.text2} />
-            <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 16, color: c.text }}>{result.existed ? t('code.pr.existed') : t('code.pr.created')}</RNText>
-            <RNText numberOfLines={2} style={[type.small, { color: c.text3, textAlign: 'center' }]}>
-              #{result.pull.number} · {result.pull.title}
-            </RNText>
-            <Button label={t('code.pr.view')} icon={<ArrowUpRight size={16} color={c.onAccent} />} onPress={() => void Linking.openURL(result.pull.url)} style={{ alignSelf: 'stretch', marginTop: 6 }} />
-          </View>
-        )}
-        {draft && !result && (
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 22, paddingBottom: 10, gap: 12 }}>
+        <RNText numberOfLines={1} style={[type.label, { color: c.text3, flex: 1 }]}>
+          {t('code.files.title')} · {crumb}
+        </RNText>
+        <Press haptics="tap" scale={0.9} accessibilityLabel={t('code.files.download')} disabled={busy} onPress={() => void download()} hitSlop={8}>
+          {busy ? <ActivityIndicator color={c.text2} /> : <Download size={19} color={c.text} />}
+        </Press>
+      </View>
+      <ScrollView style={{ maxHeight: height * 0.66 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 14 }}>
+        {!paths && <ActivityIndicator color={c.text3} style={{ paddingVertical: 28 }} />}
+        {paths && !open && (
           <>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <RNText style={[type.small, { color: c.text3 }]}>{t('code.pr.summary', { n: draft.commits, files: draft.files })}</RNText>
-              <Counts add={draft.additions} del={draft.deletions} />
-            </View>
-            {noCommits ? (
-              <RNText style={[type.small, { color: c.text3 }]}>{t('code.pr.noCommits')}</RNText>
-            ) : (
-              <>
-                <Field label={t('code.pr.titleLabel')} value={title} onChangeText={setTitle} maxLength={256} />
-                <Field label={t('code.pr.bodyLabel')} value={body} onChangeText={setBody} multiline style={{ fontFamily: fonts.mono, fontSize: 13, minHeight: 150 }} />
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 14.5, color: c.text }}>{t('code.pr.draftToggle')}</RNText>
-                  <Switch
-                    value={asDraft}
-                    onValueChange={(v) => {
-                      haptic.select();
-                      setAsDraft(v);
-                    }}
-                    trackColor={{ false: c.line, true: c.accent }}
-                    thumbColor={asDraft ? c.onAccent : c.text3}
-                  />
-                </View>
-                <RNText style={{ fontFamily: fonts.sans, fontSize: 12.5, lineHeight: 17, color: c.text3 }}>{t('code.pr.willPush', { head: draft.head, base: draft.base })}</RNText>
-                <Button label={t('code.pr.createBtn')} loading={busy === 'pr'} disabled={!title.trim() || Boolean(busy)} onPress={() => void createPr()} />
-                {draft.needsPush && <Button variant="ghost" label={t('code.pr.pushOnly')} loading={busy === 'push'} disabled={Boolean(busy)} onPress={() => void pushOnly()} />}
-              </>
-            )}
+            {!!dir && row('up', <ChevronLeft size={16} color={c.text3} />, '..', () => setDir(parentDirs(`${dir}/x`).at(-2) ?? ''))}
+            {view.dirs.map((d) => row(`d${d}`, <Folder size={16} color={c.text3} />, d, () => setDir(dir ? `${dir}/${d}` : d)))}
+            {view.files.map((f) => (
+              <View key={f} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ flex: 1, minWidth: 0 }}>{row(f, <FileIcon size={16} color={c.text3} />, f, () => void show(dir ? `${dir}/${f}` : f))}</View>
+                <Press accessibilityLabel={t('code.share.download')} haptics="tap" scale={0.88} hitSlop={6} onPress={() => void shareWorkspaceFile(chatId, dir ? `${dir}/${f}` : f)} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+                  <Download size={16} color={c.text2} />
+                </Press>
+              </View>
+            ))}
+            {!view.dirs.length && !view.files.length && <RNText style={[type.small, { color: c.text3, textAlign: 'center', paddingVertical: 24 }]}>{t('code.files.empty')}</RNText>}
+            {truncated && <RNText style={[type.small, { color: c.text3, paddingTop: 8 }]}>{t('code.files.listTruncated')}</RNText>}
           </>
+        )}
+        {open && (
+          <View style={{ gap: 8 }}>
+            <Press haptics="select" scale={0.97} onPress={() => setOpen(null)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, height: 36 }}>
+              <ChevronLeft size={16} color={c.text2} />
+              <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13.5, color: c.text2 }}>{name(open.path)}</RNText>
+            </Press>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Press haptics="tap" scale={0.97} onPress={() => void shareWorkspaceFile(chatId, open.path)} style={{ height: 36, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: c.surface2 }}>
+                <Download size={15} color={c.text} />
+                <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text }}>{t('code.share.download')}</RNText>
+              </Press>
+              {/\.html?$/i.test(open.path) && (
+                <Press
+                  haptics="tap"
+                  scale={0.97}
+                  onPress={() => {
+                    onClose();
+                    openPreview(chatId, { path: open.path });
+                  }}
+                  style={{ height: 36, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: c.surface2 }}
+                >
+                  <Monitor size={15} color={c.text} />
+                  <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text }}>{t('code.files.preview')}</RNText>
+                </Press>
+              )}
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: c.codeBg, borderRadius: radius.md, borderWidth: 1, borderColor: c.line }}>
+              <View style={{ paddingVertical: 8 }}>
+                {open.content.split('\n').slice(0, 1_500).map((l, i) => (
+                  <View key={i} style={{ flexDirection: 'row' }}>
+                    <RNText style={{ width: 40, textAlign: 'right', paddingRight: 8, fontFamily: fonts.mono, fontSize: 11, lineHeight: 18, color: c.text3 }}>{i + 1}</RNText>
+                    <RNText selectable style={{ fontFamily: fonts.mono, fontSize: 12, lineHeight: 18, color: c.text, paddingRight: 12 }}>
+                      {l || ' '}
+                    </RNText>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+            {open.truncated && <RNText style={[type.small, { color: c.text3 }]}>{t('code.files.truncated')}</RNText>}
+          </View>
         )}
       </ScrollView>
     </Sheet>

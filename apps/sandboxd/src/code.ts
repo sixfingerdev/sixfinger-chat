@@ -73,6 +73,66 @@ interface State {
   /** Son `du` süresi: ucuzsa her işlemden sonra ölçülür, pahalıysa 10 sn'de bir. */
   measureMs: number;
   chain: Promise<unknown>;
+  /** Konteyner başlatılıyorsa: eşzamanlı çağrılar aynı başlatmayı bekler (serial dışı işlemler için). */
+  starting?: Promise<void>;
+  /** Bu oturumda süren önizleme istekleri. */
+  previewBusy: number;
+}
+
+export interface PreviewRequest {
+  port: number;
+  method: string;
+  /** `/` ile başlayan yol + sorgu. */
+  path: string;
+  headers: Record<string, string>;
+  body?: Buffer;
+}
+export interface PreviewResponse {
+  status: number;
+  headers: Array<[string, string]>;
+  body: Buffer;
+}
+
+const PREVIEW_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
+/** Konteynerdeki sunucuya iletilen istek başlıkları (çerez ve kimlik bilgisi taşıyanlar hariç). */
+const FORWARD_HEADERS = new Set(['accept', 'accept-language', 'content-type', 'authorization', 'x-requested-with', 'range']);
+const HOP = new Set(['transfer-encoding', 'connection', 'keep-alive', 'content-length', 'content-encoding']);
+
+/** `curl -i` çıktısını (1xx ara yanıtları atlayarak) durum, başlıklar ve gövdeye ayırır. */
+export function parseCurlResponse(buf: Buffer): PreviewResponse | null {
+  let rest = buf;
+  for (let guard = 0; guard < 5; guard++) {
+    const end = rest.indexOf('\r\n\r\n');
+    if (end < 0 || !rest.subarray(0, 5).equals(Buffer.from('HTTP/'))) return null;
+    const head = rest.subarray(0, end).toString('latin1').split('\r\n');
+    const status = Number(/^HTTP\/[\d.]+ (\d{3})/.exec(head[0]!)?.[1]);
+    if (!status) return null;
+    rest = rest.subarray(end + 4);
+    if (status >= 100 && status < 200) continue;
+    if (status === 200 && /connection established/i.test(head[0]!)) continue;
+    const headers: Array<[string, string]> = [];
+    for (const l of head.slice(1)) {
+      const i = l.indexOf(':');
+      if (i <= 0) continue;
+      const name = l.slice(0, i).trim().toLowerCase();
+      if (HOP.has(name)) continue;
+      headers.push([name, l.slice(i + 1).trim()]);
+    }
+    return { status, headers, body: rest };
+  }
+  return null;
+}
+
+/** `/proc/net/tcp{,6}` içeriğinden dinleyen (LISTEN) TCP portları (1024 ve üstü). */
+export function parseListeningPorts(text: string): number[] {
+  const ports = new Set<number>();
+  for (const l of text.split('\n')) {
+    const f = l.trim().split(/\s+/);
+    if (f[3] !== '0A' || !f[1]) continue;
+    const port = parseInt(f[1].split(':')[1] ?? '', 16);
+    if (port >= 1024 && port <= 65535) ports.add(port);
+  }
+  return [...ports].sort((a, b) => a - b);
 }
 
 /** Basit glob → RegExp: `**` (dizinler dahil), `*` / `?` (dizin ayracı hariç), `{a,b}`, `[abc]`. Yol `/` ile ayrılmış, köke göreli. */
@@ -132,6 +192,7 @@ touch .git/sixfinger/init
 export class CodeService {
   private states = new Map<string, State>();
   private reaper?: NodeJS.Timeout;
+  private previewActive = 0;
 
   constructor(
     private readonly cfg: Config,
@@ -245,7 +306,15 @@ export class CodeService {
   }
 
   /** Konteyner çalışır hale gelir; havuz doluysa en uzun süredir boşta olan kapatılır, hepsi meşgulse kısa süre beklenir. */
-  private async ensureRunning(s: State): Promise<void> {
+  private ensureRunning(s: State): Promise<void> {
+    if (s.running) return Promise.resolve();
+    s.starting ??= this.startContainer(s).finally(() => {
+      s.starting = undefined;
+    });
+    return s.starting;
+  }
+
+  private async startContainer(s: State): Promise<void> {
     if (s.running) return;
     const deadline = this.now() + 20_000;
     for (;;) {
@@ -292,7 +361,7 @@ export class CodeService {
     const profile = this.profileFor(id, dir, rest);
     const envHash = shortHash({ env: req.env, net: profile.network, mem: profile.memMb, fsize: profile.fsizeBytes });
     if (!s) {
-      s = { id, user: req.user, dir, profile, req: rest, envHash, running: false, lastUsed: this.now(), busy: 0, diskUsedMb: 0, diskAt: 0, measureMs: 0, chain: Promise.resolve() };
+      s = { id, user: req.user, dir, profile, req: rest, envHash, running: false, lastUsed: this.now(), busy: 0, diskUsedMb: 0, diskAt: 0, measureMs: 0, chain: Promise.resolve(), previewBusy: 0 };
       this.states.set(id, s);
     }
     const st = s;
@@ -403,10 +472,10 @@ export class CodeService {
     });
   }
 
-  async writeFile(user: string, session: string, path: string, content: string): Promise<{ bytes: number; diskUsedMb: number }> {
+  async writeFile(user: string, session: string, path: string, content: string, encoding: 'utf8' | 'base64' = 'utf8'): Promise<{ bytes: number; diskUsedMb: number }> {
     const rel = workPath(path);
     if (rel === '.git' || rel.startsWith('.git/')) throw new SandboxError('.git klasörüne yazılamaz (git işlemleri sunucu tarafından yapılır).');
-    const data = Buffer.from(content, 'utf8');
+    const data = Buffer.from(content, encoding);
     if (data.length > this.cfg.CODE_FILE_MAX_BYTES) throw new SandboxError(`Dosya çok büyük (en fazla ${this.cfg.CODE_FILE_MAX_BYTES} bayt). Daha küçük parçalara böl.`, 'too_large');
     const s = this.state(user, session);
     return this.serial(s, async () => {
@@ -506,7 +575,7 @@ export class CodeService {
    * yardımcı konteynerde (çalışma alanı SALT OKUNUR bağlı) bizim kontrolümüzde boş bir git dizini açılır, nesneler yalnızca
    * "alternates" ile (veri olarak) okunur; böylece ajanın yazdığı config/hook/helper ayarları token'lı süreçte çalışamaz.
    */
-  async push(user: string, session: string, token: string, opts: { pushUrl?: string } = {}): Promise<{ sha: string; branch: string; output: string }> {
+  async push(user: string, session: string, token: string, opts: { pushUrl?: string; force?: boolean } = {}): Promise<{ sha: string; branch: string; output: string }> {
     if (opts.pushUrl && this.cfg.SANDBOX_RUNTIME !== 'local-unsafe') throw new SandboxError('pushUrl yalnızca testlerde kullanılabilir.');
     const s = this.state(user, session);
     if (!token) throw new SandboxError('GitHub erişimi verilmedi.');
@@ -530,7 +599,7 @@ export class CodeService {
         `if [ -f '${work}/.git/shallow' ]; then cp '${work}/.git/shallow' "$T/t.git/shallow"; fi`,
         `echo '${work}/.git/objects' > "$T/t.git/objects/info/alternates"`,
         'git --git-dir="$T/t.git" cat-file -e "$1^{commit}"',
-        `git --git-dir="$T/t.git" -c credential.helper= -c '${askpass}' ${opts.pushUrl ? '-c protocol.file.allow=always ' : ''}push --porcelain "$3" "$1:refs/heads/$2"`,
+        `git --git-dir="$T/t.git" -c credential.helper= -c '${askpass}' ${opts.pushUrl ? '-c protocol.file.allow=always ' : ''}push --porcelain ${opts.force ? '--force ' : ''} "$3" "$1:refs/heads/$2"`,
       ].join('\n');
       const url = opts.pushUrl ?? `https://github.com/${repo}.git`;
       let r;
@@ -553,6 +622,89 @@ export class CodeService {
       }
       return { sha, branch: workBranch, output: clean(r.stdout).slice(-500) };
     });
+  }
+
+  /**
+   * Çalışma alanını (node_modules ve .git hariç) tar.gz olarak döndürür. Dosyalar sandboxd'nin görebildiği diskte olduğu için konteyner
+   * gerekmez; tar sembolik bağlantıları izlemez (hedefi değil bağlantıyı arşivler), böylece ajanın bağlantıyla dışarıyı okutması mümkün olmaz.
+   */
+  async archive(user: string, session: string): Promise<Buffer> {
+    const s = this.state(user, session);
+    const max = this.cfg.CODE_ARCHIVE_MAX_MB * 1024 * 1024;
+    const r = await capture('tar', ['czf', '-', '--exclude=node_modules', '--exclude=./.git', '--exclude=.git', '-C', s.dir, '.'], { timeoutMs: 120_000, maxOutput: max });
+    if (r.truncated) throw new SandboxError(`Arşiv ${this.cfg.CODE_ARCHIVE_MAX_MB} MB sınırını aşıyor. Büyük dosyaları (build çıktısı, veri) silip tekrar dene.`, 'too_large');
+    if (r.exitCode !== 0) throw new SandboxError(`Arşiv oluşturulamadı: ${r.stderr.trim().slice(0, 200)}`);
+    return r.stdoutBuf;
+  }
+
+  /**
+   * Bir dosyanın ham baytları (önizleme ve indirme). Oturum sırasına GİRMEZ: ajan uzun bir komut çalıştırırken de önizleme açılabilsin.
+   * Okuma konteyner içinde yapılır (sembolik bağlantılar konteynerin kendi dosya sistemine çıkar, ana makineye değil).
+   */
+  async raw(user: string, session: string, path: string, maxBytes: number): Promise<{ data: Buffer }> {
+    const rel = workPath(path);
+    const s = this.state(user, session);
+    await this.ensureRunning(s);
+    const r = await this.runtime.exec(s.id, {
+      argv: ['sh', '-c', 'if [ ! -e "$1" ]; then exit 44; fi; if [ -d "$1" ]; then exit 45; fi; head -c "$2" -- "$1"', 'sh', rel, String(maxBytes + 1)],
+      timeoutMs: 30_000,
+      maxOutput: maxBytes + 16,
+    });
+    if (r.exitCode === 44) throw new SandboxError(`Dosya bulunamadı: ${path}`, 'not_found');
+    if (r.exitCode === 45) throw new SandboxError(`Bu bir klasör, dosya değil: ${path}`, 'is_directory');
+    if (r.exitCode !== 0) throw new SandboxError(`Dosya okunamadı: ${r.stderr.trim().slice(0, 200)}`);
+    const data = r.stdoutBuf ?? Buffer.from(r.stdout);
+    if (r.truncated || data.length > maxBytes) throw new SandboxError(`Dosya çok büyük (en fazla ${Math.floor(maxBytes / 1_048_576)} MB).`, 'too_large');
+    return { data };
+  }
+
+  /** Konteyner içinde dinleyen portlar (dev-server önizlemesi için). Oturum sırasına girmez. */
+  async ports(user: string, session: string): Promise<number[]> {
+    const s = this.state(user, session);
+    await this.ensureRunning(s);
+    const r = await this.runtime.exec(s.id, { argv: ['sh', '-c', 'cat /proc/net/tcp /proc/net/tcp6 2>/dev/null'], timeoutMs: 10_000, maxOutput: 256 * 1024 });
+    return parseListeningPorts(r.stdout);
+  }
+
+  /**
+   * Konteynerdeki bir dev-server'a (127.0.0.1:port) tek bir HTTP isteği yapar: `docker exec curl`. Konteynere ağ erişimi açmaya
+   * gerek kalmaz (ağsız ortamlarda da çalışır, sunucu yalnızca localhost'u dinleyebilir). Oturum sırasına girmez; eşzamanlılık sınırlıdır.
+   */
+  async http(user: string, session: string, q: PreviewRequest): Promise<PreviewResponse> {
+    const method = q.method.toUpperCase();
+    if (!PREVIEW_METHODS.has(method)) throw new SandboxError('Desteklenmeyen HTTP yöntemi.');
+    if (!Number.isInteger(q.port) || q.port < 1024 || q.port > 65535) throw new SandboxError('Port 1024-65535 arasında olmalı.');
+    if (!/^\/[\x21-\x7e]*$/.test(q.path) || q.path.length > 4_000) throw new SandboxError('Geçersiz yol.');
+    const max = this.cfg.CODE_PREVIEW_MAX_MB * 1_048_576;
+    if (q.body && q.body.length > 3_000_000) throw new SandboxError('İstek gövdesi çok büyük (en fazla 3 MB).', 'too_large');
+    const args = ['curl', '-sS', '-g', '--http1.1', '--path-as-is', '--connect-timeout', '3', '--max-time', '25', '-H', 'Expect:', '-H', 'Accept-Encoding: identity'];
+    for (const [k, v] of Object.entries(q.headers)) {
+      const name = k.toLowerCase();
+      if (!FORWARD_HEADERS.has(name) || !/^[A-Za-z0-9-]{1,50}$/.test(k) || /[\r\n\0]/.test(v) || v.length > 2_000) continue;
+      args.push('-H', `${name}: ${v}`);
+    }
+    if (method === 'HEAD') args.push('-I');
+    else args.push('-i', ...(method === 'GET' ? [] : ['-X', method]));
+    if (q.body?.length) args.push('--data-binary', '@-');
+    args.push('--url', `http://127.0.0.1:${q.port}${q.path}`);
+
+    const s = this.state(user, session);
+    if (s.previewBusy >= 4 || this.previewActive >= this.cfg.CODE_PREVIEW_CONCURRENCY) throw new SandboxBusyError('Önizleme şu an yoğun; tekrar dene.', 1);
+    s.previewBusy++;
+    this.previewActive++;
+    try {
+      await this.ensureRunning(s);
+      const r = await this.runtime.exec(s.id, { argv: args, stdin: q.body, timeoutMs: 30_000, maxOutput: max + 16_384 });
+      if (r.exitCode === 7) throw new SandboxError(`Port ${q.port} üzerinde dinleyen bir sunucu yok. Sunucuyu arka planda başlat (bash background) ve tekrar dene.`, 'not_found');
+      if (r.exitCode === 28 || r.timedOut) throw new SandboxError('Sunucu zamanında yanıt vermedi.');
+      if (r.truncated) throw new SandboxError(`Yanıt çok büyük (en fazla ${this.cfg.CODE_PREVIEW_MAX_MB} MB).`, 'too_large');
+      const parsed = r.exitCode === 0 ? parseCurlResponse(r.stdoutBuf ?? Buffer.from(r.stdout)) : null;
+      if (!parsed) throw new SandboxError(`Sunucudan geçerli bir yanıt alınamadı${r.stderr ? `: ${r.stderr.trim().slice(0, 160)}` : '.'}`);
+      return parsed;
+    } finally {
+      s.previewBusy--;
+      this.previewActive--;
+    }
   }
 
   async usage(user: string, session: string): Promise<{ diskUsedMb: number; diskMb: number; running: boolean }> {

@@ -5,6 +5,10 @@ import {
   createPrSchema,
   createCodeSessionSchema,
   diffQuery,
+  filesQuery,
+  rewindSchema,
+  previewSchema,
+  uploadSchema,
   githubCompleteSchema,
   githubStartSchema,
   listReposQuery,
@@ -17,6 +21,8 @@ import type { AppContext } from '../context.ts';
 import type { Guard } from '../guard.ts';
 import { badRequest, forbidden, HttpError, notFound } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
+import { registerSkillRoutes } from './code-skills.ts';
+import { mimeOf } from '../lib/mime.ts';
 
 const REPO_CACHE_MS = 60_000;
 
@@ -74,6 +80,52 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
         return bounce(reply, target, { gh_code: req.query.code, gh_state: state });
       },
     );
+
+    // --- Önizleme: iframe/WebView başlık gönderemez; yetki yoldaki imzalı token'dadır (oturum + kök/port, 3 saat) ---
+    await app.register(async (pv) => {
+      // Gövdeyi ayrıştırma: dev-server'a ham bayt olarak iletilir.
+      pv.removeAllContentTypeParsers();
+      pv.addContentTypeParser('*', { parseAs: 'buffer', bodyLimit: 3 * 1024 * 1024 }, (_req, body, done) => done(null, body));
+      const ancestors = ["'self'", webBase, ...config.corsOrigins].join(' ');
+      const handler = async (req: import('fastify').FastifyRequest<{ Params: { token: string; '*'?: string } }>, reply: FastifyReply) => {
+        const { token } = req.params;
+        const q = req.url.indexOf('?');
+        const path = req.url.slice(0, q < 0 ? undefined : q);
+        const prefix = path.slice(0, path.indexOf(token) + token.length);
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers[k] = v;
+        let rest = req.params['*'] ?? '';
+        try {
+          rest = decodeURIComponent(rest);
+        } catch {
+          /* çözülemeyen yüzde işaretleri olduğu gibi kalır */
+        }
+        const r = await ctx.codePreview.serve(token, {
+          method: req.method,
+          rest,
+          query: q < 0 ? '' : req.url.slice(q + 1),
+          headers,
+          body: Buffer.isBuffer(req.body) ? req.body : undefined,
+          prefix,
+        });
+        reply.removeHeader('x-frame-options');
+        reply
+          .code(r.status)
+          .headers({
+            ...r.headers,
+            // Yalıtım: kendi kaynağımızdan (API) ayrı, opak kaynaklı bir sayfa olarak çalışır; depolama, çerez ve API'ye erişim yok.
+            'content-security-policy': `sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads allow-pointer-lock; frame-ancestors ${ancestors}`,
+            'cache-control': 'no-store',
+            'referrer-policy': 'no-referrer',
+            'x-content-type-options': 'nosniff',
+          });
+        return reply.send(req.method === 'HEAD' ? undefined : r.body);
+      };
+      const opts = { config: { rateLimit: { max: 3_000, timeWindow: '1 minute' } } };
+      const methods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+      pv.route({ method: [...methods], url: '/code/preview/:token/*', ...opts, handler });
+      pv.get<{ Params: { token: string } }>('/code/preview/:token', opts, async (req, reply) => reply.redirect(`${req.url.split('?')[0]}/`));
+    });
 
     await app.register(async (authed) => {
       authed.addHook('preHandler', guard.requireUser);
@@ -169,9 +221,9 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
       });
 
       // --- Oturumlar ---
-      authed.get('/code/sessions', async (req) => {
+      authed.get<{ Querystring: { archived?: string } }>('/code/sessions', async (req) => {
         await code.reconcileRunning(ctx.runs.activeChatIds());
-        return { sessions: await code.listSessions(req.user!.id) };
+        return { sessions: await code.listSessions(req.user!.id, req.query.archived === 'true' || req.query.archived === '1') };
       });
 
       authed.get<{ Params: { id: string } }>('/code/sessions/:id', async (req) => {
@@ -213,16 +265,85 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
         }
       });
 
-      /** PR taslağı (model yazar; kullanıcı düzenleyip onaylar). */
-      authed.get<{ Params: { id: string } }>('/code/sessions/:id/pr-draft', async (req) => ({ draft: await ctx.codeGit.draft(req.user!, req.params.id) }));
-
-      /** Yalnızca branch'i GitHub'a gönderir. Kullanıcının açık isteğidir (hiçbir şey kendiliğinden itilmez). */
+      /** Branch'i GitHub'a gönderir (ajan çalışırken `409`). */
       authed.post<{ Params: { id: string } }>('/code/sessions/:id/push', async (req) => ctx.codeGit.push(req.user!, req.params.id));
 
-      /** Branch'i gönderir ve PR açar (zaten açıksa onu döndürür). */
+      /**
+       * PR'ı ajan açar (tur sonunda kendiliğinden). Bu uç, otomatik adım başarısız olduğunda ya da ortamda "Otomatik PR" kapalıyken
+       * tek dokunuşla yeniden denemek içindir: başlık/açıklamayı model yazar.
+       */
       authed.post<{ Params: { id: string } }>('/code/sessions/:id/pr', async (req) => {
-        const body = parse(createPrSchema, req.body);
-        return ctx.codeGit.createPr(req.user!, req.params.id, body);
+        const body = parse(createPrSchema, req.body ?? {});
+        return ctx.codeGit.publish(req.user!, req.params.id, body);
+      });
+
+      /** Repodaki slash komutları (`.claude/commands`, `.sixfinger/commands`). */
+      authed.get<{ Params: { id: string } }>('/code/sessions/:id/commands', async (req) => ({ commands: await ctx.codeGit.commands(req.user!, req.params.id) }));
+
+      /** Çalışma alanındaki dosyalar (`q` ile süzülür): @dosya önerisi ve dosya gezgini. */
+      authed.get<{ Params: { id: string }; Querystring: { q?: string } }>('/code/sessions/:id/files', async (req) => {
+        const q = parse(filesQuery, req.query);
+        return ctx.codeGit.files(req.user!, req.params.id, q.q);
+      });
+
+      /** Tek dosyanın içeriği (dosya gezgini). */
+      authed.get<{ Params: { id: string }; Querystring: { path?: string } }>('/code/sessions/:id/file', async (req) => {
+        const q = parse(diffQuery, req.query);
+        if (!q.path) throw badRequest('path gerekli.');
+        return ctx.codeGit.readFile(req.user!, req.params.id, q.path);
+      });
+
+      /** Çalışma alanını tar.gz olarak indirir. */
+      authed.get<{ Params: { id: string } }>('/code/sessions/:id/archive', async (req, reply) => {
+        const a = await ctx.codeGit.archive(req.user!, req.params.id);
+        return reply
+          .header('content-disposition', `attachment; filename="${a.filename.replace(/[^\w.-]/g, '_')}"`)
+          .header('cache-control', 'no-store')
+          .type('application/gzip')
+          .send(a.data);
+      });
+
+      registerSkillRoutes(authed, ctx);
+
+      /** Önizleme bağlantısı: çalışma alanındaki bir dosya (statik artifact) ya da çalışan bir dev-server portu. */
+      authed.post<{ Params: { id: string } }>('/code/sessions/:id/preview', async (req) => {
+        const body = parse(previewSchema, req.body);
+        return ctx.codePreview.mint(req.user!, req.params.id, body);
+      });
+
+      /** Konteynerde dinleyen portlar (dev-server önizlemesi için). */
+      authed.get<{ Params: { id: string } }>('/code/sessions/:id/ports', async (req) => {
+        if (!(await code.getSession(req.user!.id, req.params.id))) throw notFound('Oturum bulunamadı.');
+        return { ports: await ctx.codeGit.sandboxPorts(req.user!, req.params.id).catch(() => [] as number[]) };
+      });
+
+      /** Tek dosyayı indirir (ham bayt; ajanın `share_file` kartı ve dosya gezgini). */
+      authed.get<{ Params: { id: string }; Querystring: { path?: string } }>('/code/sessions/:id/download', async (req, reply) => {
+        const q = parse(diffQuery, req.query);
+        if (!q.path) throw badRequest('path gerekli.');
+        const f = await ctx.codeGit.download(req.user!, req.params.id, q.path);
+        return reply
+          .header('content-disposition', `attachment; filename="${f.name.replace(/[^\w.-]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(f.name)}`)
+          .header('cache-control', 'no-store')
+          .header('content-security-policy', 'sandbox')
+          .type(mimeOf(f.name))
+          .send(f.data);
+      });
+
+      /** Kullanıcının dosya yüklemesi: `.sixfinger/uploads/` altına yazılır (git'e girmez); ajan yolu mesajda görür. */
+      authed.post<{ Params: { id: string } }>('/code/sessions/:id/upload', { bodyLimit: 5 * 1024 * 1024 }, async (req) => {
+        const body = parse(uploadSchema, req.body);
+        if (!(await code.getSession(req.user!.id, req.params.id))) throw notFound('Oturum bulunamadı.');
+        const data = Buffer.from(body.dataBase64, 'base64');
+        if (!data.length) throw badRequest('Dosya boş.');
+        return ctx.codeGit.upload(req.user!, req.params.id, body.name, data);
+      });
+
+      /** Çalışma alanını ve sohbeti bu asistan mesajının sonuna geri sarar (checkpoint). */
+      authed.post<{ Params: { id: string } }>('/code/sessions/:id/rewind', async (req) => {
+        const body = parse(rewindSchema, req.body);
+        const r = await ctx.codeGit.rewind(req.user!, req.params.id, body.messageId);
+        return { ...r, session: await code.getSession(req.user!.id, req.params.id) };
       });
 
       /** Başlangıca göre birleşik fark (tüm dosyalar ya da tek `path`). */

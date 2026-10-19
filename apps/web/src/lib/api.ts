@@ -4,10 +4,15 @@ import type {
   ChatDetailDTO,
   CodeChangesDTO,
   CodeDiffDTO,
-  CodePrDraftDTO,
   CodeEnvironmentDTO,
+  CodePreviewDTO,
+  SkillDetailDTO,
+  SkillListItemDTO,
+  SkillSummary,
+  CodeUploadDTO,
   CodePullDTO,
   CodeSessionDTO,
+  SlashCommand,
   CodeStatusDTO,
   ConfigDTO,
   ErrorCode,
@@ -316,17 +321,47 @@ export const api = {
   createCodeEnv: (p: object) => request<{ environment: CodeEnvironmentDTO }>('POST', '/code/environments', p),
   updateCodeEnv: (id: string, p: object) => request<{ environment: CodeEnvironmentDTO }>('PATCH', `/code/environments/${id}`, p),
   deleteCodeEnv: (id: string) => request<void>('DELETE', `/code/environments/${id}`),
-  codeSessions: () => request<{ sessions: CodeSessionDTO[] }>('GET', '/code/sessions'),
+  codeSessions: (archived = false) => request<{ sessions: CodeSessionDTO[] }>('GET', `/code/sessions${archived ? '?archived=true' : ''}`),
   codeSession: (id: string) => request<{ session: CodeSessionDTO }>('GET', `/code/sessions/${id}`),
   createCodeSession: (p: { repo: string; baseBranch: string; environmentId?: string }) =>
     request<{ session: CodeSessionDTO }>('POST', '/code/sessions', p),
   codePulls: (id: string) => request<{ pulls: CodePullDTO[] }>('GET', `/code/sessions/${id}/pulls`),
   codeChanges: (id: string) => request<CodeChangesDTO>('GET', `/code/sessions/${id}/changes`),
   codeDiff: (id: string, path?: string) => request<CodeDiffDTO>('GET', `/code/sessions/${id}/diff`, undefined, { query: { path } }),
-  codePrDraft: (id: string) => request<{ draft: CodePrDraftDTO }>('GET', `/code/sessions/${id}/pr-draft`),
+  codeCommands: (id: string) => request<{ commands: SlashCommand[] }>('GET', `/code/sessions/${id}/commands`),
+  codeFiles: (id: string, q?: string) => request<{ files: string[]; truncated: boolean }>('GET', `/code/sessions/${id}/files`, undefined, { query: { q } }),
+  codeFile: (id: string, path: string) => request<{ path: string; content: string; truncated: boolean }>('GET', `/code/sessions/${id}/file`, undefined, { query: { path } }),
+  /** Çalışma alanı arşivini (tar.gz) indirir. */
+  async codeArchive(id: string): Promise<{ blob: Blob; filename: string }> {
+    const res = await send('GET', `/code/sessions/${id}/archive`, undefined, {});
+    if (!res.ok) throw await parseError(res);
+    const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'workspace.tar.gz';
+    return { blob: await res.blob(), filename: name };
+  },
+  /** Önizleme bağlantısı (kısa ömürlü token'lı). `url` sunucu köküne göredir; iframe için `getApiBase()` ile birleştirilir. */
+  codePreview: (id: string, body: { path?: string; port?: number; root?: string }) => request<CodePreviewDTO>('POST', `/code/sessions/${id}/preview`, body),
+  /** Tek dosyayı ham bayt olarak indirir. */
+  async codeDownload(id: string, path: string): Promise<{ blob: Blob; filename: string }> {
+    const res = await send('GET', `/code/sessions/${id}/download`, undefined, { query: { path } });
+    if (!res.ok) throw await parseError(res);
+    return { blob: await res.blob(), filename: path.split('/').pop() ?? 'file' };
+  },
+  codeUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/code/sessions/${id}/upload`, { name, dataBase64 }),
+  // ---- skill'ler ----
+  codeSkills: () => request<{ skills: SkillListItemDTO[]; limits: { perUser: number; own: number } }>('GET', '/code/skills'),
+  codeSkill: (name: string, source?: 'builtin') => request<SkillDetailDTO>('GET', `/code/skills/${encodeURIComponent(name)}`, undefined, { query: { source } }),
+  codeSaveSkill: (name: string | null, body: { markdown: string; files?: Record<string, string> }) =>
+    name ? request<SkillDetailDTO>('PUT', `/code/skills/${encodeURIComponent(name)}`, body) : request<SkillDetailDTO>('POST', '/code/skills', body),
+  codeDeleteSkill: (name: string) => request<void>('DELETE', `/code/skills/${encodeURIComponent(name)}`),
+  codeImportSkill: (url: string, overwrite = false) => request<{ imported: SkillListItemDTO[]; skipped: number }>('POST', '/code/skills/import', { url, overwrite }),
+  codeShareSkill: (name: string, enabled: boolean) => request<{ shareToken: string | null }>('POST', `/code/skills/${encodeURIComponent(name)}/share`, { enabled }),
+  codeSharedSkill: (token: string) => request<SkillDetailDTO>('GET', `/code/skills/shared/${encodeURIComponent(token)}`),
+  codeImportShared: (token: string, overwrite = false) => request<SkillDetailDTO>('POST', `/code/skills/shared/${encodeURIComponent(token)}/import`, { overwrite }),
+  codeSessionSkills: (id: string) => request<{ skills: SkillSummary[] }>('GET', `/code/sessions/${id}/skills`),
+  codeRewind: (id: string, messageId: string) => request<{ sha: string; session: CodeSessionDTO }>('POST', `/code/sessions/${id}/rewind`, { messageId }),
   codePush: (id: string) => request<{ sha: string; branch: string }>('POST', `/code/sessions/${id}/push`),
-  codeCreatePr: (id: string, p: { title: string; body: string; draft: boolean }) =>
-    request<{ pull: CodePullDTO; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, p),
+  /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */
+  codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),
   deleteCodeSession: (id: string) => request<void>('DELETE', `/code/sessions/${id}`),
   shared: (slug: string) => request<SharedChatDTO>('GET', `/public/shares/${slug}`, undefined, { auth: false }),
 };

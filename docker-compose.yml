@@ -33,6 +33,10 @@ services:
       # Cloudflare/Tailscale gibi bir tünel ya da reverse proxy arkasındaysan .env'de TRUST_PROXY=true yap
       TRUST_PROXY: ${TRUST_PROXY:-false}
       AI_API_KEY: ${AI_API_KEY:-}
+      # Derin model (Qwen, OVH): SixFinger Code'un ana modeli. Anahtar yoksa Code, Claude yedeğine (Bedrock) düşer ya da çalışmaz.
+      AI_DEEP_BASE_URL: ${AI_DEEP_BASE_URL:-https://oai.endpoints.kepler.ai.cloud.ovh.net/v1/chat/completions}
+      AI_DEEP_MODEL: ${AI_DEEP_MODEL:-Qwen3.8-27B}
+      AI_DEEP_API_KEY: ${AI_DEEP_API_KEY:-}
       # Yedek model (Amazon Bedrock'ta Claude): diğer sağlayıcılar hata verirse devreye girer. Boşsa kapalı (bkz. docs/bedrock.md).
       BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
       BEDROCK_REGION: ${BEDROCK_REGION:-us-east-1}
@@ -92,6 +96,12 @@ services:
       CODE_MEM_MB: ${CODE_MEM_MB:-1024}
       CODE_CPUS: ${CODE_CPUS:-1}
       CODE_WORKSPACE_TTL_DAYS: ${CODE_WORKSPACE_TTL_DAYS:-30}
+      CODE_IDLE_SECONDS: ${CODE_IDLE_SECONDS:-600}
+      # Önizleme (statik dosya + dev-server proxy), indirme/yükleme sınırları
+      CODE_PREVIEW_MAX_MB: ${CODE_PREVIEW_MAX_MB:-8}
+      CODE_PREVIEW_CONCURRENCY: ${CODE_PREVIEW_CONCURRENCY:-8}
+      CODE_ARCHIVE_MAX_MB: ${CODE_ARCHIVE_MAX_MB:-64}
+      CODE_FILE_MAX_BYTES: ${CODE_FILE_MAX_BYTES:-2000000}
     # Code konteynerleri `--internal` ağdadır (doğrudan internete ÇIKAMAZLAR); tek çıkış sandboxd'deki alan adı izin listeli proxy'dir.
     networks:
       default: {}

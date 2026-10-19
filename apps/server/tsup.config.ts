@@ -13,5 +13,7 @@ export default defineConfig({
   noExternal: ['@sixfinger/shared'],
   onSuccess: async () => {
     cpSync('src/db/migrations', 'dist/migrations', { recursive: true });
+    // Yerleşik skill'ler (SKILL.md + ek dosyalar) çalışma zamanında dist/skills'ten okunur.
+    cpSync('skills', 'dist/skills', { recursive: true });
   },
 });

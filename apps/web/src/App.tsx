@@ -15,6 +15,7 @@ import { ChatPage } from './pages/ChatPage.tsx';
 import { CodeNewPage } from './pages/CodeNewPage.tsx';
 import { CodePage } from './pages/CodePage.tsx';
 import { CodeSessionPage } from './pages/CodeSessionPage.tsx';
+import { CodeSkillsPage } from './pages/CodeSkillsPage.tsx';
 import { SharedPage } from './pages/SharedPage.tsx';
 import { useAuth } from './store/auth.ts';
 import { useChats } from './store/chats.ts';
@@ -167,6 +168,7 @@ export function App() {
           <Route path="c/:chatId" element={<ChatPage />} />
           <Route path="code" element={<CodePage />} />
           <Route path="code/new" element={<CodeNewPage />} />
+          <Route path="code/skills" element={<CodeSkillsPage />} />
           <Route path="code/s/:chatId" element={<CodeSessionPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

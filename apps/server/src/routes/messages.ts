@@ -180,7 +180,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     // Code çalıştırmasında süre ya da adım sınırı yoktur: frenler döngü kırıcı, kredi, bağlam doluluğu ve kullanıcının Durdur'udur.
     void (async () => {
       try {
-        await runCodeGeneration({ db, ai, tools, sandbox: ctx.codeSandbox, code, queue: ctx.codeQueue, config, log }, run, g);
+        await runCodeGeneration({ db, ai, tools, sandbox: ctx.codeSandbox, code, queue: ctx.codeQueue, config, log, git: ctx.codeGit, skills: ctx.skills }, run, g);
       } catch (err) {
         log.error({ err }, 'Code üretimi beklenmedik şekilde sonlandı');
         run.emit({ type: 'error', code: 'internal', message: 'Beklenmeyen bir hata oluştu.' });
@@ -448,7 +448,6 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         const isCode = chat.kind === 'code';
         if (isCode) {
           if (!code.isAllowed(user)) throw forbidden('Code için erişimin yok.');
-          if (body.attachments?.length) throw badRequest('Code oturumlarına dosya eklenemez; dosyalar repoda yer alır.');
         }
 
         if (body.content.length > user.limits.maxMessageChars) {
@@ -511,7 +510,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           parts: m.role === 'assistant' ? m.parts : undefined,
         }));
         if (isCode) {
-          return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange });
+          return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange, planMode: body.planMode === true });
         }
         generate(req, reply, {
           chat,

@@ -120,3 +120,22 @@ export function compactNumber(n: number): string {
   if (n < 1_000_000) return `${Math.round(n / 1_000)}k`;
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
 }
+
+/** Bir Blob'u (ör. indirilen arşiv) dosya olarak kaydettirir. */
+export function downloadBlob(name: string, blob: Blob): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** 1536 → "1,5 KB" (bayt boyutları). */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1_048_576) return `${(n / 1024).toFixed(n < 10_240 ? 1 : 0)} KB`;
+  return `${(n / 1_048_576).toFixed(n < 10_485_760 ? 1 : 0)} MB`;
+}

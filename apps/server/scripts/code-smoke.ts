@@ -4,6 +4,7 @@
 //   AI_DEEP_API_KEY=... npx tsx scripts/code-smoke.ts            # tüm görevler
 //   AI_DEEP_API_KEY=... npx tsx scripts/code-smoke.ts --task 2   # yalnızca 2. görev
 //   npx tsx scripts/code-smoke.ts --runs 3                       # her görevi 3 kez (kararlılık)
+//   npx tsx scripts/code-smoke.ts --skills both                  # skill'siz (off) ve skill'li (on) A/B karşılaştırması
 //
 // Amaç: Qwen3.8'in araç çağırma kalitesini (geçerli JSON, doğru araç, edit eşleşmesi, kendini doğrulama) ölçmek.
 // Çalışma alanı GEÇİCİ bir klasördür ve komutlar bu makinede (yalıtımsız) çalışır: yalnızca kendi makinende / Pi'de çalıştır.
@@ -15,6 +16,8 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { loadConfig } from '../src/config.ts';
 import { createAi, type AiMessage, type AiToolCall } from '../src/services/ai.ts';
 import { buildCodeSystemPrompt } from '../src/services/code-prompt.ts';
+import { buildCatalog, createSkillRuntime, hintsFor, loadBuiltinSkills } from '../src/services/skills.ts';
+import { createSkillTool } from '../src/services/tools/skills.ts';
 import { createTools, runToolCall, toolSpecs, FileNotFoundError, IsDirectoryError, type CodeSandboxClient } from '../src/services/tools/index.ts';
 import type { AuthUser } from '../src/lib/types.ts';
 
@@ -25,6 +28,10 @@ const arg = (name: string, fallback: string) => {
 const ONLY = Number(arg('task', '0'));
 const RUNS = Number(arg('runs', '1'));
 const MAX_STEPS = Number(arg('max-steps', '40'));
+/** off: skill yok · on: yerleşik skill'ler (üretimdeki gibi katalog + ipucu + skill aracı) · both: ikisini de koş, karşılaştır. */
+const SKILLS = arg('skills', 'off');
+const MODES: Array<'off' | 'on'> = SKILLS === 'both' ? ['off', 'on'] : SKILLS === 'on' ? ['on'] : ['off'];
+const BUILTIN = loadBuiltinSkills();
 
 // ------------------------------------------------------------------------------------------ yerel çalışma alanı
 const SKIP = new Set(['.git', 'node_modules']);
@@ -119,8 +126,23 @@ function localClient(dir: string): CodeSandboxClient {
     async commit() {
       return { sha: null };
     },
+    async archive() {
+      return Buffer.alloc(0);
+    },
     async push() {
       throw new Error('push bu sınamada yok');
+    },
+    async raw() {
+      throw new Error('raw: bu sahtede yok');
+    },
+    async ports() {
+      return [];
+    },
+    async http() {
+      throw new Error('http: bu sahtede yok');
+    },
+    async upload() {
+      throw new Error('upload: bu sahtede yok');
     },
     async usage() {
       return { diskUsedMb: 1, diskMb: 512, running: true };
@@ -190,6 +212,39 @@ const TASKS: Task[] = [
       return passes(dir);
     },
   },
+  {
+    name: 'tarayıcı oyunu yaz (çok dosyalı, önizlemeye uygun)',
+    prompt: 'Tarayıcıda oynanan basit bir "yılan" oyunu yap: game/ klasöründe index.html + style.css + game.js olarak ayrı dosyalar. Ok tuşları ve ekran düğmeleriyle (dokunmatik) yönetilsin, skor görünsün, oyun bitince yeniden başlatma olsun. Bittiğinde preview aracıyla göster.',
+    files: { 'package.json': PKG },
+    async verify(dir) {
+      const html = readFileSync(join(dir, 'game/index.html'), 'utf8').toString();
+      for (const f of ['game/style.css', 'game/game.js']) if (!readdirSync(join(dir, 'game')).includes(f.split('/')[1]!)) return `${f} yok`;
+      if (!/<script[^>]+src=["'](?:\.\/)?game\.js/.test(html)) return 'index.html game.js\'i göreli yolla yüklemiyor';
+      if (!/<link[^>]+href=["'](?:\.\/)?style\.css/.test(html)) return 'index.html style.css\'i göreli yolla yüklemiyor';
+      if (/<meta[^>]+viewport/i.test(html) === false) return 'viewport meta yok';
+      const js = readFileSync(join(dir, 'game/game.js'), 'utf8');
+      if (/fetch\(\s*["']\//.test(js)) return 'fetch kök-mutlak URL kullanıyor';
+      if (/\.\.\.\s*(?:\/\/|rest|kalan)|TODO|placeholder/i.test(js)) return 'yer tutucu içerik var';
+      if (js.split('\n').length < 40) return 'game.js çok kısa/eksik';
+      if (!/touch|pointer|click/.test(js)) return 'dokunma/ekran düğmesi desteği yok';
+      const chk = await run(dir, 'node --check game/game.js', 20);
+      return chk.exitCode === 0 ? '' : `game.js sözdizimi hatası: ${chk.stderr.slice(0, 200)}`;
+    },
+  },
+  {
+    name: 'komut satırı aracı yaz ve test et',
+    prompt: 'Node.js ile `wc-lite` adlı bir komut satırı aracı yaz (bin/wc-lite.js): stdin ya da dosya yolu argümanı alsın, `--lines`, `--words`, `--chars` bayraklarını desteklesin (hiçbiri yoksa üçünü de yazsın), yardım için `--help`. Bir test dosyası ekle ve testlerin geçtiğini doğrula.',
+    files: { 'package.json': PKG },
+    async verify(dir) {
+      const a = await run(dir, "printf 'bir iki\nüç dört beş\n' | node bin/wc-lite.js --words", 20);
+      if (!/\b5\b/.test(a.stdout)) return `--words yanlış: ${a.stdout.trim() || a.stderr.slice(0, 200)}`;
+      const b = await run(dir, "printf 'a b\nc\n' | node bin/wc-lite.js --lines", 20);
+      if (!/\b2\b/.test(b.stdout)) return `--lines yanlış: ${b.stdout.trim()}`;
+      const h = await run(dir, 'node bin/wc-lite.js --help', 20);
+      if (h.exitCode !== 0 || !/wc-lite|usage|kullanım/i.test(h.stdout + h.stderr)) return '--help çalışmıyor';
+      return passes(dir);
+    },
+  },
 ];
 
 // ------------------------------------------------------------------------------------------ ajan döngüsü
@@ -202,6 +257,8 @@ interface Result {
   badJson: number;
   seconds: number;
   usedClaude: boolean;
+  /** `skill` aracı kaç kez çağrıldı. */
+  skillLoads: number;
 }
 
 // Yapılandırma gereksinimleri (veritabanı/JWT) bu betikte kullanılmaz; yalnızca doğrulamayı geçmek için.
@@ -211,20 +268,24 @@ const config = loadConfig();
 const ai = createAi(config, { warn: (o: object, m: string) => console.log(`  [uyarı] ${m} ${JSON.stringify(o).slice(0, 160)}`) });
 const user = { id: 'smoke', email: 'smoke@local', locale: 'tr' } as unknown as AuthUser;
 
-async function runTask(task: Task): Promise<Result> {
+async function runTask(task: Task, mode: 'off' | 'on'): Promise<Result> {
   const dir = mkdtempSync(join(tmpdir(), 'sf-code-smoke-'));
   const started = Date.now();
-  const r: Result = { ok: false, reason: '', steps: 0, calls: {}, toolErrors: 0, badJson: 0, seconds: 0, usedClaude: false };
+  const r: Result = { ok: false, reason: '', steps: 0, calls: {}, toolErrors: 0, badJson: 0, seconds: 0, usedClaude: false, skillLoads: 0 };
   try {
     for (const [p, c] of Object.entries(task.files)) {
       mkdirSync(dirname(join(dir, p)), { recursive: true });
       writeFileSync(join(dir, p), c);
     }
     const client = localClient(dir);
-    const defs = createTools([], { code: client }).forCode();
+    const catalog = buildCatalog({ builtin: mode === 'on' ? BUILTIN : new Map(), user: [], repo: [], off: [] });
+    const defs = [...createTools([], { code: client }).forCode(), ...(catalog.list.length ? [createSkillTool(createSkillRuntime(catalog, client, { user: 'smoke', session: 'smoke' }))] : [])];
     const specs = toolSpecs(defs);
     const brief = (await run(dir, 'ls -1Ap | head -n 40', 10)).stdout;
-    const system = buildCodeSystemPrompt({ locale: 'tr', repo: 'smoke/project', baseBranch: 'main', workBranch: 'smoke/work', network: 'none', allowedDomains: [], diskMb: 512, brief });
+    const system = buildCodeSystemPrompt({
+      locale: 'tr', repo: 'smoke/project', baseBranch: 'main', workBranch: 'smoke/work', network: 'none', allowedDomains: [], diskMb: 512, brief,
+      skills: catalog.list, skillHints: hintsFor(catalog, task.prompt).map((x) => x.name),
+    });
     const messages: AiMessage[] = [{ role: 'system', content: system }, { role: 'user', content: task.prompt }];
     const controller = new AbortController();
     const ctx = { user, signal: controller.signal, chatId: 'smoke', code: { session: 'smoke', diskMb: 512, prepare: async () => {} } };
@@ -244,6 +305,7 @@ async function runTask(task: Task): Promise<Result> {
       messages.push({ role: 'assistant', content: text, tool_calls: calls });
       for (const call of calls) {
         r.calls[call.function.name] = (r.calls[call.function.name] ?? 0) + 1;
+        if (call.function.name === 'skill') r.skillLoads++;
         try {
           JSON.parse(call.function.arguments || '{}');
         } catch {
@@ -268,22 +330,30 @@ async function runTask(task: Task): Promise<Result> {
 console.log(`Model: ${config.AI_DEEP_MODEL}${config.BEDROCK_MODEL_ID ? ` (yedek: Bedrock ${config.BEDROCK_MODEL_ID})` : ''}`);
 if (!config.AI_DEEP_API_KEY) console.log('Uyarı: AI_DEEP_API_KEY boş; OVH uç noktası anahtarsız yanıt vermeyebilir.');
 let failed = 0;
-const stats = { runs: 0, ok: 0, steps: 0, toolErrors: 0, badJson: 0 };
-for (const [i, task] of TASKS.entries()) {
-  if (ONLY && ONLY !== i + 1) continue;
-  for (let n = 1; n <= RUNS; n++) {
-    process.stdout.write(`\n#${i + 1} ${task.name}${RUNS > 1 ? ` (${n}/${RUNS})` : ''}\n`);
-    const r = await runTask(task);
-    stats.runs++;
-    stats.ok += r.ok ? 1 : 0;
-    stats.steps += r.steps;
-    stats.toolErrors += r.toolErrors;
-    stats.badJson += r.badJson;
-    if (!r.ok) failed++;
-    console.log(`  ${r.ok ? 'GEÇTİ' : 'KALDI'}  ${r.steps} adım, ${r.seconds} sn${r.usedClaude ? ', Claude yedeği devreye girdi' : ''}`);
-    console.log(`  araçlar: ${Object.entries(r.calls).map(([k, v]) => `${k}×${v}`).join(' ') || '-'}  | araç hatası: ${r.toolErrors}  | bozuk JSON: ${r.badJson}`);
-    if (!r.ok) console.log(`  neden: ${r.reason.split('\n').join('\n         ')}`);
+const table: Record<string, { runs: number; ok: number; steps: number; toolErrors: number; badJson: number; skillLoads: number }> = {};
+for (const mode of MODES) {
+  const stats = (table[mode] = { runs: 0, ok: 0, steps: 0, toolErrors: 0, badJson: 0, skillLoads: 0 });
+  console.log(`\n===== skill'ler: ${mode} =====`);
+  for (const [i, task] of TASKS.entries()) {
+    if (ONLY && ONLY !== i + 1) continue;
+    for (let n = 1; n <= RUNS; n++) {
+      process.stdout.write(`\n#${i + 1} ${task.name}${RUNS > 1 ? ` (${n}/${RUNS})` : ''}\n`);
+      const r = await runTask(task, mode);
+      stats.runs++;
+      stats.ok += r.ok ? 1 : 0;
+      stats.steps += r.steps;
+      stats.toolErrors += r.toolErrors;
+      stats.badJson += r.badJson;
+      stats.skillLoads += r.skillLoads;
+      if (!r.ok) failed++;
+      console.log(`  ${r.ok ? 'GEÇTİ' : 'KALDI'}  ${r.steps} adım, ${r.seconds} sn${r.usedClaude ? ', Claude yedeği devreye girdi' : ''}`);
+      console.log(`  araçlar: ${Object.entries(r.calls).map(([k, v]) => `${k}×${v}`).join(' ') || '-'}  | araç hatası: ${r.toolErrors}  | bozuk JSON: ${r.badJson}${mode === 'on' ? `  | skill yükleme: ${r.skillLoads}` : ''}`);
+      if (!r.ok) console.log(`  neden: ${r.reason.split('\n').join('\n         ')}`);
+    }
   }
 }
-console.log(`\nÖzet: ${stats.ok}/${stats.runs} görev geçti; ortalama ${(stats.steps / Math.max(1, stats.runs)).toFixed(1)} adım; toplam araç hatası ${stats.toolErrors}, bozuk JSON ${stats.badJson}.`);
+console.log('\nÖzet:');
+for (const [mode, st] of Object.entries(table)) {
+  console.log(`  skill'ler ${mode.padEnd(3)}: ${st.ok}/${st.runs} geçti; ortalama ${(st.steps / Math.max(1, st.runs)).toFixed(1)} adım; araç hatası ${st.toolErrors}, bozuk JSON ${st.badJson}${mode === 'on' ? `, skill yükleme ${st.skillLoads}` : ''}`);
+}
 process.exit(failed ? 1 : 0);

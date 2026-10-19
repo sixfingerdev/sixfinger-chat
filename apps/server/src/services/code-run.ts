@@ -17,12 +17,17 @@ import type { AuthUser } from '../lib/types.ts';
 import type { AiMessage, AiProvider, AiToolCall } from './ai.ts';
 import { MESSAGE_COLUMNS, toMessageDTO, type ChatRow, type MessageRow } from './chats.ts';
 import type { Code } from './code.ts';
+import type { CodeGit } from './code-git.ts';
 import { applyCompaction, buildCodeHistory, messagesTokens, pruneToolResults, renderTranscript, splitForCompaction, SUMMARIZER_PROMPT } from './code-context.ts';
-import { buildCodeSystemPrompt, commitMessagePrompt, WORKSPACE_BRIEF_COMMAND } from './code-prompt.ts';
+import { buildCodeSystemPrompt, skillsSection, commitMessagePrompt, WORKSPACE_BRIEF_COMMAND } from './code-prompt.ts';
 import type { CodeQueue } from './code-queue.ts';
 import { cleanTitle, fallbackTitle, titlePrompt, type HistoryItem } from './prompt.ts';
 import type { Run } from './runs.ts';
 import { runToolCall, toolSpecs, type Tools } from './tools/index.ts';
+import { createSkillCreateTool, createSkillTool } from './tools/skills.ts';
+import { createSkillRuntime, discoverRepoSkills, hintsFor, type Skills } from './skills.ts';
+import { PLAN_TOOLS, TERMINAL_TOOLS, createAskUserTool, createExitPlanTool, createTaskTool, type SubagentReport } from './tools/agent.ts';
+import type { ToolContext, ToolDef } from './tools/types.ts';
 import type { CodeSandboxClient, CodeScope } from './tools/code-client.ts';
 
 type Logger = { warn: (o: object, m: string) => void; error: (o: object, m: string) => void; info?: (o: object, m: string) => void };
@@ -36,6 +41,10 @@ export interface CodeRunDeps {
   queue: CodeQueue;
   config: Config;
   log: Logger;
+  /** Tur sonu push + PR. */
+  git: CodeGit;
+  /** Skill'ler: yerleşik + kullanıcı + repo. */
+  skills: Skills;
 }
 
 export interface CodeRunInput {
@@ -47,6 +56,8 @@ export interface CodeRunInput {
   history: HistoryItem[];
   userText: string;
   isFirstExchange: boolean;
+  /** Plan modu: yalnızca okuma araçları; ajan plan sunar (exit_plan_mode) ve kullanıcı onaylayınca uygular. */
+  planMode?: boolean;
 }
 
 /** Aynı araç + aynı argüman + aynı çıktı bu kadar kez gelirse uyarılır / durdurulur. */
@@ -64,12 +75,16 @@ const notes = (locale: 'tr' | 'en') =>
         loop: '*Aynı adımları tekrarlayıp ilerleyemediğim için durdum. İsteğini biraz daha açık yazarsan devam edebilirim.*',
         context: '*Konuşma bağlamı doldu. Değişiklikler commit edildi; yeni bir oturum açıp kaldığın yerden sürdürebilirsin.*',
         length: '*Yanıt uzunluk sınırına takıldığı için durdum. “Devam et” yazarak sürdürebilirsin.*',
+        compacted: '*Konuşma özetlendi; bağlamda yer açıldı.*',
+        nothingToCompact: '*Özetlenecek bir şey yok: bağlam zaten kısa.*',
       }
     : {
         credits: '*Your daily Code credit ran out, so I stopped here. Type “continue” once it renews.*',
         loop: '*I stopped because I kept repeating the same steps without progress. Describe what you want a bit more precisely and I can carry on.*',
         context: '*The conversation context is full. Your changes are committed; start a new session to carry on from here.*',
         length: '*I stopped at the output length limit. Type “continue” to carry on.*',
+        compacted: '*The conversation was summarized; context space was freed.*',
+        nothingToCompact: '*Nothing to summarize: the context is already short.*',
       };
 
 /** Asistan mesajının parçalarını ve anlık görüntüsünü tutar; 2 sn'de bir veritabanına yazar. */
@@ -159,14 +174,15 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
   let sandboxMs = 0;
   let diskUsedMb = 0;
   let contextTokens = 0;
-  let env: Pick<CodeEnvironmentDTO, 'network' | 'allowedDomains' | 'diskMb' | 'setupScript' | 'commitSessionLink'> & { envVars: Record<string, string> } = {
-    network: 'trusted', allowedDomains: [], diskMb: 512, setupScript: '', commitSessionLink: false, envVars: {},
+  let branches = { work: '', base: '' };
+  let env: Pick<CodeEnvironmentDTO, 'network' | 'allowedDomains' | 'diskMb' | 'setupScript' | 'commitSessionLink' | 'autoPr' | 'instructions' | 'skillsOff'> & { envVars: Record<string, string> } = {
+    network: 'trusted', allowedDomains: [], diskMb: 512, setupScript: '', commitSessionLink: false, autoPr: true, instructions: '', skillsOff: [], envVars: {},
   };
 
   try {
     if (!deps.sandbox) throw new HttpError(503, 'upstream_unavailable', 'Code sandbox bu sunucuda yapılandırılmamış.');
-    const defs = deps.tools.forCode();
-    if (!defs.length) throw new HttpError(503, 'upstream_unavailable', 'Code araçları bu sunucuda kapalı.');
+    const baseDefs = deps.tools.forCode();
+    if (!baseDefs.length) throw new HttpError(503, 'upstream_unavailable', 'Code araçları bu sunucuda kapalı.');
     const sandbox = deps.sandbox;
 
     // --- kredi, oturum, GitHub, ortam ---
@@ -176,11 +192,12 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
     }
     const session = await code.getSession(user.id, chat.id);
     if (!session) throw new HttpError(404, 'not_found', 'Code oturumu bulunamadı.');
+    branches = { work: session.workBranch, base: session.baseBranch };
     const gh = await code.getConnection(user.id);
     if (!gh) throw new HttpError(409, 'github_required', 'GitHub bağlantın yok ya da geçersiz. Hesabını yeniden bağla.');
     if (session.environmentId) {
       const e = await code.getEnvironment(user.id, session.environmentId).catch(() => null);
-      if (e) env = { network: e.network, allowedDomains: e.allowedDomains, diskMb: e.diskMb, setupScript: e.setupScript, commitSessionLink: e.commitSessionLink, envVars: e.envVars ?? {} };
+      if (e) env = { network: e.network, allowedDomains: e.allowedDomains, diskMb: e.diskMb, setupScript: e.setupScript, commitSessionLink: e.commitSessionLink, autoPr: e.autoPr, instructions: e.instructions, skillsOff: e.skillsOff, envVars: e.envVars ?? {} };
     }
 
     // --- sıra ---
@@ -237,20 +254,128 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
 
     // --- konuşma ---
     send({ type: 'phase', phase: 'working' });
-    const system = buildCodeSystemPrompt({
-      locale: user.locale, repo: session.repo, baseBranch: session.baseBranch, workBranch: session.workBranch, network: env.network,
-      allowedDomains: env.allowedDomains, diskMb: env.diskMb, brief,
-      setupFailure: prepared.setupRan && prepared.setupOk === false ? prepared.setupOutput.slice(-1_500) : undefined,
-    });
+    // --- skill'ler: katalog (yerleşik + kullanıcı + repo), sunucu tarafı eşleştirme ipucu, önceki turlarda yüklenenler ---
+    const repoSkills = await discoverRepoSkills(sandbox, scope, signal);
+    const catalog = await deps.skills.catalog(user.id, env.skillsOff, repoSkills);
+    const skillRt = createSkillRuntime(catalog, sandbox, scope);
+    const hints = g.userText.trim().startsWith('/') ? [] : hintsFor(catalog, g.userText).map((x) => x.name);
+    const activeNames: string[] = [];
+    for (const m of g.history) {
+      for (const p of m.parts ?? []) {
+        if (p.type === 'tool' && p.name === 'skill' && p.status === 'done' && typeof p.meta?.name === 'string' && !p.meta.file && catalog.get(p.meta.name)) {
+          const at = activeNames.indexOf(p.meta.name);
+          if (at >= 0) activeNames.splice(at, 1);
+          activeNames.push(p.meta.name);
+        }
+      }
+    }
+    const activeFromHistory: Array<{ name: string; body: string }> = [];
+    for (const n of activeNames.slice(-3)) {
+      const body = await skillRt.peekBody(n, signal);
+      if (body) activeFromHistory.push({ name: n, body });
+    }
+    const makeSystem = (active: Array<{ name: string; body: string }>) =>
+      buildCodeSystemPrompt({
+        locale: user.locale, repo: session.repo, baseBranch: session.baseBranch, workBranch: session.workBranch, network: env.network,
+        allowedDomains: env.allowedDomains, diskMb: env.diskMb, brief,
+        setupFailure: prepared.setupRan && prepared.setupOk === false ? prepared.setupOutput.slice(-1_500) : undefined,
+        planMode: g.planMode, instructions: env.instructions, skills: catalog.list, skillHints: hints, activeSkills: active,
+      });
+    const system = makeSystem(activeFromHistory);
     let messages: AiMessage[] = [{ role: 'system', content: system }, ...buildCodeHistory(g.history, Math.floor(config.CODE_CONTEXT_TOKENS * 0.6))];
     /** Bu turun kullanıcı mesajının dizini (özetlemede kuyruk yalnızca bu turdan alınır). */
     let turnStart = messages.length - 1;
     let compactedAt = -10;
+    /** "/compact": modele sormadan bağlamı şimdi özetler. */
+    const isCompactCmd = g.userText.trim() === '/compact';
+    // Araçlar: plan modunda yalnızca okuma/araştırma + soru/plan; normal modda hepsi + alt ajan + soru.
+    let runSubagent: (a: { description: string; prompt: string; agent: 'explore' | 'general' }, ctx: ToolContext) => Promise<SubagentReport> = async () => ({ text: '', steps: 0, tools: {} });
+    const agentTools: ToolDef[] = [createTaskTool((a, c) => runSubagent(a, c)), createAskUserTool(), ...(catalog.list.length ? [createSkillTool(skillRt)] : []), createSkillCreateTool(sandbox, new Set(deps.skills.builtin.keys())), ...(g.planMode ? [createExitPlanTool()] : [])];
+    const defs: ToolDef[] = g.planMode ? [...baseDefs, ...agentTools].filter((d) => PLAN_TOOLS.has(d.name)) : [...baseDefs, ...agentTools];
     const specs = toolSpecs(defs);
     const specTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(specs)));
     const toolCtx = { user, signal, chatId: chat.id, code: { session: scope.session, diskMb: env.diskMb, prepare } };
     const seen: string[] = [];
     let lengthRetries = 0;
+
+    /** Alt ajan: taze bağlamla çalışır, yalnızca raporu döndürür. Aynı frenler: döngü kırıcı, kredi, bağlam doluluğu, kullanıcının Durdur'u. */
+    runSubagent = async (a, ctx) => {
+      const readOnly = a.agent === 'explore' || g.planMode;
+      const subDefs = defs.filter((d) => (readOnly ? ['read', 'glob', 'grep', 'skill', 'web_search', 'web_fetch'].includes(d.name) : !['task', 'ask_user', 'exit_plan_mode', 'todo', 'preview', 'share_file', 'skill_create'].includes(d.name)));
+      const subSpecs = toolSpecs(subDefs);
+      const subSpecTokens = Math.max(SPEC_TOKENS_GUESS, estimate(JSON.stringify(subSpecs)));
+      const system = [
+        'You are a sub-agent of SixFinger Code working inside the same repository workspace (/work). You have no memory of the conversation: everything you need is in the task below.',
+        readOnly ? 'You are READ-ONLY: never modify, create or delete files and never run commands that change state.' : 'You may run commands and edit files; keep changes minimal and focused on the task. Never run git commit/push/rebase/merge/branch/switch.',
+        'Use your tools until you can answer, calling independent tools together. Then reply with a concise report: the findings, with file paths and line numbers as `path:line`; no filler and no pasted whole files.',
+        ...(subDefs.some((d) => d.name === 'skill') ? skillsSection(catalog.list).filter((l) => !l.includes('skill_create')) : []),
+      ].join('\n');
+      const msgs: AiMessage[] = [{ role: 'system', content: system }, { role: 'user', content: a.prompt }];
+      const report: SubagentReport = { text: '', steps: 0, tools: {} };
+      const seenSub: string[] = [];
+      for (;;) {
+        if (signal.aborted) throw new DOMException('aborted', 'AbortError');
+        const input = pruneToolResults(msgs, { keepRecent: 6, trimTo: 600, budgetTokens: Math.floor(config.CODE_CONTEXT_TOKENS * 0.5) });
+        const tokens = messagesTokens(input) + subSpecTokens;
+        if (tokens > config.CODE_CONTEXT_TOKENS * 0.6) {
+          report.stopped = 'context';
+          break;
+        }
+        let calls: AiToolCall[] = [];
+        let text = '';
+        let outChars = 0;
+        for await (const chunk of ai.stream({ messages: input, signal, mode: 'deep', route: 'code', tools: subSpecs, patient: report.steps > 0, onProvider: (n) => (provider = n) })) {
+          if (chunk.type === 'content') {
+            text += chunk.text;
+            outChars += chunk.text.length;
+          } else if (chunk.type === 'reasoning') outChars += chunk.text.length;
+          else if (chunk.type === 'tool_calls') {
+            calls = chunk.calls;
+            outChars += JSON.stringify(chunk.calls).length;
+          }
+        }
+        try {
+          await code.spend(user.id, creditsFor({ model: provider === 'claude' ? 'claude' : 'qwen', tokens: weightedTokens(tokens, Math.ceil(outChars / 3.5)), diskUsedMb, diskQuotaMb: env.diskMb }));
+        } catch (err) {
+          if (err instanceof HttpError && err.code === 'quota_exceeded') {
+            report.stopped = 'credits';
+            report.text = text;
+            return report;
+          }
+          throw err;
+        }
+        report.steps++;
+        if (!calls.length) {
+          report.text = text;
+          return report;
+        }
+        msgs.push({ role: 'assistant', content: text, tool_calls: calls });
+        let loop = false;
+        for (const call of calls.slice(0, MAX_CALLS_PER_STEP)) {
+          report.tools[call.function.name] = (report.tools[call.function.name] ?? 0) + 1;
+          const r = await runToolCall(subDefs, call, ctx);
+          const key = `${call.function.name}:${stable(r.args)}:${hash(r.output.slice(0, 2_000))}`;
+          seenSub.push(key);
+          if (seenSub.length > 12) seenSub.shift();
+          if (seenSub.filter((k) => k === key).length >= LOOP_STOP) loop = true;
+          if (call.function.name === 'bash' && typeof r.meta?.durationMs === 'number') sandboxMs += r.meta.durationMs;
+          msgs.push({ role: 'tool', tool_call_id: call.id, content: r.output });
+          if (signal.aborted) throw new DOMException('aborted', 'AbortError');
+        }
+        for (const extra of calls.slice(MAX_CALLS_PER_STEP)) msgs.push({ role: 'tool', tool_call_id: extra.id, content: `Error: at most ${MAX_CALLS_PER_STEP} tool calls per turn.` });
+        if (loop) {
+          report.stopped = 'loop';
+          break;
+        }
+      }
+      // Erken durduysa son bilinen bulguları özetletmek için kısa bir kapanış çağrısı (araçsız).
+      try {
+        report.text = (await ai.complete({ messages: [{ role: 'system', content: 'Write the report of a sub-agent from the transcript of its investigation: findings with file paths and line numbers as `path:line`, concise.' }, { role: 'user', content: renderTranscript(msgs.slice(1), 60_000) }], route: 'code', mode: 'deep', effort: 'low', temperature: 0.2, maxTokens: 1_500, signal })).trim();
+      } catch {
+        report.text = '';
+      }
+      return report;
+    };
 
     // Adım sınırı YOK: ajan işi bitirene kadar sürer. Frenler: döngü kırıcı, kredi, bağlam doluluğu, mutlak süre ve kullanıcının Durdur'u.
     for (let step = 0; ; step++) {
@@ -260,7 +385,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
       let pruned = prune();
       contextTokens = messagesTokens(pruned) + specTokens;
       // Kırpma yetmedi: eski konuşmayı modele özetlet (son tur olduğu gibi kalır). Başarısızlıkta birkaç adım sonra yeniden denenir.
-      if (contextTokens > config.CODE_CONTEXT_TOKENS * config.CODE_COMPACT_AT && step - compactedAt >= 3) {
+      if ((contextTokens > config.CODE_CONTEXT_TOKENS * config.CODE_COMPACT_AT || isCompactCmd) && step - compactedAt >= 3) {
         compactedAt = step;
         const split = splitForCompaction(pruned, turnStart, Math.floor(config.CODE_CONTEXT_TOKENS * 0.25));
         if (split) {
@@ -295,6 +420,10 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
             }
             const r = applyCompaction(pruned, split, turnStart, summary, g.userText);
             messages = r.messages;
+            // Sıkıştırma eski tool sonuçlarını özetledi: yüklü skill talimatları sistem istemine taşınır, kaybolmaz.
+            const live = new Map(activeFromHistory.map((a) => [a.name, a]));
+            for (const l of skillRt.loaded.values()) live.set(l.name, { name: l.name, body: l.body });
+            messages[0] = { role: 'system', content: makeSystem([...live.values()]) };
             turnStart = r.turnStart;
             pruned = prune();
             contextTokens = messagesTokens(pruned) + specTokens;
@@ -308,6 +437,10 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
             finish('error', String(err instanceof Error ? err.message : err), 'failed');
           }
         }
+      }
+      if (isCompactCmd) {
+        stopNote = buf.parts.some((p) => p.type === 'tool' && p.name === 'compaction' && p.status === 'done') ? t.compacted : t.nothingToCompact;
+        break;
       }
       if (contextTokens > config.CODE_CONTEXT_TOKENS * 1.1) {
         stopNote = t.context;
@@ -369,6 +502,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
 
       messages.push({ role: 'assistant', content: stepText, tool_calls: calls });
       let loopStop = false;
+      let terminal = false;
       for (const call of calls.slice(0, MAX_CALLS_PER_STEP)) {
         let shown: Record<string, unknown> = {};
         try {
@@ -393,11 +527,14 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
         Object.assign(part, { status: result.status, output, summary: result.summary, meta: result.meta, ms: result.ms });
         send({ type: 'tool_end', id: part.id, status: result.status, output, summary: result.summary, meta: result.meta, ms: result.ms });
         messages.push({ role: 'tool', tool_call_id: call.id, content: output });
+        if (TERMINAL_TOOLS.has(call.function.name) && result.meta?.terminal === true) terminal = true;
         if (signal.aborted) throw new DOMException('aborted', 'AbortError');
-        if (loopStop) break;
+        if (loopStop || terminal) break;
       }
       for (const extra of calls.slice(MAX_CALLS_PER_STEP)) messages.push({ role: 'tool', tool_call_id: extra.id, content: `Error: at most ${MAX_CALLS_PER_STEP} tool calls per turn.` });
       buf.persist(true);
+      // Soru/plan araçları turu bitirir: kullanıcı yanıtlayınca yeni turla devam edilir.
+      if (terminal) break;
       if (loopStop) {
         stopNote = t.loop;
         break;
@@ -449,6 +586,27 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
           send({ type: 'tool_start', id: part.id, name: part.name, args: part.args });
           send({ type: 'tool_end', id: part.id, status: 'done', output: message, summary: part.summary, meta: part.meta, ms: 0 });
         }
+      }
+      // Ajan PR'ını kendisi açar: commit GitHub'a itilir; ilk turda PR açılır, sonraki turlarda aynı PR güncellenir.
+      // Kullanıcı durdurduysa ya da tur hata verdiyse hiçbir şey itilmez (iş commit'te güvende, kullanıcı karar verir).
+      if (sha && env.autoPr && status === 'complete') {
+        // PR adımı oturumun head_sha'sını DB'den okur: önce kaydet.
+        await code.updateSessionStats(chat.id, { additions: ch.additions, deletions: ch.deletions, filesChanged: ch.files.length, headSha: sha, contextTokens });
+        send({ type: 'phase', phase: 'publishing' });
+        const pr: Extract<MessagePartDTO, { type: 'tool' }> = { type: 'tool', id: `pr-${sha.slice(0, 7)}`, name: 'pull_request', args: { branch: branches.work, base: branches.base }, status: 'running' };
+        buf.parts.push(pr);
+        send({ type: 'tool_start', id: pr.id, name: pr.name, args: pr.args });
+        const started = Date.now();
+        try {
+          const r = await deps.git.publish(user, chat.id, { internal: true, summary: buf.content });
+          const meta = { number: r.pull?.number ?? null, url: r.pull?.url ?? null, title: r.pull?.title ?? null, created: r.created, sha: r.sha };
+          Object.assign(pr, { status: 'done', summary: r.created ? `#${r.pull?.number}` : r.existed && !r.pull ? 'updated' : `#${r.pull?.number}`, output: r.pull?.url ?? '', meta, ms: Date.now() - started });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'PR açılamadı.';
+          log.warn({ err: String(err) }, 'Code otomatik PR başarısız');
+          Object.assign(pr, { status: 'error', summary: msg.slice(0, 160), output: msg, ms: Date.now() - started });
+        }
+        send({ type: 'tool_end', id: pr.id, status: pr.status as 'done' | 'error', output: pr.output ?? '', summary: pr.summary, meta: pr.meta, ms: pr.ms ?? 0 });
       }
       const usage = await deps.sandbox.usage(scope, fresh).catch(() => null);
       if (usage) diskUsedMb = usage.diskUsedMb;

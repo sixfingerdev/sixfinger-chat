@@ -82,3 +82,10 @@ export function formatTokens(n: number, locale: 'tr' | 'en' = 'tr'): string {
   if (n >= 1_000) return `${fmt(n / 1_000)}k`;
   return String(Math.round(n));
 }
+
+/** 1536 → "1,5 KB" (bayt boyutları). */
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1_048_576) return `${(n / 1024).toFixed(n < 10_240 ? 1 : 0)} KB`;
+  return `${(n / 1_048_576).toFixed(n < 10_485_760 ? 1 : 0)} MB`;
+}
