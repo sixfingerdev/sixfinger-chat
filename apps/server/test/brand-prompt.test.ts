@@ -19,3 +19,14 @@ describe('marka tanıtımı sistem istemlerinde', () => {
     expect(p).toContain('SIXFINGER.md');
   });
 });
+
+describe('Code istemi: önizleme kuralları', () => {
+  it('göreli URL, Vite base, HMR yok ve yalıtım uyarıları istemde', () => {
+    const p = buildCodeSystemPrompt({ locale: 'en', repo: 'a/b', baseBranch: 'main', workBranch: 'sixfinger/x', network: 'none', allowedDomains: [], diskMb: 512 });
+    expect(p).toContain('RELATIVE URLs');
+    expect(p).toContain('base: "./"');
+    expect(p).toContain('WebSocket/HMR');
+    expect(p).toContain('share_file');
+    expect(p).toContain('try/catch');
+  });
+});
