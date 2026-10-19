@@ -109,7 +109,8 @@ const sortChats = (list: ChatDTO[]) =>
     return (b.lastMessageAt ?? b.createdAt).localeCompare(a.lastMessageAt ?? a.createdAt);
   });
 
-const upsert = (list: ChatDTO[], chat: ChatDTO) => sortChats([chat, ...list.filter((c) => c.id !== chat.id)]);
+/** Code oturumları sohbet listesine girmez (kendi sekmeleri var); yalnızca gerçek sohbetler eklenir. */
+const upsert = (list: ChatDTO[], chat: ChatDTO) => (chat.kind === 'code' ? list : sortChats([chat, ...list.filter((c) => c.id !== chat.id)]));
 
 let tmpSeq = 0;
 const tmpId = (p: string) => `tmp-${p}-${++tmpSeq}`;
