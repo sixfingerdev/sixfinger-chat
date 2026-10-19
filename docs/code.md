@@ -4,9 +4,10 @@ GitHub reposu seçip kendi branch'inde çalışan bulut kodlama oturumları. Bir
 sohbettir; mesajlar, arka planda üretim ve akış sohbetle aynı altyapıyı paylaşır. Ajanın nasıl çalışacağı
 [code-agent.md](code-agent.md)'de.
 
-> **Durum:** Faz 1 (hesap bağlama, ortamlar, oturumlar, kredi, ekranlar) hazır. Faz 2'de sunucu tarafı tamam: kalıcı çalışma alanı,
-> filtreli internet, Code araçları, ajan döngüsü (Qwen → Claude yedeği, adım/döngü/bağlam/kredi sınırları, kuyruk, tur sonu
-> commit). Oturum ekranı (mesajlar, araç kartları, bağlam halkası, PR listesi) sırada.
+> **Durum:** Hesap bağlama, ortamlar, oturumlar, kredi, kalıcı çalışma alanı, filtreli internet, Code araçları, ajan döngüsü
+> (Qwen → Claude yedeği), bağlam sıkıştırma, tur sonu commit + otomatik PR, alt ajan / soru / plan modu, slash komutları, dosya gezgini,
+> geri sarma, oturum yönetimi ve metin ekleri hazır (web + Android). Gerçek Docker, gerçek Qwen ve gerçek GitHub OAuth ile sınama Pi'de
+> yapılmalı (aşağıdaki "Doğrulama" betikleri).
 
 ## Ajan nasıl çalışır
 
@@ -114,6 +115,28 @@ commit'le kendiliğinden güncellenir. Mesajda `pull_request` satırı görünü
 **Tekrar dene** ile yeniden denenir. Kapalıyken hiçbir şey GitHub'a gönderilmez; PR listesindeki **PR'ı ajan açsın** düğmesi aynı işi tek dokunuşla yapar.
 Kullanıcı elle başlık/açıklama yazmaz.
 
+## Oturum ekranı özellikleri
+
+- **Alt ajan (`task`)**: ağır araştırmayı ayrı bağlamda yürütür, ana ajana rapor döner (bkz. [code-agent.md](code-agent.md)).
+- **Soru ve plan modu**: ajan `ask_user` ile seçenekli soru sorabilir. Composer'daki **Plan** anahtarı (ya da `/plan`) açıkken ajan yalnızca okur,
+  plan sunar; **Onayla** ile uygulamaya geçer.
+- **Slash komutları**: `/plan`, `/compact` (bağlamı hemen özetle), `/pr`, `/init`, `/review`, `/test` ve reponun `.claude/commands/*.md` ile
+  `.sixfinger/commands/*.md` dosyaları (`$ARGUMENTS` desteklenir). `/` yazınca menü açılır.
+- **`@dosya`**: yazarken repo dosyaları önerilir (`GET /files?q=`).
+- **Mesaj kuyruğu**: ajan çalışırken yazılan mesajlar kuyruğa girer, tur bitince sırayla gönderilir (kuyruktan silinebilir).
+- **Durum çubuğu**: çalışırken altta evre, geçen süre, çalışan alt ajan sayısı ve dönen eğlenceli bir sözcük (`packages/shared/src/code-status-words.ts`).
+  Üstte **Diff** (+N −M) ve **PR** çipleri.
+- **Dosya gezgini**: çalışma alanını gezer, dosya içeriğini gösterir, `.tar.gz` indirir (`CODE_ARCHIVE_MAX_MB`, varsayılan 64; `node_modules` ve `.git` hariç).
+- **Geri sarma (checkpoint)**: bir commit satırından o ana dön. Sonraki mesajlar o noktadan sürer; uzak branch ileride kalırsa bir sonraki push
+  `--force` ile yapılır (yalnızca bu oturumun `sixfinger/…` branch'inde).
+- **Ortam talimatları**: ortam ayarındaki serbest metin her turun sistem istemine eklenir (ör. "testleri `npm test` ile çalıştır").
+- **Oturum yönetimi**: yeniden adlandır, sabitle, arşivle (`PATCH /chats/:id` `{title|pinned|archived}`), listede arama, **Markdown olarak dışa aktar**.
+- **Ekler**: Code mesajına metin dosyası eklenebilir (doğrulanmış hesap); modele `<ek ad="…">` bloğu olarak gider.
+- **Bildirim (web)**: sekme arka plandayken tur bitince ya da ajan yanıt beklerken tarayıcı bildirimi (ilk mesajda izin istenir).
+
+Bilerek yapılmayanlar: MCP sunucuları, görsel girdi, sunucudan push bildirimi (FCM gerekir; mobilde yerel bildirim de yok — uygulama arka plandayken
+akış kesildiği için güvenilmez), GitHub webhook ile CI hatasını otomatik düzeltme, dev-server önizleme, notebook, zamanlanmış görevler.
+
 ## Ortamlar
 
 Her kullanıcı kendi ortamlarını yönetir (en çok 10; ilk açılışta hazır bir `Default` gelir):
@@ -155,10 +178,15 @@ Hepsi `/api` altında, Bearer token ister. İzin yoksa `403`, GitHub bağlı de�
 | `DELETE /code/github` | Bağlantıyı keser, GitHub yetkisini iptal etmeyi dener |
 | `GET /code/repos?q=` · `GET /code/branches?repo=owner/name` | Repo ve branch listesi |
 | `GET/POST /code/environments` · `GET/PATCH/DELETE /code/environments/:id` | Ortamlar (değişkenler yalnızca tekil okumada döner) |
-| `GET/POST /code/sessions` · `GET/DELETE /code/sessions/:id` | Oturumlar |
+| `GET/POST /code/sessions` · `GET/DELETE /code/sessions/:id` | Oturumlar. Liste sabitlenenleri başa alır; `?archived=true` arşivi verir |
 | `GET /code/sessions/:id/pulls` | Çalışma branch'indeki PR'lar |
 | `GET /code/sessions/:id/changes` | Değişen dosyalar (+N −M); ajan çalışırken `stale` |
 | `GET /code/sessions/:id/diff?path=` | Başlangıca göre birleşik fark (tüm dosyalar ya da tek dosya) |
+| `GET /code/sessions/:id/commands` | Reponun slash komutları |
+| `GET /code/sessions/:id/files?q=` | `@dosya` önerileri (yol araması) |
+| `GET /code/sessions/:id/file?path=` | Dosya ya da klasör içeriği (gezgin) |
+| `GET /code/sessions/:id/archive` | Çalışma alanı `.tar.gz` |
+| `POST /code/sessions/:id/rewind` `{messageId}` | Çalışma alanını ve konuşmayı o mesajın turuna geri sarar |
 | `POST /code/sessions/:id/push` | Branch'i GitHub'a gönderir (ajan çalışırken `409`) |
 | `POST /code/sessions/:id/pr` | PR'ı ajan açar (başlık/açıklamayı model yazar): push + PR; PR zaten varsa yalnızca push. Otomatik adım başarısız olduğunda ya da ortamda **Otomatik PR** kapalıyken yeniden deneme içindir |
 
