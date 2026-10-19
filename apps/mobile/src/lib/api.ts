@@ -2,7 +2,9 @@ import type {
   AuthResponse,
   ChatDTO,
   ChatDetailDTO,
+  CodeChangesDTO,
   CodeEnvironmentDTO,
+  CodePullDTO,
   CodeSessionDTO,
   CodeStatusDTO,
   ConfigDTO,
@@ -291,5 +293,7 @@ export const api = {
   codeSession: (id: string) => request<{ session: CodeSessionDTO }>('GET', `/code/sessions/${id}`),
   codeCreateSession: (p: { repo: string; baseBranch: string; environmentId?: string }) =>
     request<{ session: CodeSessionDTO }>('POST', '/code/sessions', p),
+  codePulls: (id: string) => request<{ pulls: CodePullDTO[] }>('GET', `/code/sessions/${id}/pulls`),
+  codeChanges: (id: string) => request<CodeChangesDTO>('GET', `/code/sessions/${id}/changes`),
   codeDeleteSession: (id: string) => request<void>('DELETE', `/code/sessions/${id}`),
 };

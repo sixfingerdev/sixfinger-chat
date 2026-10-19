@@ -60,7 +60,7 @@ export default function NewCodeSession() {
     try {
       const { session } = await api.codeCreateSession({ repo: repo.repo, baseBranch: repo.branch, environmentId: env?.id });
       useCode.getState().upsertSession(session);
-      useCode.getState().setFirstTask(session.chatId, text.trim());
+      useCode.getState().setPendingPrompt(session.chatId, text.trim());
       haptic.success();
       router.replace(`/code/${session.chatId}`);
     } catch (err) {

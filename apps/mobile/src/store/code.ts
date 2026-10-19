@@ -13,8 +13,8 @@ interface CodeState {
   loading: boolean;
   /** GitHub izin sayfası tarayıcıda açıldı; uygulamaya dönünce durum yenilenir. */
   connecting: boolean;
-  /** Yeni oturum ekranında yazılan ilk görev (Faz 1'de çalıştırma yok; oturum ekranında gösterilir). */
-  firstTask: Record<string, string>;
+  /** Yeni oturum ekranında yazılan ilk görev: oturum ekranı açılınca bir kez gönderilir. */
+  pendingPrompt: Record<string, string>;
 
   loadAll: () => Promise<void>;
   loadStatus: () => Promise<void>;
@@ -27,13 +27,17 @@ interface CodeState {
   removeEnvironment: (id: string) => void;
   upsertSession: (s: CodeSessionDTO) => void;
   removeSession: (id: string) => void;
-  setFirstTask: (chatId: string, text: string) => void;
+  setPendingPrompt: (chatId: string, text: string) => void;
+  /** Bekleyen ilk görevi döndürür ve siler (yalnızca bir kez gönderilsin diye). */
+  takePendingPrompt: (chatId: string) => string | undefined;
+  /** Akış olaylarıyla (bağlam, değişiklik) oturum kartını yerinde günceller. */
+  patchSession: (chatId: string, patch: Partial<CodeSessionDTO>) => void;
   reset: () => void;
 }
 
 const handledStates = new Set<string>();
 
-const initial = { status: null, sessions: null, environments: null, loading: false, connecting: false, firstTask: {} };
+const initial = { status: null, sessions: null, environments: null, loading: false, connecting: false, pendingPrompt: {} };
 
 export const useCode = create<CodeState>((set, get) => ({
   ...initial,
@@ -111,6 +115,15 @@ export const useCode = create<CodeState>((set, get) => ({
   removeEnvironment: (id) => set({ environments: (get().environments ?? []).filter((x) => x.id !== id) }),
   upsertSession: (s) => set({ sessions: [s, ...(get().sessions ?? []).filter((x) => x.chatId !== s.chatId)] }),
   removeSession: (id) => set({ sessions: (get().sessions ?? []).filter((x) => x.chatId !== id) }),
-  setFirstTask: (chatId, text) => set({ firstTask: { ...get().firstTask, [chatId]: text } }),
+  setPendingPrompt: (chatId, text) => set({ pendingPrompt: { ...get().pendingPrompt, [chatId]: text } }),
+  takePendingPrompt: (chatId) => {
+    const text = get().pendingPrompt[chatId];
+    if (text === undefined) return undefined;
+    const { [chatId]: _taken, ...rest } = get().pendingPrompt;
+    void _taken;
+    set({ pendingPrompt: rest });
+    return text;
+  },
+  patchSession: (chatId, patch) => set({ sessions: (get().sessions ?? []).map((x) => (x.chatId === chatId ? { ...x, ...patch } : x)) }),
   reset: () => set(initial),
 }));

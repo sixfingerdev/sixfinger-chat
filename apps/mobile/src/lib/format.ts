@@ -74,3 +74,11 @@ export function formatMb(mb: number, locale: 'tr' | 'en' = 'tr'): string {
   const text = Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
   return `${locale === 'tr' ? text.replace('.', ',') : text} GB`;
 }
+
+/** Token sayısı: 842 → "842", 12 345 → "12,3k". */
+export function formatTokens(n: number, locale: 'tr' | 'en' = 'tr'): string {
+  const fmt = (v: number) => (Math.round(v * 10) / 10).toLocaleString(locale === 'tr' ? 'tr-TR' : 'en-US');
+  if (n >= 1_000_000) return `${fmt(n / 1_000_000)}M`;
+  if (n >= 1_000) return `${fmt(n / 1_000)}k`;
+  return String(Math.round(n));
+}

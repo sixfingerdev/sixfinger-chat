@@ -1,64 +1,91 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, ScrollView, Text as RNText, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, AppState, Text as RNText, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowUp, Ellipsis, GitBranch, Trash2 } from 'lucide-react-native';
-import type { CodeSessionDTO } from '@sixfinger/shared';
-import { fonts, radius, useTheme } from '../../theme/index.tsx';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import { Ellipsis, GitPullRequest, Trash2 } from 'lucide-react-native';
+import { radius, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
 import { api } from '../../lib/api.ts';
 import { reportError } from '../../lib/errors.ts';
-import { formatMb } from '../../lib/format.ts';
 import { haptic } from '../../lib/haptics.ts';
-import { useLocale, useT } from '../../lib/i18n/index.ts';
+import { useT } from '../../lib/i18n/index.ts';
+import { useChats } from '../../store/chats.ts';
 import { useCode } from '../../store/code.ts';
 import { useUi } from '../../store/ui.ts';
 import { Sheet } from '../../components/Sheet.tsx';
-import { Press } from '../../components/Ui.tsx';
-import { CodeHeader, GithubMark, NETWORK_ICON, SlashProgress } from '../../components/code/CodeUi.tsx';
-import { Mascot } from '../../components/code/Mascot.tsx';
+import { Button, Press } from '../../components/Ui.tsx';
+import { CodeHeader } from '../../components/code/CodeUi.tsx';
+import { CodeComposer } from '../../components/code/CodeComposer.tsx';
+import { CodeSheetHost, type SheetTarget } from '../../components/code/CodeParts.tsx';
+import { ChangesSheet, ContextRing, PullsSheet, UsageSheet } from '../../components/code/CodeSheets.tsx';
+import { CodeThread } from '../../components/code/CodeThread.tsx';
 
-function InfoRow({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
-  const { c } = useTheme();
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 28 }}>
-      <View style={{ width: 22, alignItems: 'center' }}>{icon}</View>
-      <RNText style={[type.small, { color: c.text3, width: 96 }]}>{label}</RNText>
-      <View style={{ flex: 1 }}>{children}</View>
-    </View>
-  );
-}
-
-/** Code oturumu. Faz 1: çalıştırma yok; oturum bilgisi, ilk görev ve devre dışı composer. */
+/** Code oturumu: mesajlar, gruplanmış komutlar, dosya çipleri, bağlam halkası, PR ve değişiklik sayfaları. */
 export default function CodeSession() {
   const { c } = useTheme();
   const t = useT();
-  const locale = useLocale();
-  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const cached = useCode((s) => s.sessions?.find((x) => x.chatId === id));
-  const envs = useCode((s) => s.environments);
-  const firstTask = useCode((s) => (id ? s.firstTask[id] : undefined));
-  const [session, setSession] = useState<CodeSessionDTO | null>(cached ?? null);
+  const session = useCode((s) => s.sessions?.find((x) => x.chatId === id));
+  const hasDetail = useChats((s) => Boolean(id && s.detail[id]));
+  const generating = useChats((s) => Boolean(id && s.generating[id]));
+  const loadError = useChats((s) => s.loadError);
   const [menu, setMenu] = useState(false);
+  const [sheet, setSheet] = useState<'usage' | 'pulls' | 'changes' | null>(null);
+  const [target, setTarget] = useState<SheetTarget | null>(null);
+  const [missing, setMissing] = useState(false);
 
-  useEffect(() => {
-    if (!id) return;
-    api
+  const back = () => (router.canGoBack() ? router.back() : router.replace('/code'));
+
+  const loadSession = useCallback(() => {
+    if (!id) return Promise.resolve();
+    return api
       .codeSession(id)
-      .then(({ session: s }) => {
-        setSession(s);
-        useCode.getState().upsertSession(s);
-      })
+      .then(({ session: s }) => useCode.getState().upsertSession(s))
       .catch((err) => {
+        if (!useCode.getState().sessions?.some((x) => x.chatId === id)) setMissing(true);
         reportError(err);
-        router.back();
       });
   }, [id]);
 
-  const back = () => (router.canGoBack() ? router.back() : router.replace('/code'));
-  const env = envs?.find((e) => e.id === session?.environmentId);
-  const EnvIcon = NETWORK_ICON[env?.network ?? 'trusted'];
+  // Açılışta oturum ve mesajlar (sessiz: ana sohbetin etkin kimliğine dokunmaz). Sunucuda süren bir tur varsa canlı izlenir.
+  useEffect(() => {
+    if (!id) return;
+    void loadSession();
+    void useChats.getState().openChat(id, true);
+    void useCode.getState().loadStatus().catch(() => {});
+  }, [id, loadSession]);
+
+  // Tur bitince oturum bilgisi (başlık, disk, toplam değişiklik) sunucudan tazelenir.
+  const wasGenerating = useRef(false);
+  useEffect(() => {
+    if (wasGenerating.current && !generating) void loadSession();
+    wasGenerating.current = generating;
+  }, [generating, loadSession]);
+
+  // Uygulama arka plandan dönünce akışı yeniden bağla.
+  useEffect(() => {
+    if (!id) return;
+    let leftAt = 0;
+    const sub = AppState.addEventListener('change', (st) => {
+      if (st === 'background') leftAt = Date.now();
+      else if (st === 'active' && leftAt && Date.now() - leftAt > 4_000) {
+        leftAt = 0;
+        useChats.getState().refresh(id);
+        void loadSession();
+      }
+    });
+    return () => sub.remove();
+  }, [id, loadSession]);
+
+  // Yeni-oturum ekranında yazılan ilk görev: mesajlar yüklenince bir kez gönderilir.
+  const sentFirst = useRef(false);
+  useEffect(() => {
+    if (!id || !hasDetail || generating || sentFirst.current) return;
+    const text = useCode.getState().takePendingPrompt(id);
+    if (text === undefined) return;
+    sentFirst.current = true;
+    void useChats.getState().send({ content: text, chatId: id });
+  }, [id, hasDetail, generating]);
 
   const remove = () =>
     useUi.getState().askConfirm({
@@ -69,6 +96,7 @@ export default function CodeSession() {
       destructive: true,
       onConfirm: async () => {
         try {
+          if (id && useChats.getState().generating[id]) useChats.getState().stop(id);
           await api.codeDeleteSession(id!);
           useCode.getState().removeSession(id!);
           haptic.success();
@@ -79,12 +107,20 @@ export default function CodeSession() {
       },
     });
 
+  if (!id) return null;
   if (!session) {
     return (
       <View style={{ flex: 1, backgroundColor: c.bg }}>
         <CodeHeader title="" onBack={back} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator color={c.text3} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 28 }}>
+          {missing ? (
+            <>
+              <RNText style={[type.heading as never, { color: c.text }]}>{loadError === 'notfound' ? t('chat.notFound') : t('error.generic')}</RNText>
+              <Button label={t('common.back')} onPress={back} />
+            </>
+          ) : (
+            <ActivityIndicator color={c.text3} />
+          )}
         </View>
       </View>
     );
@@ -92,88 +128,39 @@ export default function CodeSession() {
 
   const shortRepo = session.repo.split('/')[1] ?? session.repo;
   const title = session.title === 'Yeni oturum' ? t('code.session.untitled') : session.title;
-  const card = { backgroundColor: c.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: c.line, padding: 16 } as const;
+  const iconBtn = { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' } as const;
 
   return (
-    <View style={{ flex: 1, backgroundColor: c.bg }}>
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: c.bg }}>
       <CodeHeader
         title={title}
         subtitle={`${shortRepo}${session.environmentName ? ` · ${session.environmentName}` : ''}`}
         onBack={back}
         right={
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {session.status === 'running' && <ActivityIndicator size="small" color={c.text2} style={{ marginRight: 6 }} />}
-            <Press accessibilityLabel="Menu" haptics="tap" scale={0.88} onPress={() => setMenu(true)} style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}>
+            <Press accessibilityLabel={t('code.usage.title')} haptics="tap" scale={0.88} onPress={() => setSheet('usage')} style={iconBtn}>
+              <ContextRing tokens={session.contextTokens} limit={session.contextLimit} />
+            </Press>
+            <Press accessibilityLabel={t('code.pr.title')} haptics="tap" scale={0.88} onPress={() => setSheet('pulls')} style={iconBtn}>
+              <GitPullRequest size={20} color={c.text} />
+            </Press>
+            <Press accessibilityLabel={t('code.session.menu')} haptics="tap" scale={0.88} onPress={() => setMenu(true)} style={iconBtn}>
               <Ellipsis size={22} color={c.text} />
             </Press>
           </View>
         }
       />
 
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 24 }}>
-        {!!firstTask && (
-          <View style={{ alignSelf: 'flex-end', maxWidth: '88%', backgroundColor: c.surface2, borderRadius: 20, borderBottomRightRadius: 6, paddingHorizontal: 16, paddingVertical: 12 }}>
-            <RNText style={[type.body, { color: c.text }]}>{firstTask}</RNText>
-          </View>
-        )}
-
-        <View style={[card, { alignItems: 'center', gap: 12, paddingVertical: 22 }]}>
-          <Mascot size={96} />
-          <RNText style={[type.small, { color: c.text2, textAlign: 'center', fontSize: 14, lineHeight: 20 }]}>{t('code.soon')}</RNText>
-        </View>
-
-        <View style={[card, { gap: 12 }]}>
-          <InfoRow icon={<GithubMark size={16} color={c.text2} />} label={t('code.repo')}>
-            <RNText numberOfLines={1} style={{ fontFamily: fonts.mono, fontSize: 13, color: c.text }}>
-              {session.repo}
-            </RNText>
-          </InfoRow>
-          <InfoRow icon={<GitBranch size={16} color={c.text2} />} label={t('code.branch')}>
-            <RNText numberOfLines={1} style={{ fontFamily: fonts.mono, fontSize: 13, color: c.text }}>
-              {session.baseBranch}
-            </RNText>
-          </InfoRow>
-          <InfoRow icon={<GitBranch size={16} color={c.accent} />} label={t('code.branch.work')}>
-            <RNText numberOfLines={1} style={{ fontFamily: fonts.mono, fontSize: 13, color: c.text }}>
-              {session.workBranch}
-            </RNText>
-          </InfoRow>
-          <InfoRow icon={<EnvIcon size={16} color={c.text2} />} label={t('code.env')}>
-            <RNText numberOfLines={1} style={{ fontFamily: fonts.sansMedium, fontSize: 14, color: c.text }}>
-              {session.environmentName ?? '—'}
-            </RNText>
-          </InfoRow>
-          {env && (
-            <InfoRow icon={<View style={{ width: 14, height: 14, borderRadius: 3, borderWidth: 1.5, borderColor: c.text2 }} />} label={t('code.env.disk')}>
-              <View style={{ gap: 6 }}>
-                <RNText style={{ fontFamily: fonts.mono, fontSize: 12.5, color: c.text2 }}>
-                  {t('code.disk.used', { used: formatMb(session.diskUsedMb, locale), total: formatMb(env.diskMb, locale) })}
-                </RNText>
-                <SlashProgress value={session.diskUsedMb} max={env.diskMb} />
-              </View>
-            </InfoRow>
-          )}
-        </View>
-      </ScrollView>
-
-      <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 8) + 6, gap: 8, backgroundColor: c.bg }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 6 }}>
-          <GithubMark size={14} color={c.text3} />
-          <RNText numberOfLines={1} style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text2 }}>
-            {shortRepo}
-          </RNText>
-          <GitBranch size={13} color={c.text3} />
-          <RNText numberOfLines={1} style={{ flex: 1, fontFamily: fonts.mono, fontSize: 12, color: c.text3 }}>
-            {session.workBranch}
-          </RNText>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: c.line, paddingLeft: 16, paddingRight: 8, paddingVertical: 8, opacity: 0.6 }}>
-          <TextInput editable={false} placeholder={t('code.composer.placeholder')} placeholderTextColor={c.text3} style={{ flex: 1, fontFamily: fonts.sans, fontSize: 16, color: c.text, minHeight: 36, paddingVertical: 6 }} />
-          <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c.surface3, alignItems: 'center', justifyContent: 'center' }}>
-            <ArrowUp size={19} strokeWidth={2.5} color={c.text3} />
-          </View>
-        </View>
+      <View style={{ flex: 1 }}>
+        <CodeThread chatId={id} onOpen={setTarget} />
       </View>
+
+      <CodeComposer session={session} ready={hasDetail} onChanges={() => setSheet('changes')} />
+
+      <CodeSheetHost chatId={id} target={target} onClose={() => setTarget(null)} />
+      <UsageSheet visible={sheet === 'usage'} onClose={() => setSheet(null)} tokens={session.contextTokens} limit={session.contextLimit} />
+      <PullsSheet visible={sheet === 'pulls'} onClose={() => setSheet(null)} chatId={id} />
+      <ChangesSheet visible={sheet === 'changes'} onClose={() => setSheet(null)} chatId={id} additions={session.additions} deletions={session.deletions} files={session.filesChanged} />
 
       <Sheet visible={menu} onClose={() => setMenu(false)}>
         <View style={{ paddingHorizontal: 10, paddingBottom: 6 }}>
@@ -191,6 +178,6 @@ export default function CodeSession() {
           </Press>
         </View>
       </Sheet>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
