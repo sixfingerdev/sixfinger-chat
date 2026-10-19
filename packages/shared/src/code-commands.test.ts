@@ -16,7 +16,7 @@ describe('slash komutları', () => {
   it('öntanıya göre süzer, yerleşikler önce gelir', () => {
     const all = [...BUILTIN_COMMANDS, { name: 'perf', kind: 'send' as const, source: 'repo' as const, template: 'x' }];
     expect(matchCommands(all, '/p').map((c) => c.name)).toEqual(['plan', 'pr', 'perf']);
-    expect(matchCommands(all, '/co').map((c) => c.name)).toEqual(['compact']);
+    expect(matchCommands(all, '/co').map((c) => c.name)).toEqual(['commit', 'compact']);
     expect(matchCommands(all, '/').length).toBe(all.length);
   });
   it('repo komut dosyasını (frontmatter ile ya da düz) okur', () => {

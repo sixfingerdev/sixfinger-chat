@@ -45,10 +45,10 @@ function fake(initial: Record<string, string> = {}) {
       return { lines: state.grepLines, truncated: false };
     },
     async changes() {
-      return { files: [], additions: 0, deletions: 0, baseSha: 'abc' };
+      return { files: [], additions: 0, deletions: 0, baseSha: 'abc', headSha: 'abc', ahead: 0, uncommitted: 0, subject: '' };
     },
-    async commit() {
-      return { sha: null };
+    async checkpoint() {
+      return { head: 'a'.repeat(40), snapshot: 'd'.repeat(40) };
     },
     async archive() {
       return Buffer.alloc(0);
@@ -286,13 +286,13 @@ describe('bash', () => {
   });
   it('platformun yönettiği git komutlarını engeller, salt okunurlara izin verir', async () => {
     const { call, state } = fake();
-    for (const cmd of ['git push origin main', 'git commit -am x', 'cd a && git rebase main', 'echo a; git branch -D x', 'git -C . remote add o u', 'git config user.name x', 'git switch main', 'git merge x']) {
+    for (const cmd of ['git push origin main', 'cd a && git rebase main', 'echo a; git branch -D x', 'git -C . remote add o u', 'git config user.name x', 'git switch main', 'git merge x']) {
       const r = await call('bash', { command: cmd });
       expect(r.status, cmd).toBe('error');
       expect(r.output).toMatch(/managed by the platform/);
     }
     expect(state.execs).toEqual([]);
-    for (const cmd of ['git status', 'git diff --stat', 'git log -5 --oneline', 'git show HEAD', 'echo "git push" | cat', 'grep -r "git commit" docs']) {
+    for (const cmd of ['git status', 'git add a.txt', 'git commit -m x', 'cd a && git add -A && git commit -m "feat: y"', 'git diff --stat', 'git log -5 --oneline', 'git show HEAD', 'echo "git push" | cat', 'grep -r "git commit" docs']) {
       expect((await call('bash', { command: cmd })).status, cmd).toBe('done');
     }
   });

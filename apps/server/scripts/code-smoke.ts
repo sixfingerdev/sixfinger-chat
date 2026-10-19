@@ -121,10 +121,10 @@ function localClient(dir: string): CodeSandboxClient {
       return { lines: r.stdout.split('\n').filter(Boolean), truncated: false };
     },
     async changes() {
-      return { files: [], additions: 0, deletions: 0, baseSha: 'a'.repeat(40) };
+      return { files: [], additions: 0, deletions: 0, baseSha: 'a'.repeat(40), headSha: 'a'.repeat(40), ahead: 0, uncommitted: 0, subject: '' };
     },
-    async commit() {
-      return { sha: null };
+    async checkpoint() {
+      return { head: 'a'.repeat(40), snapshot: 'd'.repeat(40) };
     },
     async archive() {
       return Buffer.alloc(0);

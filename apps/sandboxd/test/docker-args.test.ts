@@ -60,6 +60,7 @@ describe('Code konteyneri bayrakları', () => {
   const cfg = makeConfig();
   const profile = (over: Partial<CodeProfile> = {}): CodeProfile => ({
     kind: 'code',
+    diskMb: 512,
     dir: '/var/lib/sixfinger-code/workspaces/cabc',
     hostDir: '/mnt/hdd/code/workspaces/cabc',
     memMb: 1024,

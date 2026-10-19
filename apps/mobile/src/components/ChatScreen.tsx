@@ -23,7 +23,7 @@ import { Button, Press } from './Ui.tsx';
 type Row =
   | { key: string; kind: 'user'; msg: MessageDTO }
   | { key: string; kind: 'head'; id: string; part: ReasoningPart; thinking: boolean }
-  | { key: string; kind: 'body'; part: ReasoningPart }
+  | { key: string; kind: 'body'; part: ReasoningPart; open: boolean }
   | { key: string; kind: 'end' }
   | { key: string; kind: 'seg'; msg: MessageDTO; parts: MessagePartDTO[] }
   | { key: string; kind: 'foot'; msg: MessageDTO; live: boolean; last: boolean };
@@ -73,7 +73,8 @@ export function ChatScreen() {
           const thinking = streaming && i === parts.length - 1;
           stick.push(out.length);
           out.push({ key: `${rid}:h`, kind: 'head', id: rid, part: p, thinking });
-          if (isReasoningOpen(thinking, reasoningOpen[rid])) out.push({ key: `${rid}:b`, kind: 'body', part: p });
+          // Gövde her zaman satırdır; açılıp kapanma yükseklik animasyonuyla yumuşak olur (web'deki gibi).
+          if (p.text) out.push({ key: `${rid}:b`, kind: 'body', part: p, open: isReasoningOpen(thinking, reasoningOpen[rid]) });
           stick.push(out.length);
           out.push({ key: `${rid}:e`, kind: 'end' });
         } else {
@@ -106,6 +107,8 @@ export function ChatScreen() {
   const following = useRef(true);
   const metrics = useRef({ offset: 0, content: 0, view: 0 });
   const raf = useRef(0);
+  /** Parmak ekranda mı (sürükleme sürüyor). */
+  const dragging = useRef(false);
   const distance = () => metrics.current.content - metrics.current.view - metrics.current.offset;
   const toEnd = useCallback((animated: boolean) => {
     if (animated) {
@@ -126,10 +129,17 @@ export function ChatScreen() {
     const prev = metrics.current.offset;
     metrics.current = { offset: contentOffset.y, content: contentSize.height, view: layoutMeasurement.height };
     const d = distance();
-    // Alta yakınsa takip açık. Uzaktaysa ve offset geriye gittiyse kullanıcı yukarı çekmiştir (web'de sürükleme olayı yok): bırak.
-    if (d <= 24) following.current = true;
-    else if (contentOffset.y < prev - 1) following.current = false;
+    // Yukarı kayma her zaman takibi bırakır. Parmak ekrandayken (sürükleme) yalnızca TAM altta takip açılır: alta 24 px kala
+    // açmak, akış sürerken parmakla otomatik kaydırmanın çatışıp titremesine yol açıyordu.
+    if (contentOffset.y < prev - 1) following.current = false;
+    else if (dragging.current) {
+      if (d <= 2) following.current = true;
+    } else if (d <= 24) following.current = true;
     setShowJump(d > 420);
+  }, []);
+  const endDrag = useCallback(() => {
+    dragging.current = false;
+    if (distance() <= 6) following.current = true;
   }, []);
   const settle = useCallback(() => {
     // Parmak kalktı / kayma bitti: en alttaysak takibi geri aç.
@@ -162,7 +172,7 @@ export function ChatScreen() {
         case 'head':
           return <ReasoningHead id={item.id} part={item.part} thinking={item.thinking} />;
         case 'body':
-          return <ReasoningBody text={item.part.text} />;
+          return <ReasoningBody text={item.part.text} open={item.open} />;
         case 'end':
           return <View style={{ height: 1 }} />;
         case 'seg':
@@ -203,9 +213,10 @@ export function ChatScreen() {
             stickyHeaderIndices={sticky}
             onScroll={onScroll}
             onScrollBeginDrag={() => {
+              dragging.current = true;
               following.current = false;
             }}
-            onScrollEndDrag={settle}
+            onScrollEndDrag={endDrag}
             onMomentumScrollEnd={settle}
             onContentSizeChange={onContentSizeChange}
             onLayout={onLayout}

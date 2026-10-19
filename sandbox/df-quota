@@ -1,0 +1,57 @@
+#!/bin/sh
+# SixFinger: /work için ana makinenin gerçek diski yerine ortamın disk KOTASINI gösterir (sandboxd kotayı ölçerek uygular).
+# Gerçek `df` 41 GB boş gösterse bile ajan kotaya sığmayacak işe (torch vb.) girişmesin. Diğer bağlama noktaları ve seçenekler olduğu gibi geçer.
+real=$(PATH=/usr/bin:/bin command -v df)
+q=${SF_DISK_QUOTA_MB:-}
+[ -z "$q" ] && exec "$real" "$@"
+human=0
+targets=""
+for a in "$@"; do
+  case "$a" in
+    -h|--human-readable) human=1 ;;
+    -k|-P|--portability) ;;
+    -*) exec "$real" "$@" ;;
+    *) targets="$targets $a" ;;
+  esac
+done
+in_work() {
+  p=$(readlink -f -- "$1" 2>/dev/null || echo "$1")
+  case "$p" in /work|/work/*) return 0 ;; esac
+  return 1
+}
+show_quota=0
+others=""
+if [ -z "$targets" ]; then
+  show_quota=1
+else
+  for t in $targets; do
+    if in_work "$t"; then show_quota=1; else others="$others $t"; fi
+  done
+fi
+used_kb=$(du -sk /work 2>/dev/null | cut -f1)
+used_kb=${used_kb:-0}
+total_kb=$((q * 1024))
+avail_kb=$((total_kb - used_kb))
+[ "$avail_kb" -lt 0 ] && avail_kb=0
+pct=$((used_kb * 100 / total_kb))
+[ "$pct" -gt 100 ] && pct=100
+hum() { awk -v k="$1" 'BEGIN{ if (k>=1048576) printf "%.1fG", k/1048576; else if (k>=1024) printf "%.0fM", k/1024; else printf "%dK", k }'; }
+if [ "$show_quota" = 1 ]; then
+  if [ "$human" = 1 ]; then
+    printf 'Filesystem       Size  Used Avail Use%% Mounted on\n'
+    printf '%-16s %5s %5s %5s %3d%% /work\n' sixfinger-quota "$(hum "$total_kb")" "$(hum "$used_kb")" "$(hum "$avail_kb")" "$pct"
+  else
+    printf 'Filesystem       1K-blocks     Used Available Use%% Mounted on\n'
+    printf '%-16s %9d %8d %9d %3d%% /work\n' sixfinger-quota "$total_kb" "$used_kb" "$avail_kb" "$pct"
+  fi
+fi
+if [ -z "$targets" ]; then
+  [ "$human" = 1 ] && "$real" -h /tmp | tail -n +2 || "$real" /tmp | tail -n +2
+elif [ -n "$others" ]; then
+  if [ "$show_quota" = 1 ]; then
+    if [ "$human" = 1 ]; then "$real" -h $others | tail -n +2; else "$real" $others | tail -n +2; fi
+  else
+    if [ "$human" = 1 ]; then "$real" -h $others; else "$real" $others; fi
+  fi
+fi
+exit 0

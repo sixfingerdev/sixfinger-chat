@@ -64,6 +64,14 @@ export interface ChangesOutcome {
   additions: number;
   deletions: number;
   baseSha: string;
+  /** Çalışma branch'inin ucu. */
+  headSha: string;
+  /** Başlangıç commit'inden bu yana atılan commit sayısı (ajan commit atar). */
+  ahead: number;
+  /** Commit edilmemiş dosya sayısı. */
+  uncommitted: number;
+  /** Son commit'in başlığı (ahead > 0 ise). */
+  subject: string;
 }
 
 export interface SandboxHttpRequest {
@@ -93,7 +101,8 @@ export interface CodeSandboxClient {
     signal: AbortSignal,
   ): Promise<{ lines: string[]; truncated: boolean }>;
   changes(s: CodeScope, signal: AbortSignal): Promise<ChangesOutcome>;
-  commit(s: CodeScope, message: string, signal: AbortSignal): Promise<{ sha: string | null }>;
+  /** Geri sarma noktası: o anki çalışma alanı (commit edilmemişler dahil) branch'e dokunmadan saklanır. */
+  checkpoint(s: CodeScope, signal: AbortSignal): Promise<{ head: string; snapshot: string }>;
   /** Son commit'i GitHub'a iter (token yalnızca sandboxd'nin tek seferlik yardımcı konteynerinde kullanılır). */
   push(s: CodeScope, token: string, signal: AbortSignal, opts?: { force?: boolean }): Promise<{ sha: string; branch: string; output: string }>;
   /** Çalışma alanının (node_modules ve .git hariç) tar.gz arşivi. */
@@ -161,7 +170,7 @@ export function createCodeClient(baseUrl: string, token: string, fetchImpl: type
     glob: (s, a, signal) => call('glob', { ...who(s), ...a }, signal, 60_000),
     grep: (s, a, signal) => call('grep', { ...who(s), pattern: a.pattern, path: a.path, include: a.include, literal: a.literal, case_sensitive: a.caseSensitive, limit: a.limit }, signal, 60_000),
     changes: (s, signal) => call('changes', who(s), signal, 90_000),
-    commit: (s, message, signal) => call('commit', { ...who(s), message }, signal, 90_000),
+    checkpoint: (s, signal) => call('checkpoint', who(s), signal, 90_000),
     push: (s, token, signal, opts) => call('push', { ...who(s), token, force: opts?.force }, signal, 5 * 60_000),
     archive: (s, signal) => call('archive', who(s), signal, 3 * 60_000, true),
     raw: (s, path, maxMb, signal) => call('raw', { ...who(s), path, max_mb: maxMb }, signal, 90_000, true),

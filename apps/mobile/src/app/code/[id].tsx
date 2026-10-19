@@ -224,7 +224,7 @@ export default function CodeSession() {
 
       {generating && (
         <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
-          <CodeRunStatus run={run} startedAt={startedAt} runningTasks={runningTasks} />
+          <CodeRunStatus run={run} startedAt={run?.startedAt ?? startedAt} runningTasks={runningTasks} />
         </View>
       )}
       {(session.additions + session.deletions > 0 || pr) && (

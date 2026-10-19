@@ -13,6 +13,8 @@ let fc: Fake;
 
 const call = (id: string, name: string, args: object): AiChunk => ({ type: 'tool_calls', calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] });
 const text = (t: string): AiChunk[] => [{ type: 'content', text: t }];
+/** Ajanın kendi commit'i (platform artık commit atmaz). */
+const gitCommit = (id: string, msg: string): AiChunk => call(id, 'bash', { command: `git add -A && git commit -m "${msg}"` });
 /** Tek turda birden çok araç çağrısı. */
 const many = (list: Array<[string, string, object]>): AiChunk => ({ type: 'tool_calls', calls: list.map(([id, name, args]) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } })) });
 
@@ -60,6 +62,7 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     env.ai.steps = [
       [{ type: 'reasoning', text: 'Önce dosyayı yazayım.' }, call('c1', 'write', { path: 'hello.js', content: "console.log('merhaba');\n" })],
       [call('c2', 'bash', { command: 'node hello.js' })],
+      [gitCommit('c3', 'feat: merhaba betiği ekle')],
       text('Tamam: hello.js oluşturuldu ve çalıştırıldı.'),
     ];
     fc.state.execImpl = (c) => (c.startsWith('node hello.js') ? { stdout: 'merhaba\n', durationMs: 90 } : c.startsWith('ls -1Ap') ? { stdout: 'app.js\nREADME.md\n' } : {});
@@ -70,10 +73,10 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     const phases = of(r.events, 'phase').map((p) => p.phase);
     expect(phases).toEqual(['queued', 'preparing', 'working', 'committing']);
     const tools = of(r.events, 'tool_end');
-    expect(tools.map((t) => t.status)).toEqual(['done', 'done', 'done', 'done']); // workspace, write, bash, commit
+    expect(tools.map((t) => t.status)).toEqual(['done', 'done', 'done', 'done', 'done']); // workspace, write, bash, bash(git commit), commit kartı
     expect(tools[1]!.meta).toEqual({ files: [{ path: 'hello.js', additions: 1, deletions: 0, status: 'added' }] });
     expect(tools[2]!.meta).toMatchObject({ exitCode: 0, command: 'node hello.js' });
-    expect(of(r.events, 'context').length).toBe(3);
+    expect(of(r.events, 'context').length).toBe(4);
     expect(of(r.events, 'changes')[0]).toMatchObject({ files: 1, additions: 1, deletions: 0 });
     expect(of(r.events, 'title')).toHaveLength(1);
 
@@ -82,16 +85,15 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     expect(fc.state.prepares[0]).toMatchObject({ repo: 'octo/alpha', baseBranch: 'main', token: 'gho_testtoken', author: { name: 'octo', email: '42+octo@users.noreply.github.com' }, network: { mode: 'trusted' }, diskMb: 512 });
     expect(fc.fs.get('hello.js')).toBe("console.log('merhaba');\n");
 
-    // commit mesajı: başlık temizlenir, ortak yazar HER ZAMAN var, oturum bağlantısı yok (varsayılan)
-    expect(fc.state.commits).toHaveLength(1);
-    expect(fc.state.commits[0]).toMatch(/^feat: merhaba betiği ekle\n\n- hello\.js \(\+1 −0\)\n\nCo-Authored-By: SixFinger Code <noreply@sixfinger\.live>$/);
+    // platform commit atmaz: commit'i ajan kendi komutuyla attı
+    expect(fc.state.commits).toEqual(['feat: merhaba betiği ekle']);
 
     // kalıcı mesaj: parçalar sırayla ve sahte araçlar dahil
     const d = await detail(a, s.chatId);
     const m = lastAssistant(d);
     expect(m.status).toBe('complete');
-    expect(m.parts.filter((p) => p.type === 'tool').map((p) => p.name)).toEqual(['workspace', 'write', 'bash', 'commit']);
-    expect(m.parts.find((p) => p.name === 'commit')).toMatchObject({ summary: expect.stringMatching(/^[0-9a-f]{7}$/), meta: { files: 1 } });
+    expect(m.parts.filter((p) => p.type === 'tool').map((p) => p.name)).toEqual(['workspace', 'write', 'bash', 'bash', 'commit']);
+    expect(m.parts.find((p) => p.name === 'commit')).toMatchObject({ summary: expect.stringMatching(/^[0-9a-f]{7}$/), meta: { files: 1, committed: true, subject: 'feat: merhaba betiği ekle', checkpoint: expect.stringMatching(/^d+1$/) } });
     expect(m.content).toContain('hello.js oluşturuldu');
     expect(d.chat.title).not.toBe('Yeni oturum');
 
@@ -121,14 +123,75 @@ describe('Code ajan döngüsü: mutlu yol', () => {
     expect(system).toContain('app.js'); // çalışma alanı özeti (ls) sistem istemine girer
   });
 
-  it('commit mesajına oturum bağlantısı ortam ayarına bağlıdır', async () => {
+  it('commit kuralları sistem istemindedir; oturum bağlantısı satırı ortam ayarına bağlıdır', async () => {
     const { a, s } = await prepared();
+    env.ai.steps = [text('Merhaba.')];
+    await send(a, s.chatId, 'selam');
+    const base = String(agentCalls()[0]!.messages[0]!.content);
+    expect(base).toContain('the platform does NOT commit for you');
+    expect(base).toContain('NEVER use `git add -A`');
+    expect(base).toContain('site-packages');
+    expect(base).toContain('Disk quota: 512 MB'); // df ana makinenin diskini gösterse de ajan kotayı bilir
+    expect(base).toContain('$TMPDIR');
+    expect(base).toContain('COMMIT ATTRIBUTION (MANDATORY');
+    expect(base).toContain('-m "Co-Authored-By: SixFinger Code <noreply@sixfinger.live>"');
+    expect(base).toContain('Co-Authored-By: SixFinger Code <noreply@sixfinger.live>');
+    expect(base).not.toContain('SixFinger-Session:');
+
     const envId = (await env.ctx.code.listEnvironments(a.user.id))[0]!.id;
     await env.ctx.code.updateEnvironment(a.user.id, envId, { commitSessionLink: true });
-    env.ai.steps = [[call('c1', 'write', { path: 'x.txt', content: 'x\n' })], text('Bitti.')];
+    env.ai.calls.length = 0;
+    env.ai.steps = [text('Tamam.')];
+    await send(a, s.chatId, 'tekrar');
+    expect(String(agentCalls()[0]!.messages[0]!.content)).toContain(`SixFinger-Session: http://localhost:5173/code/s/${s.chatId}`);
+  });
+
+  it('ajan commit etmezse platform de etmez: değişiklikler çalışma ağacında kalır, kart "commit yok" der ve geri sarma noktası alınır', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [[call('c1', 'write', { path: 'x.txt', content: 'x\n' })], text('Yazdım.')];
+    const r = await send(a, s.chatId, 'x yaz');
+    expect(fc.state.commits).toEqual([]);
+    expect(fc.state.checkpoints).toBe(1);
+    expect(of(r.events, 'changes')[0]).toMatchObject({ files: 1, sha: null });
+    const card = lastAssistant(await detail(a, s.chatId)).parts.find((p) => p.name === 'commit');
+    expect(card).toMatchObject({ summary: 'commit yok', meta: { sha: null, committed: false, files: 1 } });
+    expect(String(card!.output)).toContain('1 dosya commit edilmedi');
+    expect(of(r.events, 'phase').map((p) => p.phase)).not.toContain('publishing');
+  });
+
+  it('Code oturumu silinince çalışma alanı (sandbox) da silinir; süren üretim durdurulur; sandbox hata verse de oturum silinir', async () => {
+    const { a, s } = await prepared();
+    env.ai.steps = [[call('c1', 'write', { path: 'x.txt', content: 'x\n' })], text('Tamam.')];
     await send(a, s.chatId, 'x yaz');
-    expect(fc.state.commits[0]).toContain(`SixFinger-Session: http://localhost:5173/code/s/${s.chatId}`);
-    expect(fc.state.commits[0]).toContain('Co-Authored-By: SixFinger Code');
+    expect(fc.state.destroyed).toEqual([]);
+    expect((await env.app.inject({ method: 'DELETE', url: `/api/code/sessions/${s.chatId}`, headers: auth(a) })).statusCode).toBe(204);
+    expect(fc.state.destroyed).toEqual([`${a.user.id}:${s.chatId}`]);
+    expect((await env.app.inject({ method: 'GET', url: `/api/chats/${s.chatId}`, headers: auth(a) })).statusCode).toBe(404);
+
+    // sandbox'a ulaşılamıyorsa kullanıcının silme isteği yine başarılı olur
+    const s2 = await env.ctx.code.createSession(a.user.id, { repo: 'octo/alpha', baseBranch: 'main' });
+    const orig = fc.client.destroy;
+    fc.client.destroy = async () => {
+      throw new Error('sandboxd kapalı');
+    };
+    expect((await env.app.inject({ method: 'DELETE', url: `/api/code/sessions/${s2.chatId}`, headers: auth(a) })).statusCode).toBe(204);
+    fc.client.destroy = orig;
+  });
+
+  it('genel sohbet silme ucu da Code oturumunun sandbox\'ını siler; normal sohbette sandbox\'a dokunmaz; hesap silinince tüm çalışma alanları silinir', async () => {
+    const { a, s } = await prepared();
+    expect((await env.app.inject({ method: 'DELETE', url: `/api/chats/${s.chatId}`, headers: auth(a) })).statusCode).toBe(204);
+    expect(fc.state.destroyed).toEqual([`${a.user.id}:${s.chatId}`]);
+
+    const chat = (await env.app.inject({ method: 'POST', url: '/api/chats', headers: auth(a), payload: {} })).json().chat;
+    expect((await env.app.inject({ method: 'DELETE', url: `/api/chats/${chat.id}`, headers: auth(a) })).statusCode).toBe(204);
+    expect(fc.state.destroyed).toHaveLength(1);
+
+    const s2 = await env.ctx.code.createSession(a.user.id, { repo: 'octo/alpha', baseBranch: 'main' });
+    const s3 = await env.ctx.code.createSession(a.user.id, { repo: 'octo/beta', baseBranch: 'main' });
+    const del = await env.app.inject({ method: 'DELETE', url: '/api/me', headers: auth(a), payload: { password: 'correct-horse-battery' } });
+    expect(del.statusCode).toBe(204);
+    expect(fc.state.destroyed.slice(1).sort()).toEqual([`${a.user.id}:${s2.chatId}`, `${a.user.id}:${s3.chatId}`].sort());
   });
 
   it('değişiklik yoksa commit atılmaz', async () => {
@@ -216,14 +279,14 @@ describe('Code ajan döngüsü: güvenlik ve sınırlar', () => {
     expect((await env.ctx.code.getSession(a.user.id, s.chatId))!.status).toBe('error');
   });
 
-  it('kredi çalışırken biterse tur kendiliğinden durur, o ana kadarki iş commit edilir', async () => {
+  it('kredi çalışırken biterse tur kendiliğinden durur, o ana kadarki iş çalışma alanında kalır', async () => {
     await boot({ CODE_DAILY_CREDITS: 1 });
     const { a, s } = await prepared();
     await env.ctx.db.query(`insert into code_credit_daily (user_id, day, credits) values ($1, (now() at time zone 'Europe/Istanbul')::date, 0.999)`, [a.user.id]);
     env.ai.steps = [[call('c1', 'write', { path: 'p.txt', content: 'p\n' })], [call('c2', 'bash', { command: 'echo 2' })], text('asla gelmez')];
     await send(a, s.chatId, 'iş');
     expect(fc.fs.get('p.txt')).toBe('p\n');
-    expect(fc.state.commits).toHaveLength(1);
+    expect(fc.state.commits).toHaveLength(0);
     expect(lastAssistant(await detail(a, s.chatId)).content).toContain('Günlük Code kredin bitti');
     expect(agentCalls().length).toBeLessThan(3);
   });
@@ -327,7 +390,7 @@ describe('Code ajan döngüsü: hata, durdurma, kuyruk', () => {
     expect(r.events.some((e) => e.type === 'done')).toBe(true);
   });
 
-  it('kullanıcı durdurursa tur "stopped" olur, çalışma alanındaki iş yine commit edilir (otomatik PR açıksa bile itilmez)', async () => {
+  it('kullanıcı durdurursa tur "stopped" olur, çalışma alanındaki iş korunur (otomatik PR açıksa bile itilmez)', async () => {
     const { a, s } = await prepared('coder@example.com', true);
     fc.state.delayMs = 120;
     env.ai.delayMs = 60;
@@ -339,7 +402,8 @@ describe('Code ajan döngüsü: hata, durdurma, kuyruk', () => {
     const r = await pending;
     expect(r.events.find((e) => e.type === 'done')).toMatchObject({ type: 'done', assistantMessage: { status: 'stopped' } });
     expect(fc.fs.get('w.txt')).toBe('w\n');
-    expect(fc.state.commits).toHaveLength(1);
+    expect(fc.state.commits).toHaveLength(0);
+    expect(fc.state.checkpoints).toBe(1);
     expect(fc.state.pushes).toHaveLength(0);
     expect(of(r.events, 'tool_end').some((e) => e.id.startsWith('pr-'))).toBe(false);
     expect((await env.ctx.code.getSession(a.user.id, s.chatId))!.status).toBe('idle');
@@ -471,7 +535,7 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
     };
     const { a, s } = await prepared('coder@example.com', autoPr);
     if (firstTurn) {
-      env.ai.steps = [[call('c1', 'write', { path: 'a.js', content: 'x\ny\n' })], text('Tamam.')];
+      env.ai.steps = [[call('c1', 'write', { path: 'a.js', content: 'x\ny\n' })], [gitCommit('c1g', 'feat: a.js ekle')], text('Tamam.')];
       await send(a, s.chatId, 'a.js ekle');
     }
     return { a, s };
@@ -507,7 +571,7 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
   it('tur sonunda ajan kendisi açar: ilk turda push + PR (pull_request parçası), sonraki turda aynı PR güncellenir', async () => {
     const { a, s } = await bootGit(false, true); // ilk tur: henüz hiç commit yok
     env.ai.completeText = 'Dosya ekle\n\n## Summary\n- x';
-    env.ai.steps = [[call('p1', 'write', { path: 'b.js', content: 'b\n' })], text('b.js eklendi, tamam.')];
+    env.ai.steps = [[call('p1', 'write', { path: 'b.js', content: 'b\n' })], [gitCommit('p1g', 'feat: b.js ekle')], text('b.js eklendi, tamam.')];
     const r = await send(a, s.chatId, 'b.js ekle');
     expect(of(r.events, 'phase').map((p) => p.phase)).toEqual(['queued', 'preparing', 'working', 'committing', 'publishing']);
     const prEnd = of(r.events, 'tool_end').find((e) => e.id.startsWith('pr-'))!;
@@ -522,7 +586,7 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
     expect(sent.title).toBe('Dosya ekle');
 
     // ikinci tur: yeni commit itilir, PR yeniden açılmaz
-    env.ai.steps = [[call('p2', 'write', { path: 'c.js', content: 'c\n' })], text('c.js eklendi.')];
+    env.ai.steps = [[call('p2', 'write', { path: 'c.js', content: 'c\n' })], [gitCommit('p2g', 'feat: c.js ekle')], text('c.js eklendi.')];
     const r2 = await send(a, s.chatId, 'c.js ekle');
     const end2 = of(r2.events, 'tool_end').find((e) => e.id.startsWith('pr-'))!;
     expect(end2).toMatchObject({ status: 'done', summary: 'updated' });
@@ -532,7 +596,7 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
 
   it('otomatik PR: kapalıysa, tur durdurulduysa ya da değişiklik yoksa hiçbir şey itilmez; push hatası turu bozmaz', async () => {
     const { a, s } = await bootGit(); // autoPr kapalı
-    env.ai.steps = [[call('q1', 'write', { path: 'd.js', content: 'd\n' })], text('bitti')];
+    env.ai.steps = [[call('q1', 'write', { path: 'd.js', content: 'd\n' })], [gitCommit('q1g', 'feat: d.js ekle')], text('bitti')];
     const off = await send(a, s.chatId, 'd.js ekle');
     expect(of(off.events, 'tool_end').some((e) => e.id.startsWith('pr-'))).toBe(false);
     expect(fc.state.pushes).toHaveLength(0);
@@ -546,7 +610,7 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
 
     // push hatası: PR satırı hata gösterir, tur yine de tamamlanır ve commit korunur
     fc.state.failPush = 'Push başarısız: permission denied';
-    env.ai.steps = [[call('q2', 'write', { path: 'e.js', content: 'e\n' })], text('e.js eklendi.')];
+    env.ai.steps = [[call('q2', 'write', { path: 'e.js', content: 'e\n' })], [gitCommit('q2g', 'feat: e.js ekle')], text('e.js eklendi.')];
     const bad = await send(a, s.chatId, 'e.js ekle');
     const end = of(bad.events, 'tool_end').find((e) => e.id.startsWith('pr-'))!;
     expect(end).toMatchObject({ status: 'error' });
@@ -608,15 +672,16 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
     fc.state.execImpl = (c) => {
       if (c.includes('git reset')) {
         resets.push(c);
-        const m = /--hard '([0-9a-f]{40})'/.exec(c);
-        return { stdout: `${m ? m[1] : 'b'.repeat(40)}\n` };
+        const m = /S='([0-9a-f]{40})'/.exec(c);
+        // geri sarma noktası → o turun commit'i (sahte: 1. nokta 1. commit, 2. nokta 2. commit)
+        return { stdout: `${m ? `${m[1]!.endsWith('1') ? 1 : 2}`.padStart(40, 'c') : 'b'.repeat(40)}\n` };
       }
       if (c.includes('git log --reverse')) return { stdout: 'x\n---STAT---\n' };
       return {};
     };
-    env.ai.steps = [[call('r1', 'write', { path: 'one.js', content: '1\n' })], text('birinci')];
+    env.ai.steps = [[call('r1', 'write', { path: 'one.js', content: '1\n' })], [gitCommit('r1g', 'feat: one')], text('birinci')];
     await send(a, s.chatId, 'bir');
-    env.ai.steps = [[call('r2', 'write', { path: 'two.js', content: '2\n' })], text('ikinci')];
+    env.ai.steps = [[call('r2', 'write', { path: 'two.js', content: '2\n' })], [gitCommit('r2g', 'feat: two')], text('ikinci')];
     await send(a, s.chatId, 'iki');
     const d = await detail(a, s.chatId);
     const asst = d.messages.filter((m: { role: string }) => m.role === 'assistant');
@@ -629,8 +694,11 @@ describe('GitHub: ajanın PR akışı, push, fark', () => {
     const r = await post(a, `/code/sessions/${s.chatId}/rewind`, { messageId: asst[0].id });
     expect(r.statusCode).toBe(200);
     expect(r.json()).toMatchObject({ sha: firstSha, session: { headSha: firstSha, forcePush: true } });
-    expect(resets[0]).toContain(`--hard '${firstSha}'`);
+    const cp1 = (asst[0].parts as Array<Record<string, any>>).find((p) => p.name === 'commit')!.meta.checkpoint;
+    expect(cp1).toMatch(/^d+1$/);
+    expect(resets[0]).toContain(`S='${cp1}'`);
     expect(resets[0]).toContain('git clean -qfd');
+    expect(resets[0]).toContain('git checkout -q "$S" -- .');
     expect((await detail(a, s.chatId)).chat.leafId).toBe(asst[0].id);
 
     // sonraki push zorla yapılır ve bayrak temizlenir

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AppState, Text as RNText, View } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import * as SystemUI from 'expo-system-ui';
@@ -42,7 +42,9 @@ function Shell() {
     const pending = kv.get('sf.pending');
     if (!pending) return;
     kv.remove('sf.pending');
-    void useChats.getState().openChat(pending);
+    // Code oturumu Code ekranında açılır (normal sohbet şablonunda değil).
+    if (pending.startsWith('code:')) router.push(`/code/${pending.slice(5)}` as never);
+    else void useChats.getState().openChat(pending);
   }, [ready, user]);
 
   // Uygulama bir süre arka plandaysa üretim sunucuda sürmüş olabilir: ön plana dönünce eşitle / canlı izlemeye bağlan.

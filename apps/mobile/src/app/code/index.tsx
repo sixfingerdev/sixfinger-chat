@@ -266,9 +266,7 @@ export default function CodeHome() {
   };
 
   let body;
-  if (user && !user.emailVerified) {
-    body = <Gate title={t('code.notAllowed')} hint={t('code.verifyFirst')} action={{ label: t('banner.verifyAction'), run: () => router.push({ pathname: '/auth', params: { mode: 'verify' } }) }} />;
-  } else if (!status) {
+  if (!status) {
     body = (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={c.text3} />
@@ -277,7 +275,13 @@ export default function CodeHome() {
   } else if (!status.available) {
     body = <Gate title={t('code.notAllowed')} hint={t('code.unavailable')} />;
   } else if (!status.allowed) {
-    body = <Gate title={t('code.notAllowed')} hint={t('code.notAllowedHint')} />;
+    // Doğrulama yalnızca "*" (herkese açık) modunda aranır; izni sunucu verir, istemci önceden engellemez.
+    body =
+      user && !user.emailVerified ? (
+        <Gate title={t('code.notAllowed')} hint={t('code.verifyFirst')} action={{ label: t('banner.verifyAction'), run: () => router.push({ pathname: '/auth', params: { mode: 'verify' } }) }} />
+      ) : (
+        <Gate title={t('code.notAllowed')} hint={t('code.notAllowedHint')} />
+      );
   } else {
     body = (
       <>

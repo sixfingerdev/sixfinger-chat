@@ -17,6 +17,13 @@ const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user
 let tmp: string;
 let origin: string;
 
+/** Ajanın kendi `git add` + `git commit` komutu (platform artık commit atmaz). Dönen: yeni commit sha'sı ya da değişiklik yoksa null. */
+async function agentCommit(code: CodeService, user: string, session: string, message: string): Promise<{ sha: string | null }> {
+  const r = await code.exec(user, session, 'git add -A && if git diff --cached --quiet; then echo NONE; else git commit -q -m "$M" && git rev-parse HEAD; fi'.replace('$M', message.replace(/"/g, '')), 30);
+  const out = r.stdout.trim();
+  return { sha: !out || out === 'NONE' ? null : out.split('\n').at(-1)! };
+}
+
 function makeCode(over: Record<string, string> = {}, now?: () => number) {
   const cfg = loadConfig({
     SANDBOXD_TOKEN: 'test-token-test-token-test-token',
@@ -98,10 +105,9 @@ describe('çalışma alanı hazırlığı', () => {
     const { code, cfg } = makeCode();
     await code.prepare(req({ author: { name: 'octo', email: '42+octo@users.noreply.github.com' } }));
     await code.writeFile('u1', 'u1:chat1', 'x.txt', 'x');
-    await code.commit('u1', 'u1:chat1', 'deneme\n\nCo-Authored-By: SixFinger Code <noreply@sixfinger.live>');
+    await agentCommit(code, 'u1', 'u1:chat1', 'deneme');
     const dir = join(cfg.CODE_DATA_DIR, 'workspaces', codeSessionId('u1:chat1'));
     expect(execFileSync('git', ['log', '-1', '--format=%an <%ae>'], { cwd: dir, encoding: 'utf8' }).trim()).toBe('octo <42+octo@users.noreply.github.com>');
-    expect(execFileSync('git', ['log', '-1', '--format=%B'], { cwd: dir, encoding: 'utf8' })).toContain('Co-Authored-By: SixFinger Code <noreply@sixfinger.live>');
   });
 
   it('ikinci hazırlıkta yeniden klonlamaz; kurulum betiği içeriği değişmedikçe bir kez çalışır', async () => {
@@ -221,12 +227,57 @@ describe('işlemler', () => {
     expect(by['src/util.ts']).toMatchObject({ status: 'deleted', additions: 0, deletions: 1 });
     expect(ch).toMatchObject({ additions: 5, deletions: 2 });
 
-    const c = await code.commit('u1', 'u1:chat1', 'özellik: örnek');
+    const c = await agentCommit(code, 'u1', 'u1:chat1', 'özellik: örnek');
     expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
     // commit sonrası da başlangıca göre fark sürer
     expect((await code.changes('u1', 'u1:chat1')).additions).toBe(5);
     // değişiklik yoksa commit atılmaz
-    expect((await code.commit('u1', 'u1:chat1', 'boş')).sha).toBeNull();
+    expect((await agentCommit(code, 'u1', 'u1:chat1', 'boş')).sha).toBeNull();
+  });
+
+  it('changes ajanın hazırladığı indekse (staging) dokunmaz; ahead/uncommitted/subject doğru hesaplanır', async () => {
+    const { code } = await ready();
+    await code.writeFile('u1', 'u1:chat1', 'a.txt', 'a\n');
+    await code.writeFile('u1', 'u1:chat1', 'b.txt', 'b\n');
+    await code.exec('u1', 'u1:chat1', 'git add a.txt'); // ajan yalnızca a.txt'yi sahneledi
+    const ch = await code.changes('u1', 'u1:chat1');
+    expect(ch.files.map((f) => f.path).sort()).toEqual(['a.txt', 'b.txt']);
+    expect(ch).toMatchObject({ ahead: 0, uncommitted: 2, subject: '' });
+    const staged = await code.exec('u1', 'u1:chat1', 'git diff --cached --name-only');
+    expect(staged.stdout.trim()).toBe('a.txt'); // b.txt hâlâ sahnelenmemiş
+
+    await code.exec('u1', 'u1:chat1', 'git commit -q -m "feat: yalnız a"');
+    const after = await code.changes('u1', 'u1:chat1');
+    expect(after).toMatchObject({ ahead: 1, uncommitted: 1, subject: 'feat: yalnız a' });
+    expect(after.headSha).toMatch(/^[0-9a-f]{40}$/);
+    expect((await code.exec('u1', 'u1:chat1', 'git show --name-only --format= HEAD')).stdout.trim()).toBe('a.txt');
+  });
+
+  it('pip/npm bağımlılıkları ve önbellekler hiçbir koşulda izlenmez (git add -A bile almaz)', async () => {
+    const { code } = await ready();
+    await code.exec('u1', 'u1:chat1', 'mkdir -p venv/lib site-packages/x node_modules/y .venv __pycache__ && echo 1 > venv/lib/a.py && echo 1 > site-packages/x/m.py && echo 1 > node_modules/y/i.js && echo 1 > __pycache__/m.pyc && echo 1 > ok.txt');
+    const ch = await code.changes('u1', 'u1:chat1');
+    expect(ch.files.map((f) => f.path)).toEqual(['ok.txt']);
+    await code.exec('u1', 'u1:chat1', 'git add -A && git commit -q -m x');
+    expect((await code.exec('u1', 'u1:chat1', 'git ls-files')).stdout.split('\n').filter(Boolean).sort()).toEqual(expect.not.arrayContaining(['venv/lib/a.py', 'site-packages/x/m.py']));
+  });
+
+  it('checkpoint: commit edilmemiş işi de saklar; dal ucuna dokunmaz; geri yüklenebilir', async () => {
+    const { code } = await ready();
+    await code.writeFile('u1', 'u1:chat1', 'a.txt', 'bir\n');
+    const cp = await code.checkpoint('u1', 'u1:chat1');
+    expect(cp.head).toMatch(/^[0-9a-f]{40}$/);
+    expect(cp.snapshot).toMatch(/^[0-9a-f]{40}$/);
+    expect((await code.exec('u1', 'u1:chat1', 'git rev-parse HEAD')).stdout.trim()).toBe(cp.head); // dal ucu değişmedi
+    expect((await code.exec('u1', 'u1:chat1', `git show ${cp.snapshot}:a.txt`)).stdout).toBe('bir\n');
+    // sonra işler değişir; snapshot'tan geri yükleme (sunucunun kullandığı betik)
+    await code.writeFile('u1', 'u1:chat1', 'a.txt', 'iki\n');
+    await code.exec('u1', 'u1:chat1', 'echo x > yeni.txt; rm app.js');
+    const r = await code.exec('u1', 'u1:chat1', `S='${cp.snapshot}'; H=$(git rev-parse "$S^") && git reset -q --hard "$H" && git clean -qfd && git checkout -q "$S" -- . && { git diff-tree -r -z --name-only --diff-filter=D "$H" "$S" | xargs -0 -r rm -f --; } && git reset -q && git rev-parse HEAD`);
+    expect(r.stdout.trim()).toBe(cp.head);
+    expect((await code.exec('u1', 'u1:chat1', 'cat a.txt; ls yeni.txt app.js 2>&1; git diff --cached --name-only')).stdout).toContain('bir\n');
+    expect((await code.exec('u1', 'u1:chat1', 'test -f yeni.txt && echo VAR || echo YOK')).stdout.trim()).toBe('YOK');
+    expect((await code.exec('u1', 'u1:chat1', 'test -f app.js && echo VAR || echo YOK')).stdout.trim()).toBe('VAR');
   });
 
   it('git hook\'ları çalışmaz (model .git/hooks yazamaz, commit hook\'u kapalı)', async () => {
@@ -234,7 +285,7 @@ describe('işlemler', () => {
     const dir = join(cfg.CODE_DATA_DIR, 'workspaces', codeSessionId('u1:chat1'));
     writeFileSync(join(dir, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\ntouch /tmp/hook-ran-sf-test\nexit 1\n', { mode: 0o755 });
     await code.writeFile('u1', 'u1:chat1', 'x.txt', 'x');
-    const c = await code.commit('u1', 'u1:chat1', 'hook denemesi');
+    const c = await agentCommit(code, 'u1', 'u1:chat1', 'hook denemesi');
     expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
     expect(existsSync('/tmp/hook-ran-sf-test')).toBe(false);
   });
@@ -319,7 +370,7 @@ describe('HTTP uçları', () => {
     expect((await post('/v1/code/read', { ...who, path: 'yok' })).statusCode).toBe(404);
     expect((await post('/v1/code/glob', { ...who, pattern: '*.txt' })).json().files).toEqual(['a.txt']);
     expect((await post('/v1/code/changes', who)).json()).toMatchObject({ additions: 1, deletions: 0 });
-    expect((await post('/v1/code/commit', { ...who, message: 'deneme' })).json().sha).toMatch(/^[0-9a-f]{40}$/);
+    expect((await post('/v1/code/checkpoint', who)).json()).toMatchObject({ head: expect.stringMatching(/^[0-9a-f]{40}$/), snapshot: expect.stringMatching(/^[0-9a-f]{40}$/) });
     expect((await post('/v1/code/destroy', who)).statusCode).toBe(204);
     await app.close();
   });
@@ -333,7 +384,7 @@ describe('push', () => {
     execFileSync('git', ['init', '-q', '--bare', remote]);
     await code.prepare(req({ session: 'u1:push' }));
     await code.writeFile('u1', 'u1:push', 'yeni.txt', 'merhaba\n');
-    const c = await code.commit('u1', 'u1:push', 'deneme');
+    const c = await agentCommit(code, 'u1', 'u1:push', 'deneme');
     expect(c.sha).toMatch(/^[0-9a-f]{40}$/);
 
     // ajan .git/config ve hook'lara yazmaya çalışıyor (komut satırından; dosya aracı .git'e izin vermez)
@@ -349,7 +400,7 @@ describe('push', () => {
 
     // ikinci commit: hızlı ileri sarma
     await code.writeFile('u1', 'u1:push', 'iki.txt', 'x\n');
-    const c2 = await code.commit('u1', 'u1:push', 'ikinci');
+    const c2 = await agentCommit(code, 'u1', 'u1:push', 'ikinci');
     await code.push('u1', 'u1:push', 'gho_supersecrettoken', { pushUrl: remote });
     expect(git(remote, 'rev-parse', 'refs/heads/sixfinger/alpha-abc123').trim()).toBe(c2.sha);
   });

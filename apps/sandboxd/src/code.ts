@@ -56,6 +56,14 @@ export interface Changes {
   additions: number;
   deletions: number;
   baseSha: string;
+  /** Çalışma branch'inin ucu (ajan commit atmadıysa başlangıç commit'iyle aynı). */
+  headSha: string;
+  /** Başlangıç commit'inden bu yana atılmış commit sayısı. */
+  ahead: number;
+  /** Son commit'te olmayan (commit edilmemiş) dosya sayısı. */
+  uncommitted: number;
+  /** Son commit'in başlığı (ahead > 0 ise). */
+  subject: string;
 }
 
 interface State {
@@ -176,7 +184,7 @@ const CLEANUP_CMD = /^\s*(rm|du|ls|df|find|git\s+(clean|gc|status|stash|reset))\
 
 const GIT_INIT_SCRIPT = `
 set -e
-mkdir -p .git/sixfinger
+mkdir -p .git/sixfinger .sixfinger/tmp
 git config user.name "$2"
 git config user.email "$3"
 git config core.hooksPath /dev/null
@@ -185,7 +193,12 @@ if [ ! -f .git/sixfinger/base ]; then
   git checkout -q -b "$1"
 fi
 # Çok sayıda dosya içeren bağımlılık/önbellek klasörleri izlenmesin (depo kendi .gitignore'unu tanımlamamış olabilir).
-printf 'node_modules/\\n.venv/\\n__pycache__/\\n.cache/\\n.next/\\n.turbo/\\n' >> .git/info/exclude
+# Bağımlılık, sanal ortam ve önbellekler hiçbir koşulda commit'e girmesin (pip/npm kurulumları).
+mkdir -p .git/info
+# HOME=/work ve PIP_USER=1 yüzünden pip paketleri /work/.local, npm -g paketleri /work/.npm-global altına kurulur: ikisi de depoya girmez.
+for p in node_modules/ .venv/ venv/ __pycache__/ '*.pyc' site-packages/ dist-packages/ '*.egg-info/' .pytest_cache/ .mypy_cache/ .ruff_cache/ .tox/ .cache/ .next/ .turbo/ .npm/ .pip/ .pip-cache/ .local/ .npm-global/ .bash_history .python_history .sixfinger/tmp/ .sixfinger/uploads/ .sixfinger/run/; do
+  grep -qxF "$p" .git/info/exclude 2>/dev/null || printf '%s\n' "$p" >> .git/info/exclude
+done
 touch .git/sixfinger/init
 `;
 
@@ -270,6 +283,7 @@ export class CodeService {
       pids: this.cfg.CODE_PIDS,
       tmpMb: this.cfg.CODE_TMP_MB,
       fsizeBytes: Math.max(req.diskMb, 64) * 1024 * 1024,
+      diskMb: req.diskMb,
       network: withProxy ? 'proxy' : 'none',
       networkName: withProxy ? this.cfg.CODE_NETWORK_NAME : undefined,
       proxyUrl: withProxy ? this.proxyUrl(id) : undefined,
@@ -359,7 +373,7 @@ export class CodeService {
     let s = this.states.get(id);
     if (s && s.user !== req.user) throw new SandboxError('Bu çalışma alanı başka bir kullanıcıya ait.');
     const profile = this.profileFor(id, dir, rest);
-    const envHash = shortHash({ env: req.env, net: profile.network, mem: profile.memMb, fsize: profile.fsizeBytes });
+    const envHash = shortHash({ env: req.env, net: profile.network, mem: profile.memMb, fsize: profile.fsizeBytes, disk: profile.diskMb });
     if (!s) {
       s = { id, user: req.user, dir, profile, req: rest, envHash, running: false, lastUsed: this.now(), busy: 0, diskUsedMb: 0, diskAt: 0, measureMs: 0, chain: Promise.resolve(), previewBusy: 0 };
       this.states.set(id, s);
@@ -529,16 +543,34 @@ export class CodeService {
     });
   }
 
-  /** Çalışma alanının başlangıç commit'ine göre değişiklikleri (+N −M) hesaplar. Her şeyi sahneler (commit etmez). */
+  /**
+   * Çalışma alanının başlangıç commit'ine göre değişiklikleri (+N −M) hesaplar. Ajanın hazırladığı gerçek indekse (staging)
+   * DOKUNMAZ: her şeyi geçici bir indekse alıp ona göre farklara bakar.
+   */
   async changes(user: string, session: string): Promise<Changes> {
     const s = this.state(user, session);
     return this.serial(s, async () => {
       await this.ensureRunning(s);
-      const script = 'git add -A -- . >/dev/null 2>&1; base=$(cat .git/sixfinger/base); echo "BASE $base"; git diff --cached --numstat "$base"; echo "---"; git diff --cached --name-status "$base"';
+      const script = [
+        'T=.git/sixfinger/idx.$$; cp .git/index "$T" 2>/dev/null; export GIT_INDEX_FILE="$T"',
+        'git add -A -- . >/dev/null 2>&1',
+        'base=$(cat .git/sixfinger/base)',
+        'echo "BASE $base"; echo "HEAD $(git rev-parse HEAD)"; echo "AHEAD $(git rev-list --count "$base"..HEAD)"',
+        'echo "DIRTY $(git diff --cached --name-only HEAD | wc -l)"; echo "SUBJECT $(git log -1 --format=%s | head -c 200)"',
+        'git diff --cached --numstat "$base"; echo "---"; git diff --cached --name-status "$base"',
+        'rm -f "$T"',
+      ].join('; ');
       const r = await this.container(s, ['sh', '-c', script], 60, 512 * 1024);
       if (r.exitCode !== 0) throw new SandboxError(`Değişiklikler okunamadı: ${r.stderr.trim().slice(0, 200)}`);
-      const [head = '', ...rest] = r.stdout.split('\n');
-      const baseSha = head.replace('BASE ', '').trim();
+      const lines = r.stdout.split('\n');
+      const hdr: Record<string, string> = {};
+      let i = 0;
+      for (; i < lines.length; i++) {
+        const m = /^(BASE|HEAD|AHEAD|DIRTY|SUBJECT) ?(.*)$/.exec(lines[i]!);
+        if (!m) break;
+        hdr[m[1]!] = m[2]!.trim();
+      }
+      const rest = lines.slice(i);
       const cut = rest.indexOf('---');
       const num = new Map<string, { a: number; d: number }>();
       for (const l of rest.slice(0, cut < 0 ? rest.length : cut)) {
@@ -552,21 +584,40 @@ export class CodeService {
         const n = num.get(m[2]!) ?? { a: 0, d: 0 };
         files.push({ path: m[2]!, status: m[1] === 'A' ? 'added' : m[1] === 'D' ? 'deleted' : m[1] === 'R' ? 'renamed' : 'modified', additions: n.a, deletions: n.d });
       }
-      return { files, additions: files.reduce((x, f) => x + f.additions, 0), deletions: files.reduce((x, f) => x + f.deletions, 0), baseSha };
+      const ahead = Number(hdr.AHEAD) || 0;
+      return {
+        files,
+        additions: files.reduce((x, f) => x + f.additions, 0),
+        deletions: files.reduce((x, f) => x + f.deletions, 0),
+        baseSha: hdr.BASE ?? '',
+        headSha: hdr.HEAD ?? '',
+        ahead,
+        uncommitted: Number(hdr.DIRTY) || 0,
+        subject: ahead > 0 ? (hdr.SUBJECT ?? '') : '',
+      };
     });
   }
 
-  /** Çalışma alanındaki her şeyi tek bir commit'e alır. Değişiklik yoksa `sha: null`. */
-  async commit(user: string, session: string, message: string): Promise<{ sha: string | null }> {
-    const msg = message.replace(/\0/g, '').trim().slice(0, 2_000) || 'SixFinger Code değişiklikleri';
+  /**
+   * Geri sarma noktası: çalışma alanının o anki hâlini (commit edilmemiş değişiklikler dahil) branch'e DOKUNMADAN, yalnızca
+   * `refs/sixfinger/cp/*` altında bir nesne olarak saklar. Ajanın commit'lerini de, commit etmediği işi de kapsar.
+   */
+  async checkpoint(user: string, session: string): Promise<{ head: string; snapshot: string }> {
     const s = this.state(user, session);
     return this.serial(s, async () => {
       await this.ensureRunning(s);
-      const script = 'git add -A -- . >/dev/null 2>&1; if git diff --cached --quiet; then echo NONE; else git -c core.hooksPath=/dev/null commit -q --no-verify -m "$1" >/dev/null && git rev-parse HEAD; fi';
-      const r = await this.container(s, ['sh', '-c', script, 'sh', msg], 60, 8192);
-      if (r.exitCode !== 0) throw new SandboxError(`Commit atılamadı: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
-      const out = r.stdout.trim();
-      return { sha: out === 'NONE' || !out ? null : out.split('\n').at(-1)! };
+      const script = [
+        'T=.git/sixfinger/cp.$$; cp .git/index "$T" 2>/dev/null; export GIT_INDEX_FILE="$T"',
+        'git add -A -- . >/dev/null 2>&1',
+        'tree=$(git write-tree); head=$(git rev-parse HEAD)',
+        'c=$(git commit-tree "$tree" -p "$head" -m "sixfinger checkpoint")',
+        'git update-ref "refs/sixfinger/cp/$c" "$c"',
+        'rm -f "$T"; echo "$head $c"',
+      ].join('; ');
+      const r = await this.container(s, ['sh', '-c', script], 60, 8192);
+      const m = /^([0-9a-f]{40}) ([0-9a-f]{40})$/m.exec(r.stdout);
+      if (r.exitCode !== 0 || !m) throw new SandboxError(`Geri sarma noktası alınamadı: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
+      return { head: m[1]!, snapshot: m[2]! };
     });
   }
 

@@ -5,7 +5,7 @@ sohbettir; mesajlar, arka planda üretim ve akış sohbetle aynı altyapıyı pa
 [code-agent.md](code-agent.md)'de.
 
 > **Durum:** Hesap bağlama, ortamlar, oturumlar, kredi, kalıcı çalışma alanı, filtreli internet, Code araçları, ajan döngüsü
-> (Qwen → Claude yedeği), bağlam sıkıştırma, tur sonu commit + otomatik PR, alt ajan / soru / plan modu, slash komutları, dosya gezgini,
+> (Qwen → Claude yedeği), bağlam sıkıştırma, commit'i ajan atar + otomatik PR, alt ajan / soru / plan modu, slash komutları, dosya gezgini,
 > geri sarma, oturum yönetimi ve metin ekleri hazır (web + Android). Gerçek Docker, gerçek Qwen ve gerçek GitHub OAuth ile sınama Pi'de
 > yapılmalı (aşağıdaki "Doğrulama" betikleri).
 
@@ -13,8 +13,12 @@ sohbettir; mesajlar, arka planda üretim ve akış sohbetle aynı altyapıyı pa
 
 Oturuma mesaj gönderince sunucu: krediyi denetler → **kuyruğa** girer (Pi'de aynı anda `CODE_MAX_RUNS`=2 oturum; fazlası sırada, sıra numarası
 arayüze akar) → çalışma alanını hazırlar (ilk seferde klonlar, kurulum betiğini çalıştırır) → modelle araç döngüsüne girer.
-Her tur sonunda değişiklikler **kullanıcının kimliğiyle** commit edilir (`Co-Authored-By: SixFinger Code` her zaman eklenir; oturum bağlantısı
-ortam ayarına bağlı) ve oturumun +N −M özeti güncellenir. Kullanıcı durdursa bile o ana kadarki iş commit edilir.
+**Platform otomatik commit atmaz**: ajan `git add <dosyalar>` + `git commit` komutlarını kendisi çalıştırır (kullanıcının kimliğiyle; sistem istemi
+`Co-Authored-By: SixFinger Code` satırını ve — ortam ayarı açıksa — oturum bağlantısını ister) ve yalnızca istediği dosyaları sahneler. `/commit` komutu
+ajana "işi seç ve commit et" der. Bağımlılıklar, sanal ortamlar ve önbellekler (`node_modules`, `venv`, `site-packages`, `__pycache__`, `*.pyc` …)
+sandbox'ın `.git/info/exclude` dosyasındadır; `git add -A` bile almaz. Her tur sonunda platform yalnızca +N −M özetini günceller ve geri sarma için
+branch'e dokunmayan bir **anlık görüntü** alır (`refs/sixfinger/cp/*`; commit edilmemiş işi de kapsar). Tur kartı commit edilip edilmediğini söyler
+("commit yok" / kısa sha). Otomatik PR yalnızca ajan o turda commit attıysa çalışır.
 
 Güvenlik/sınır kuralları: **adım sınırı yoktur** (ajan işi bitirene kadar sürer); aynı araç+argüman+çıktı 3. kez gelince uyarı,
 5. kezde durur; çıktı uzunluk sınırında en çok 2 kez "devam et" notu; bağlam (`CODE_CONTEXT_TOKENS`, varsayılan 262144) `CODE_COMPACT_AT` (0,8) oranına dolunca önce eski araç çıktıları kırpılır, yetmezse eski konuşma modele özetlettirilir (son tur olduğu gibi kalır; özet mesajın `compaction` parçasında saklanır ve sonraki turların geçmişi "özet + sonrası" olarak kurulur; özetleme başarısız olursa kırpmayla sürülür); yine de taşarsa tur durur;
@@ -127,7 +131,7 @@ Kullanıcı elle başlık/açıklama yazmaz.
 - **Durum çubuğu**: çalışırken altta evre, geçen süre, çalışan alt ajan sayısı ve dönen eğlenceli bir sözcük (`packages/shared/src/code-status-words.ts`).
   Üstte **Diff** (+N −M) ve **PR** çipleri.
 - **Dosya gezgini**: çalışma alanını gezer, dosya içeriğini gösterir, `.tar.gz` indirir (`CODE_ARCHIVE_MAX_MB`, varsayılan 64; `node_modules` ve `.git` hariç).
-- **Geri sarma (checkpoint)**: bir commit satırından o ana dön. Sonraki mesajlar o noktadan sürer; uzak branch ileride kalırsa bir sonraki push
+- **Geri sarma (checkpoint)**: tur kartından o ana dön (dal ucu o turun commit'ine, çalışma ağacı anlık görüntüye döner). Sonraki mesajlar o noktadan sürer; uzak branch ileride kalırsa bir sonraki push
   `--force` ile yapılır (yalnızca bu oturumun `sixfinger/…` branch'inde).
 - **Ortam talimatları**: ortam ayarındaki serbest metin her turun sistem istemine eklenir (ör. "testleri `npm test` ile çalıştır").
 - **Oturum yönetimi**: yeniden adlandır, sabitle, arşivle (`PATCH /chats/:id` `{title|pinned|archived}`), listede arama, **Markdown olarak dışa aktar**.
@@ -224,3 +228,16 @@ cd apps/server
 GITHUB_CLIENT_ID=dev GITHUB_CLIENT_SECRET=dev CODE_SECRET_KEY=dev-code-secret-dev-code-secret-0001 CODE_ALLOWED_EMAILS='*' \
   npx tsx --env-file-if-exists=.env scripts/dev-code.ts
 ```
+
+## Disk kotası ve `df`
+Çalışma alanı ana makinenin diskinden bağlanır, bu yüzden gerçek `df` ana makinenin (ör. 41 GB boş) alanını gösterir; kota ise sandboxd'nin ölçümüyle
+uygulanır. Bu yanıltmasın diye imajdaki `df` (`sandbox/df-quota`, **imaj yeniden derlenmeli**: `docker build -t sixfinger-sandbox:latest sandbox/`)
+`/work` için ortamın kotasını (`SF_DISK_QUOTA_MB`) gösterir; sistem istemi de kotayı söyler. `/tmp` küçük bir RAM diskidir (`CODE_TMP_MB`):
+`TMPDIR=/work/.sixfinger/tmp` (kotaya sayılır, git dışı) ve `PIP_NO_CACHE_DIR=1` ayarlıdır, böylece büyük tekerlekler "No space left" hatası vermez.
+Kotadan büyük paketler (torch, tensorflow…) yine sığmaz; istem ajana bunları kurmayı denememesini söyler.
+`.local/` (pip kullanıcı paketleri) ve `.npm-global/` sandbox'ın `.git/info/exclude` dosyasındadır: commit'e ve fark sayısına girmez.
+
+## Oturum silinince
+Bir Code oturumu silinince (`DELETE /api/code/sessions/:id`, genel `DELETE /api/chats/:id` ya da hesap silme) süren üretim durdurulur ve çalışma alanı
+sandboxd'de **konteyneri ve diskteki klasörüyle birlikte silinir** (`services/code-cleanup.ts`). Sandboxd'ye ulaşılamazsa oturum yine silinir, hata yalnızca
+günlüğe yazılır (kalan klasör `CODE_DATA_DIR/workspaces/` altında elle temizlenebilir).

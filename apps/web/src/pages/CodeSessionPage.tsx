@@ -285,7 +285,7 @@ export function CodeSessionPage() {
         )}
       </div>
       <div className="code-bottom">
-        {generating && <CodeRunStatus live={live} startedAt={startedAt} runningTasks={runningTasks} />}
+        {generating && <CodeRunStatus live={live} startedAt={live?.startedAt ?? startedAt} runningTasks={runningTasks} />}
         {session && ((changes && (changes.additions > 0 || changes.deletions > 0)) || pr) && (
           <div className="chip-row">
             {changes && (changes.additions > 0 || changes.deletions > 0) && (

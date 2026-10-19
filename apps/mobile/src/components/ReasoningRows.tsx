@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Text as RNText, View } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { ChevronRight } from 'lucide-react-native';
 import type { MessagePartDTO } from '@sixfinger/shared';
 import { fonts, useTheme } from '../theme/index.tsx';
@@ -53,15 +53,29 @@ export function ReasoningHead({ id, part, thinking }: { id: string; part: Reason
   );
 }
 
-/** Düşünce metni (açıkken): solda düz, ince bir çizgi; başlığın chevron'u ile aynı hizada. */
-export function ReasoningBody({ text }: { text: string }) {
+/**
+ * Düşünce metni: solda düz, ince bir çizgi; başlığın chevron'u ile aynı hizada. Satır hep listede durur; `open` değişince yükseklik
+ * ve opaklık yumuşakça animasyonlanır (açılış/kapanış anında atlamaz). İçerik yüksekliği ölçülür; metin akarken yükseklik onu izler.
+ */
+export function ReasoningBody({ text, open }: { text: string; open: boolean }) {
   const { c } = useTheme();
+  const [h, setH] = useState(0);
+  const k = useSharedValue(open ? 1 : 0);
+  useEffect(() => {
+    k.value = withTiming(open ? 1 : 0, { duration: 260, easing: Easing.out(Easing.cubic) });
+  }, [open, k]);
+  const box = useAnimatedStyle(() => ({ height: h * k.value, opacity: k.value }));
   return (
-    <View style={{ flexDirection: 'row', gap: 12, paddingLeft: 21, paddingRight: 16, paddingBottom: 8 }}>
-      <View style={{ width: 2, backgroundColor: c.line, borderRadius: 1 }} />
-      <RNText selectable style={[type.small, { flex: 1, color: c.text3, lineHeight: 19 }]}>
-        {text}
-      </RNText>
-    </View>
+    <Animated.View style={[{ overflow: 'hidden' }, box]} pointerEvents={open ? 'auto' : 'none'}>
+      <View
+        onLayout={(e) => setH(Math.ceil(e.nativeEvent.layout.height))}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', gap: 12, paddingLeft: 21, paddingRight: 16, paddingBottom: 8 }}
+      >
+        <View style={{ width: 2, backgroundColor: c.line, borderRadius: 1 }} />
+        <RNText selectable style={[type.small, { flex: 1, color: c.text3, lineHeight: 19 }]}>
+          {text}
+        </RNText>
+      </View>
+    </Animated.View>
   );
 }

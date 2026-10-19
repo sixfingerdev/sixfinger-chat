@@ -278,19 +278,14 @@ describe('ajan döngüsünde skill\'ler', () => {
     expect(sysOf(0)).toContain('KURAL-2: preview çağır.');
   });
 
-  it('ortamda kapatılan skill katalogda yok; hiç skill kalmazsa araç ve bölüm yok', async () => {
+  it('skill kapatma yok: eski kayıtlardaki skills_off değeri katalogu etkilemez', async () => {
     const { a, s } = await prepared();
     await env.ctx.db.query(`update code_environments set skills_off = array['write-tests'] where user_id = $1`, [a.user.id]);
     env.ai.steps = [text('x')];
     await send(a, s.chatId, 'merhaba');
     expect(sysOf(0)).toContain('- static-web-app:');
-    expect(sysOf(0)).not.toContain('- write-tests:');
-    await env.ctx.db.query(`update code_environments set skills_off = array['write-tests', 'static-web-app'] where user_id = $1`, [a.user.id]);
-    env.ai.calls.length = 0;
-    env.ai.steps = [text('y')];
-    await send(a, s.chatId, 'merhaba');
-    expect(sysOf(0)).not.toContain('## Skills');
-    expect(toolNames(0)).not.toContain('skill');
+    expect(sysOf(0)).toContain('- write-tests:');
+    expect(toolNames(0)).toContain('skill');
   });
 
   it('yerleşik adlar rezerve: kullanıcı ve repo aynı adla yerleşiği ezemez; kullanıcı < repo (başka adlarda)', async () => {
@@ -492,15 +487,6 @@ describe('Skill API', () => {
     expect(root.json().imported.map((s: { name: string }) => s.name)).toEqual(['foo']);
     expect((await api(a, 'POST', '/code/skills/import', { url: 'https://github.com/o/yok' })).statusCode).toBe(404);
     expect((await api(a, 'POST', '/code/skills/import', { url: 'bu bir adres degil' })).statusCode).toBe(400);
-  });
-
-  it('ortam skillsOff alanı kaydedilir ve doğrulanır', async () => {
-    const a = await user();
-    const e = (await api(a, 'GET', '/code/environments')).json().environments[0];
-    const up = await api(a, 'PATCH', `/code/environments/${e.id}`, { skillsOff: ['hazir', 'Hazir', 'baska'] });
-    expect(up.statusCode).toBe(200);
-    expect(up.json().environment.skillsOff).toEqual(['hazir', 'baska']);
-    expect((await api(a, 'PATCH', `/code/environments/${e.id}`, { skillsOff: ['Geçersiz Ad'] })).statusCode).toBe(400);
   });
 
   it('izinsiz kullanıcı 403', async () => {

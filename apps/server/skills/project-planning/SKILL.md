@@ -83,7 +83,7 @@ Pick what fits; run it, read the output:
 ## Rules
 - Do not create `PLAN.md`, `NOTES.md`, `TODO.md` or other planning files. The plan lives in `todo`.
 - Do not create a README unless the user asked or the project is meant to be run by others; a short "how to run" in the final answer is enough.
-- Do not run git commit / push / branch. The platform commits.
+- Do not run git commit / push / branch while planning.
 - No interactive commands: use `--yes`, `-y`, `CI=1`, `< /dev/null`. Long installs: `timeout_seconds` 600+ or `background=true`.
 - Previews: relative URLs only (`app.js`, `fetch("data.json")`), wrap `localStorage` in try/catch. Add touch / on-screen buttons next to keyboard controls and a `viewport` meta tag.
 

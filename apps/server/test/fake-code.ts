@@ -19,6 +19,9 @@ export function fakeCode(initial: Record<string, string> = {}) {
     execImpl: (_c: string): Partial<ExecOutcome & { diskUsedMb: number }> => ({}),
     delayMs: 0,
     changesCalls: 0,
+    checkpoints: 0,
+    /** Silinen çalışma alanları (`user:chat`). */
+    destroyed: [] as string[],
     /** Sahte dev-server: port → istek işleyici (null: dinleyen yok). */
     servers: new Map<number, (r: { method: string; path: string; headers: Record<string, string>; body?: Buffer }) => { status: number; headers?: Array<[string, string]>; body: Buffer | string }>(),
     httpCalls: [] as Array<{ port: number; method: string; path: string; headers: Record<string, string> }>,
@@ -49,6 +52,13 @@ export function fakeCode(initial: Record<string, string> = {}) {
       if (state.needPrepare) throw new NotPreparedError();
       state.execs.push(command);
       await sleep();
+      // Ajanın kendi `git commit -m "..."` komutu: sahte depoda commit atar (ajan commit ederse dal ucu ilerler).
+      if (/\bgit\s+commit\b/.test(command) && diff(head).length) {
+        const m = /-m\s+(?:"([^"]*)"|'([^']*)')/.exec(command);
+        state.commits.push(m?.[1] ?? m?.[2] ?? 'commit');
+        head.clear();
+        for (const [p, c] of fs) head.set(p, c);
+      }
       return { exitCode: 0, stdout: '', stderr: '', truncated: false, timedOut: false, durationMs: 150, diskUsedMb: 3, ...state.execImpl(command) };
     },
     async read(_s, path) {
@@ -72,14 +82,16 @@ export function fakeCode(initial: Record<string, string> = {}) {
     async changes() {
       state.changesCalls++;
       const files = diff();
-      return { files, additions: files.reduce((n, f) => n + f.additions, 0), deletions: files.reduce((n, f) => n + f.deletions, 0), baseSha: 'b'.repeat(40) };
+      const n = state.commits.length;
+      return {
+        files, additions: files.reduce((x, f) => x + f.additions, 0), deletions: files.reduce((x, f) => x + f.deletions, 0), baseSha: 'b'.repeat(40),
+        headSha: n ? `${n}`.padStart(40, 'c') : 'b'.repeat(40), ahead: n, uncommitted: diff(head).length, subject: (state.commits[n - 1] ?? '').split('\n')[0]!,
+      };
     },
-    async commit(_s, message) {
-      if (!diff(head).length) return { sha: null };
-      state.commits.push(message);
-      head.clear();
-      for (const [p, c] of fs) head.set(p, c);
-      return { sha: `${state.commits.length}`.padStart(40, 'c') };
+    async checkpoint() {
+      state.checkpoints++;
+      const n = state.commits.length;
+      return { head: n ? `${n}`.padStart(40, 'c') : 'b'.repeat(40), snapshot: `${state.checkpoints}`.padStart(40, 'd') };
     },
     async archive() {
       return Buffer.from('1f8b0800', 'hex');
@@ -120,7 +132,9 @@ export function fakeCode(initial: Record<string, string> = {}) {
     async usage() {
       return { diskUsedMb: 3, diskMb: 512, running: true };
     },
-    async destroy() {},
+    async destroy(s) {
+      state.destroyed.push(s.session);
+    },
   };
   return { client, fs, bin, state };
 }

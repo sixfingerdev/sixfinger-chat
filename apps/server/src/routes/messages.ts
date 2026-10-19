@@ -394,6 +394,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     if (errorMessage) stream.send({ type: 'error', code: errorMessage.code, message: errorMessage.message });
     stream.send({ type: 'usage', usage: await usage.get(user.id, user.tier) });
     stream.send({ type: 'done', assistantMessage: assistant });
+    run.settle(); // başlık/hafıza üretilirken kullanıcı yeni mesaj gönderebilir
 
     // --- Yan işler: başlık ve hafıza (istemci kapandıysa da veritabanına yazılır) ---
     if (status === 'complete') {

@@ -16,6 +16,11 @@ export class Run {
   /** O ana kadar üretilen mesajın anlık görüntüsü; üretim döngüsü tarafından atanır. */
   snapshot: (() => MessageDTO) | null = null;
   finished = false;
+  readonly startedAt = Date.now();
+  /** Son evre olayı: geri bağlanan istemciye anlık görüntüyle birlikte yeniden gönderilir. */
+  private lastPhase: Extract<StreamEvent, { type: 'phase' }> | null = null;
+  /** Yanıt tamamlanıp kaydedildi (`done` gönderildi); geriye yalnızca başlık/hafıza gibi yan işler kaldı. Yeni mesaj artık beklemez. */
+  settled = false;
 
   constructor(
     readonly chatId: string,
@@ -28,12 +33,19 @@ export class Run {
   }
 
   emit(event: StreamEvent): void {
+    if (event.type === 'phase') {
+      this.lastPhase = event;
+      event = { ...event, elapsedMs: Date.now() - this.startedAt };
+    }
     for (const s of this.subs) s.send(event);
   }
 
   /** Dinleyici ekler. `withSnapshot` ise önce mevcut durum gönderilir (geri gelen istemci için). Döner: ayrılma işlevi. */
   subscribe(sub: Subscriber, withSnapshot: boolean): () => void {
-    if (withSnapshot && this.snapshot) sub.send({ type: 'snapshot', assistantMessage: this.snapshot() });
+    if (withSnapshot && this.snapshot) {
+      sub.send({ type: 'snapshot', assistantMessage: this.snapshot() });
+      if (this.lastPhase) sub.send({ ...this.lastPhase, elapsedMs: Date.now() - this.startedAt });
+    }
     this.subs.add(sub);
     return () => {
       this.subs.delete(sub);
@@ -43,6 +55,11 @@ export class Run {
   /** Kullanıcı durdurdu. (Bağlantının kapanması durdurma değildir.) */
   stop(): void {
     this.ac.abort();
+  }
+
+  /** `done` sonrası: sohbet yeni bir yanıta açılır; başlık gibi yan işler arka planda sürer. */
+  settle(): void {
+    this.settled = true;
   }
 
   finish(): void {
@@ -71,19 +88,19 @@ export function createRunHub(): RunHub {
       return run;
     },
     forChat(chatId) {
-      for (const r of runs.values()) if (r.chatId === chatId && !r.finished) return r;
+      for (const r of runs.values()) if (r.chatId === chatId && !r.finished && !r.settled) return r;
       return undefined;
     },
     countForUser(userId) {
       let n = 0;
-      for (const r of runs.values()) if (r.userId === userId && !r.finished) n++;
+      for (const r of runs.values()) if (r.userId === userId && !r.finished && !r.settled) n++;
       return n;
     },
     activeIds(chatId) {
-      return [...runs.values()].filter((r) => r.chatId === chatId && !r.finished).map((r) => r.assistantId);
+      return [...runs.values()].filter((r) => r.chatId === chatId && !r.finished && !r.settled).map((r) => r.assistantId);
     },
     activeChatIds() {
-      return [...new Set([...runs.values()].filter((r) => !r.finished).map((r) => r.chatId))];
+      return [...new Set([...runs.values()].filter((r) => !r.finished && !r.settled).map((r) => r.chatId))];
     },
     remove(run) {
       runs.delete(run.assistantId);

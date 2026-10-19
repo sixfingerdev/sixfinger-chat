@@ -52,7 +52,6 @@ const codeGrepBody = z.object({
   case_sensitive: z.boolean().optional(),
   limit: z.number().int().min(1).max(1_000).optional(),
 });
-const codeCommitBody = z.object({ ...codeWho, message: z.string().max(2_000) });
 
 export function buildServer(service: SandboxService, cfg: Config, opts: { logger?: boolean | object; code?: CodeService } = {}): FastifyInstance {
   const app = Fastify({ logger: opts.logger ?? { level: cfg.LOG_LEVEL }, bodyLimit: 4 * 1024 * 1024 });
@@ -142,9 +141,9 @@ export function buildServer(service: SandboxService, cfg: Config, opts: { logger
       const b = z.object(codeWho).parse(req.body);
       return code.changes(b.user, b.session);
     });
-    app.post('/v1/code/commit', async (req) => {
-      const b = codeCommitBody.parse(req.body);
-      return code.commit(b.user, b.session, b.message);
+    app.post('/v1/code/checkpoint', async (req) => {
+      const b = z.object(codeWho).parse(req.body);
+      return code.checkpoint(b.user, b.session);
     });
     app.post('/v1/code/push', async (req) => {
       const b = z.object({ ...codeWho, token: z.string().min(1).max(500), force: z.boolean().optional() }).parse(req.body);

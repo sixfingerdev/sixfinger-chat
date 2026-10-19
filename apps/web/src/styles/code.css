@@ -1950,22 +1950,3 @@ a.code-row.pr-link {
   white-space: nowrap;
   font-size: 12px;
 }
-.skill-toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.skill-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  font-size: 12.5px;
-  font-family: var(--font-mono);
-  cursor: pointer;
-}
-.skill-toggle input {
-  accent-color: var(--accent);
-}
