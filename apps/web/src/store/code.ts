@@ -29,6 +29,7 @@ interface CodeState {
   status: CodeStatusDTO | null;
   envs: CodeEnvironmentDTO[] | null;
   sessions: CodeSessionDTO[] | null;
+  archived: CodeSessionDTO[] | null;
   loadError: string | null;
   /** Yeni oturum ekranında seçilenler (son seçim hatırlanır). */
   draft: CodeDraft;
@@ -45,6 +46,9 @@ interface CodeState {
   loadStatus: () => Promise<void>;
   loadEnvs: () => Promise<void>;
   loadSessions: () => Promise<void>;
+  loadArchived: () => Promise<void>;
+  /** Ad / sabitleme / arşiv değişikliği; listeler yeniden çekilir (sıra sunucuda belirlenir). */
+  updateSession: (chatId: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) => Promise<boolean>;
   /** Ana ekran açılırken: durum + (izinliyse) ortamlar ve oturumlar. */
   refresh: () => Promise<void>;
   connect: () => Promise<void>;
@@ -61,6 +65,7 @@ export const useCode = create<CodeState>((set, get) => ({
   status: null,
   envs: null,
   sessions: null,
+  archived: null,
   loadError: null,
   draft: readDraft(),
   plan: {},
@@ -108,6 +113,23 @@ export const useCode = create<CodeState>((set, get) => ({
       set({ sessions: (await api.codeSessions()).sessions });
     } catch (err) {
       reportError(err);
+    }
+  },
+  async loadArchived() {
+    try {
+      set({ archived: (await api.codeSessions(true)).sessions });
+    } catch (err) {
+      reportError(err);
+    }
+  },
+  async updateSession(chatId, patch) {
+    try {
+      await api.updateChat(chatId, patch);
+      await Promise.all([get().loadSessions(), get().archived ? get().loadArchived() : Promise.resolve()]);
+      return true;
+    } catch (err) {
+      reportError(err);
+      return false;
     }
   },
   async refresh() {
@@ -178,7 +200,7 @@ export const useCode = create<CodeState>((set, get) => ({
   async deleteSession(chatId) {
     try {
       await api.deleteCodeSession(chatId);
-      set((s) => ({ sessions: (s.sessions ?? []).filter((x) => x.chatId !== chatId) }));
+      set((s) => ({ sessions: (s.sessions ?? []).filter((x) => x.chatId !== chatId), archived: s.archived && s.archived.filter((x) => x.chatId !== chatId) }));
       return true;
     } catch (err) {
       reportError(err);

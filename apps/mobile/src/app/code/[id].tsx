@@ -2,21 +2,22 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Text as RNText, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
-import { Ellipsis, FolderOpen, GitPullRequest, Trash2 } from 'lucide-react-native';
+import { Download, Ellipsis, FolderOpen, GitPullRequest } from 'lucide-react-native';
 import { Linking } from 'react-native';
-import type { CodePullDTO } from '@sixfinger/shared';
-import { fonts, radius, useTheme } from '../../theme/index.tsx';
+import { codeTranscriptMarkdown, type CodePullDTO } from '@sixfinger/shared';
+import { fonts, useTheme } from '../../theme/index.tsx';
 import { type } from '../../theme/type.ts';
 import { api } from '../../lib/api.ts';
 import { reportError } from '../../lib/errors.ts';
 import { haptic } from '../../lib/haptics.ts';
 import { useT } from '../../lib/i18n/index.ts';
-import { useChats } from '../../store/chats.ts';
+import { selectPath, useChats } from '../../store/chats.ts';
 import { useCode } from '../../store/code.ts';
 import { useUi } from '../../store/ui.ts';
-import { Sheet } from '../../components/Sheet.tsx';
 import { Button, Press } from '../../components/Ui.tsx';
 import { CodeHeader } from '../../components/code/CodeUi.tsx';
+import { MenuItem, SessionMenu } from '../../components/code/SessionMenu.tsx';
+import { shareText } from '../../lib/export.ts';
 import { DiffSheet, FilesSheet } from '../../components/code/CodeGitSheets.tsx';
 import { CodeComposer } from '../../components/code/CodeComposer.tsx';
 import { CodeSheetHost, type SheetTarget } from '../../components/code/CodeParts.tsx';
@@ -30,7 +31,7 @@ export default function CodeSession() {
   const { c } = useTheme();
   const t = useT();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const session = useCode((s) => s.sessions?.find((x) => x.chatId === id));
+  const session = useCode((s) => s.sessions?.find((x) => x.chatId === id) ?? s.archived?.find((x) => x.chatId === id));
   const hasDetail = useChats((s) => Boolean(id && s.detail[id]));
   const generating = useChats((s) => Boolean(id && s.generating[id]));
   const loadError = useChats((s) => s.loadError);
@@ -189,6 +190,11 @@ export default function CodeSession() {
 
   const shortRepo = session.repo.split('/')[1] ?? session.repo;
   const title = session.title === 'Yeni oturum' ? t('code.session.untitled') : session.title;
+  const exportMd = () => {
+    const path = selectPath(useChats.getState().detail[id]);
+    const md = codeTranscriptMarkdown({ title, repo: session.repo, branch: session.workBranch, base: session.baseBranch, prUrl: session.prUrl }, path, { you: t('common.you'), ai: 'SixFinger' });
+    void shareText(title, md);
+  };
   const iconBtn = { width: 40, height: 44, alignItems: 'center', justifyContent: 'center' } as const;
 
   return (
@@ -263,34 +269,32 @@ export default function CodeSession() {
       <FilesSheet visible={filesOpen} onClose={() => setFilesOpen(false)} chatId={id} />
       <DiffSheet visible={Boolean(diff)} onClose={() => setDiff(null)} chatId={id} path={diff?.path} />
 
-      <Sheet visible={menu} onClose={() => setMenu(false)}>
-        <View style={{ paddingHorizontal: 10, paddingBottom: 6 }}>
-          <Press
-            haptics="tap"
-            scale={0.985}
-            onPress={() => {
-              setMenu(false);
-              setFilesOpen(true);
-            }}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 14, height: 52, paddingHorizontal: 12, borderRadius: radius.md }}
-          >
-            <FolderOpen size={19} color={c.text} />
-            <RNText style={[type.body, { color: c.text }]}>{t('code.menu.files')}</RNText>
-          </Press>
-          <Press
-            haptics="tap"
-            scale={0.985}
-            onPress={() => {
-              setMenu(false);
-              remove();
-            }}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 14, height: 52, paddingHorizontal: 12, borderRadius: radius.md }}
-          >
-            <Trash2 size={19} color={c.danger} />
-            <RNText style={[type.body, { color: c.danger }]}>{t('code.session.delete')}</RNText>
-          </Press>
-        </View>
-      </Sheet>
+      <SessionMenu
+        session={menu ? session : null}
+        onClose={() => setMenu(false)}
+        onDelete={remove}
+        onArchived={back}
+        extra={(close) => (
+          <>
+            <MenuItem
+              icon={<FolderOpen size={19} color={c.text} />}
+              label={t('code.menu.files')}
+              onPress={() => {
+                close();
+                setFilesOpen(true);
+              }}
+            />
+            <MenuItem
+              icon={<Download size={19} color={c.text} />}
+              label={t('code.session.export')}
+              onPress={() => {
+                close();
+                exportMd();
+              }}
+            />
+          </>
+        )}
+      />
     </KeyboardAvoidingView>
   );
 }

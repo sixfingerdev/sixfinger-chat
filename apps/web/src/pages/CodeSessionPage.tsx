@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowDown, Ellipsis, FolderOpen, GitPullRequest, Trash2 } from 'lucide-react';
-import type { CodePullDTO, CodeSessionDTO } from '@sixfinger/shared';
+import { Archive, ArchiveRestore, ArrowDown, Download, Ellipsis, FolderOpen, GitPullRequest, Pencil, Pin, PinOff, Trash2 } from 'lucide-react';
+import { codeTranscriptMarkdown, type CodePullDTO, type CodeSessionDTO } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
-import { clsx } from '../lib/format.ts';
+import { clsx, downloadFile, slugify } from '../lib/format.ts';
 import { useT } from '../lib/i18n/index.ts';
 import { activePath, indexMessages } from '../lib/tree.ts';
 import { selectPath, useChats } from '../store/chats.ts';
@@ -123,6 +123,22 @@ export function CodeSessionPage() {
   const ctx = live?.context ?? (session ? { tokens: session.contextTokens, limit: session.contextLimit } : null);
   const changes = live?.changes ?? (session ? { additions: session.additions, deletions: session.deletions, files: session.filesChanged } : null);
 
+  const update = async (patch: { title?: string; pinned?: boolean; archived?: boolean }) => {
+    if (!session || !(await useCode.getState().updateSession(session.chatId, patch))) return;
+    setSession({ ...session, ...patch });
+    if (patch.archived) nav('/code', { replace: true });
+  };
+  const rename = () => {
+    const next = window.prompt(t('code.session.renamePrompt'), title)?.trim();
+    if (next && next !== title) void update({ title: next.slice(0, 120) });
+  };
+  const exportMd = () => {
+    if (!session) return;
+    const md = codeTranscriptMarkdown({ title, repo: session.repo, branch: session.workBranch, base: session.baseBranch, prUrl: session.prUrl }, path, { you: t('common.you'), ai: 'SixFinger' });
+    downloadFile(`${slugify(title) || 'session'}.md`, md, 'text/markdown');
+  };
+
+
 
   // Çalışma süresi sayacı ve çalışan alt ajan sayısı (durum çubuğu).
   const [startedAt, setStartedAt] = useState(0);
@@ -210,6 +226,18 @@ export function CodeSessionPage() {
                     }}
                   >
                     <FolderOpen size={16} /> {t('code.menu.files')}
+                  </button>
+                  <button className="menu-item" onClick={() => { close(); rename(); }}>
+                    <Pencil size={16} /> {t('code.session.rename')}
+                  </button>
+                  <button className="menu-item" onClick={() => { close(); void update({ pinned: !session.pinned }); }}>
+                    {session.pinned ? <PinOff size={16} /> : <Pin size={16} />} {session.pinned ? t('code.session.unpin') : t('code.session.pin')}
+                  </button>
+                  <button className="menu-item" onClick={() => { close(); exportMd(); }}>
+                    <Download size={16} /> {t('code.session.export')}
+                  </button>
+                  <button className="menu-item" onClick={() => { close(); void update({ archived: !session.archived }); }}>
+                    {session.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />} {session.archived ? t('code.session.unarchive') : t('code.session.archive')}
                   </button>
                   <button
                     className="menu-item danger"

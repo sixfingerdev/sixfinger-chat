@@ -291,7 +291,7 @@ export const api = {
   codeCreateEnvironment: (p: object) => request<{ environment: CodeEnvironmentDTO }>('POST', '/code/environments', p),
   codeUpdateEnvironment: (id: string, p: object) => request<{ environment: CodeEnvironmentDTO }>('PATCH', `/code/environments/${id}`, p),
   codeDeleteEnvironment: (id: string) => request<void>('DELETE', `/code/environments/${id}`),
-  codeSessions: () => request<{ sessions: CodeSessionDTO[] }>('GET', '/code/sessions'),
+  codeSessions: (archived = false) => request<{ sessions: CodeSessionDTO[] }>('GET', `/code/sessions${archived ? '?archived=true' : ''}`),
   codeSession: (id: string) => request<{ session: CodeSessionDTO }>('GET', `/code/sessions/${id}`),
   codeCreateSession: (p: { repo: string; baseBranch: string; environmentId?: string }) =>
     request<{ session: CodeSessionDTO }>('POST', '/code/sessions', p),

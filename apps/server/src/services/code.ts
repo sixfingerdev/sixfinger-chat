@@ -48,6 +48,8 @@ interface SessionRow {
   pr_number: number | null;
   pr_url: string | null;
   force_push: boolean;
+  pinned: boolean;
+  archived: boolean;
   context_tokens: number;
   preview: string | null;
   created_at: Date;
@@ -67,7 +69,7 @@ export interface EnvInput {
 }
 
 const SESSION_SELECT = `
-  select s.chat_id, c.title, s.repo, s.base_branch, s.work_branch, s.environment_id, e.name as environment_name,
+  select s.chat_id, c.title, c.pinned, c.archived, s.repo, s.base_branch, s.work_branch, s.environment_id, e.name as environment_name,
          s.status, s.disk_used_mb, s.additions, s.deletions, s.files_changed, s.head_sha, s.pushed_sha, s.pr_number, s.pr_url, s.force_push, s.context_tokens, s.created_at, c.last_message_at,
          (select left(regexp_replace(m.content, '\\s+', ' ', 'g'), 160) from messages m
            where m.chat_id = s.chat_id and m.role = 'assistant' and m.content <> '' order by m.seq desc limit 1) as preview
@@ -93,6 +95,8 @@ const toSessionDTO = (r: SessionRow, contextLimit = 0): CodeSessionDTO => ({
   prNumber: r.pr_number,
   prUrl: r.pr_url,
   forcePush: r.force_push,
+  pinned: r.pinned,
+  archived: r.archived,
   contextTokens: r.context_tokens,
   contextLimit,
   preview: r.preview ?? '',
@@ -259,10 +263,11 @@ export function createCode(db: Db, config: Config, box: SecretBox | null) {
   }
 
   // ---- Oturumlar ----
-  async function listSessions(userId: string): Promise<CodeSessionDTO[]> {
+  /** Sabitlenenler önce, sonra son etkinliğe göre. `archived`: yalnızca arşivlenenler. */
+  async function listSessions(userId: string, archived = false): Promise<CodeSessionDTO[]> {
     const r = await db.query<SessionRow>(
-      `${SESSION_SELECT} where s.user_id = $1 order by coalesce(c.last_message_at, s.created_at) desc limit 100`,
-      [userId],
+      `${SESSION_SELECT} where s.user_id = $1 and c.archived = $2 order by c.pinned desc, coalesce(c.last_message_at, s.created_at) desc limit 100`,
+      [userId, archived],
     );
     return r.rows.map((x) => toSessionDTO(x, config.CODE_CONTEXT_TOKENS));
   }

@@ -1746,3 +1746,46 @@ a.code-row.pr-link {
   color: var(--text-3);
   user-select: none;
 }
+
+.code-card-pin {
+  margin-right: 6px;
+  vertical-align: -1px;
+  opacity: 0.6;
+}
+.code-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text-3);
+}
+.code-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  font: inherit;
+}
+.code-archive-toggle {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+.code-archive-toggle:hover {
+  background: var(--surface-2);
+}
+.code-muted {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 13px;
+}

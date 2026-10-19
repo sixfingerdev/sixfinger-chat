@@ -18,3 +18,4 @@ export * from './diff.ts';
 export * from './code-status-words.ts';
 export * from './code-commands.ts';
 export * from './code-files.ts';
+export * from './code-export.ts';

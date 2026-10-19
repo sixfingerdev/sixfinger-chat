@@ -274,6 +274,8 @@ export interface CodeSessionDTO {
   prUrl: string | null;
   /** Geri sarma sonrası bir sonraki push zorla yapılacak (uzak branch ileride). */
   forcePush: boolean;
+  pinned: boolean;
+  archived: boolean;
   /** Modele giden son bağlamın tahmini token sayısı ve üst sınırı (başlıktaki halka). */
   contextTokens: number;
   contextLimit: number;

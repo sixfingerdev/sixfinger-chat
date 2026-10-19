@@ -127,7 +127,7 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
     if (generating || !chatId) return;
     const next = useCode.getState().takeQueued(chatId);
     if (next) void useChats.getState().send({ content: next.text, chatId, planMode: next.plan });
-  }, [generating, chatId, queue.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [generating, chatId, queue.length]);
 
   const pickCommand = (c: SlashCommand) => {
     setText(`/${c.name} `);

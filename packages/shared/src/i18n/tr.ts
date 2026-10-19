@@ -504,6 +504,18 @@ export const tr = {
   'code.rewind.confirm': 'Çalışma alanı bu noktaya geri sarılsın mı? Sonraki turlardaki değişiklikler çalışma alanından kaldırılır.',
   'code.rewind.done': 'Geri sarıldı',
   'code.menu.files': 'Dosyalar',
+  'code.session.rename': 'Yeniden adlandır',
+  'code.session.renamePrompt': 'Yeni oturum adı',
+  'code.session.pin': 'Sabitle',
+  'code.session.unpin': 'Sabitlemeyi kaldır',
+  'code.session.archive': 'Arşivle',
+  'code.session.unarchive': 'Arşivden çıkar',
+  'code.session.export': 'Markdown olarak dışa aktar',
+  'code.session.search': 'Oturumlarda ara',
+  'code.session.archived': 'Arşiv',
+  'code.session.archivedEmpty': 'Arşivde oturum yok.',
+  'code.session.noMatch': 'Eşleşen oturum yok.',
+  'code.session.pinned': 'Sabitli',
   'code.session.menu': 'Oturum menüsü',
 } as const;
 

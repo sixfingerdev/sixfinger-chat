@@ -171,9 +171,9 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
       });
 
       // --- Oturumlar ---
-      authed.get('/code/sessions', async (req) => {
+      authed.get<{ Querystring: { archived?: string } }>('/code/sessions', async (req) => {
         await code.reconcileRunning(ctx.runs.activeChatIds());
-        return { sessions: await code.listSessions(req.user!.id) };
+        return { sessions: await code.listSessions(req.user!.id, req.query.archived === 'true' || req.query.archived === '1') };
       });
 
       authed.get<{ Params: { id: string } }>('/code/sessions/:id', async (req) => {
