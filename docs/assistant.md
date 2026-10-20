@@ -20,7 +20,7 @@ SixFinger'ı Android'in **dijital asistanı** olarak seçince güç tuşuna uzun
 - Yerel Expo modülü `apps/mobile/modules/sixfinger-assistant` (autolinking, prebuild gerekmez): `SfVoiceInteractionService` + `SfSessionService`/`SfSession` (oturum açılınca `startAssistantActivity`), şeffaf `AssistantActivity` (ReactActivity, ana uygulamayla **aynı React örneği**: kimlik, sohbet deposu, API istemcisi paylaşılır), `AssistExtractor` (ekran metni), `SfTileService` (Hızlı Ayarlar), modül (`getLaunchInfo`, `getAssistContext`, `close`, `openApp`, ses tanıma).
 - JS: `index.js` ikinci kökü kaydeder (`SixfingerAssistant`); `src/assistant/*` (panel, ses hook'u, dalga). Ortak açılış `src/lib/boot.ts`.
 - Ses tanıma: `android.speech.SpeechRecognizer`; asistan seçilince varsayılan tanıyıcı bizim olabileceği için cihazdaki gerçek tanıyıcı (tercihen Google) açıkça seçilir. Konuşma tanıma Google servisleri/ağ gerektirebilir.
-- `voice-interaction-service` bildirimi bir `recognitionService` ister (yoksa Xiaomi/Android 14 servisi geçersiz sayıp hiç bağlamıyor: tanılamada "servis bağlandı: hiç"). `SfRecognitionService` isteği cihazdaki gerçek tanıyıcıya (Google) aynen iletir, böylece diğer uygulamaların ses girişi bozulmaz.
+- `voice-interaction-service` bildirimi bir `recognitionService` ister (yoksa Xiaomi/Android 14 servisi geçersiz sayıp hiç bağlamıyor). `SfRecognitionService` isteği cihazdaki gerçek tanıyıcıya (Google) aynen iletir, böylece diğer uygulamaların ses girişi bozulmaz.
 
 ## Bilinen sınırlar / doğrulanacaklar
 - Bu geliştirme ortamında Android emülatörü/telefon yok: derleme ve manifest doğrulandı, **pencerenin gerçek cihazdaki davranışı** (Xiaomi dahil), klavye ile dock hareketi, `startAssistantActivity` ve rol seçimi telefonda denenmeli.

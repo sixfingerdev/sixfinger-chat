@@ -10,6 +10,9 @@ import { useUi } from '../store/ui.ts';
 import { CodeTopBar } from '../components/CodeTopBar.tsx';
 import { CustomDialog, ManualAuthDialog, PresetCard, PresetDialog, ServerDialog, ServerRow, startConnect } from '../components/Connectors.tsx';
 
+/** Kullanıcının bağlayamayacağı kartlar (yönetici kaydı gerekenler, hizmetin reddettikleri) listede gösterilmez. */
+const visiblePreset = (p: McpPresetView) => p.available || p.reason === 'soon';
+
 /** Bağlayıcılar (MCP): hazır katalog + özel URL; OAuth ile tek tıkla bağlan, araçları ve onay politikasını yönet. */
 export function ConnectorsPage() {
   const t = useT();
@@ -19,7 +22,6 @@ export function ConnectorsPage() {
   const [servers, setServers] = useState<McpServerDTO[] | null>(null);
   const [presets, setPresets] = useState<McpPresetView[]>([]);
   const [enabled, setEnabled] = useState(true);
-  const [redirectUrl, setRedirectUrl] = useState('');
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [custom, setCustom] = useState(false);
@@ -34,9 +36,8 @@ export function ConnectorsPage() {
       .then(([a, b]) => {
         setServers(a.servers);
         setEnabled(a.enabled);
-        setRedirectUrl(a.redirectUrl);
         // Kullanılabilir kartlar önce (sıra: popülerlik), yönetici kaydı/yakında olanlar sonda.
-        setPresets([...b.presets].sort((x, y) => Number(!x.available) - Number(!y.available) || x.rank - y.rank));
+        setPresets([...b.presets].filter(visiblePreset).sort((x, y) => Number(!x.available) - Number(!y.available) || x.rank - y.rank));
       })
       .catch((err) => {
         setServers([]);
@@ -145,8 +146,6 @@ export function ConnectorsPage() {
               <PresetCard key={p.id} preset={p} server={byPreset.get(p.id)} busy={busy} onConnect={(x) => void connectPreset(x)} onOpen={(s) => setOpen(s.id)} />
             ))}
           </ul>
-          {presets.some((p) => p.reason === 'admin') && <p className="hint">{t('mcp.adminHint')}</p>}
-          {redirectUrl && <p className="hint mono">{t('mcp.redirectHint', { url: redirectUrl })}</p>}
         </section>
       </>
     );

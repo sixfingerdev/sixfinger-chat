@@ -29,7 +29,6 @@ interface Subscription {
 interface NativeAssistant {
   getLaunchInfo(): { source: string; voice: boolean };
   getAssistContext(): AssistContext | null;
-  getDiagnostics(): Record<string, unknown>;
   getScreenshot(): ScreenshotInfo | null;
   cropScreenshot(left: number, top: number, right: number, bottom: number, maxSide: number, maxBytes: number): Promise<{ path: string; data: string; width: number; height: number }>;
   compressImage(uri: string, maxSide: number, maxBytes: number): Promise<{ path: string; data: string; width: number; height: number }>;
@@ -58,35 +57,4 @@ export function appName(pkg: string): string {
   const parts = pkg.split('.').filter((p) => p && !skip.has(p));
   const name = parts[parts.length - 1] ?? pkg.split('.').pop() ?? pkg;
   return name.charAt(0).toUpperCase() + name.slice(1);
-}
-
-interface DiagCounter {
-  n: number;
-  at: number;
-  err: string | null;
-}
-
-/** Tanılama sayaçlarını okunur metne çevirir (paylaşılabilir). */
-export function formatDiagnostics(d: Record<string, unknown>): string {
-  const labels: Record<string, string> = {
-    ready: 'servis bağlandı (onReady)',
-    sessionNew: 'oturum oluştu',
-    show: 'pencere istendi (onShow)',
-    startActivity: 'pencere başlatıldı',
-    startActivityError: 'pencere başlatma HATASI',
-    assist: 'ekran içeriği geldi',
-    hide: 'oturum kapandı',
-    activity: 'pencere açıldı (Activity)',
-    keyguard: 'kilit ekranından çağrı',
-    screenshot: 'ekran görüntüsü geldi',
-    recognizer: 'ses tanıma isteği (SixFinger tanıyıcısı)',
-  };
-  const lines: string[] = [String(d.device ?? '')];
-  for (const k of ['assistant', 'voice_interaction_service', 'voice_recognition_service']) lines.push(`${k}: ${String(d[`setting.${k}`] ?? '—')}`);
-  lines.push(`rol (ASSISTANT): ${String(d.roleHeld)}`);
-  for (const [k, label] of Object.entries(labels)) {
-    const c = d[k] as DiagCounter | null | undefined;
-    lines.push(c ? `${label}: ${c.n}× (son ${new Date(c.at).toLocaleTimeString()})${c.err ? ` — ${c.err}` : ''}` : `${label}: hiç`);
-  }
-  return lines.join('\n');
 }

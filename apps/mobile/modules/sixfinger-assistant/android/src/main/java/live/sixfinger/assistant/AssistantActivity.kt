@@ -41,7 +41,6 @@ class AssistantActivity : ReactActivity() {
     val act = i?.action
     val src = i?.getStringExtra(EXTRA_SOURCE)
       ?: if (act == Intent.ACTION_ASSIST || act == Intent.ACTION_VOICE_COMMAND || act == "android.intent.action.SEARCH_LONG_PRESS") "assist" else "app"
-    AssistDiag.mark(this, "activity")
     // Kulaklık/bluetooth düğmesi (VOICE_COMMAND) konuşarak sormak içindir.
     val voice = i?.getBooleanExtra(EXTRA_VOICE, false) == true || act == Intent.ACTION_VOICE_COMMAND
     if (src != "assistant") AssistBridge.begin(src, voice)
