@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ScrollView, Switch, Text as RNText, View } from 'react-native';
+import { AppState, ScrollView, Switch, Text as RNText, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -17,6 +17,8 @@ import { haptic } from '../lib/haptics.ts';
 import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi, type ThemePref } from '../store/ui.ts';
+import { assistantNative } from '../assistant/native.ts';
+import { readSpeakPref, writeSpeakPref, type SpeakPref } from '../assistant/prefs.ts';
 import { Field } from '../components/Field.tsx';
 import { Segmented } from '../components/Segmented.tsx';
 import { Sheet } from '../components/Sheet.tsx';
@@ -63,6 +65,17 @@ export default function SettingsScreen() {
   const setTheme = useUi((s) => s.setTheme);
   const guest = user.isGuest;
   const member = user.tier === 'member';
+  const assist = assistantNative;
+  const [isAssistant, setIsAssistant] = useState(() => assist?.isDefaultAssistant() ?? false);
+  const [speakPref, setSpeakPref] = useState<SpeakPref>(readSpeakPref);
+  // Ayarlar ekranından dönünce asistan durumunu yeniden oku.
+  useEffect(() => {
+    if (!assist) return;
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') setIsAssistant(assist.isDefaultAssistant());
+    });
+    return () => sub.remove();
+  }, [assist]);
 
   const [form, setForm] = useState({ customName: user.settings.customName, about: user.settings.about, instructions: user.settings.instructions, defaultPersona: user.settings.defaultPersona });
   const [busy, setBusy] = useState(false);
@@ -199,6 +212,42 @@ export default function SettingsScreen() {
             />
           </View>
         </Section>
+
+        {/* Asistan (güç tuşu penceresi) */}
+        {assist && (
+          <Section title={t('assist.settings.title')}>
+            <RNText style={[type.small, { color: c.text2 }]}>{t('assist.settings.intro')}</RNText>
+            <Row label={isAssistant ? t('assist.settings.status.on') : t('assist.settings.status.off')} hint={isAssistant ? undefined : t('assist.settings.setHint')} />
+            {!isAssistant && (
+              <Button
+                label={t('assist.settings.set')}
+                onPress={() => {
+                  if (!assist.openAssistantSettings()) useUi.getState().toast({ kind: 'error', text: t('assist.settings.unavailable') });
+                }}
+              />
+            )}
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Button label={t('assist.settings.try')} variant="secondary" style={{ flex: 1 }} onPress={() => assist.launchOverlay(false)} />
+              <Button label={t('assist.settings.tryVoice')} variant="secondary" style={{ flex: 1 }} onPress={() => assist.launchOverlay(true)} />
+            </View>
+            <View style={{ gap: 8 }}>
+              <RNText style={[type.small, { color: c.text2 }]}>{t('assist.settings.speak')}</RNText>
+              <Segmented<SpeakPref>
+                value={speakPref}
+                onChange={(v) => {
+                  writeSpeakPref(v);
+                  setSpeakPref(v);
+                }}
+                options={[
+                  { id: 'auto', label: t('assist.settings.speak.auto') },
+                  { id: 'on', label: t('assist.settings.speak.on') },
+                  { id: 'off', label: t('assist.settings.speak.off') },
+                ]}
+              />
+            </View>
+            <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.tile')}</RNText>
+          </Section>
+        )}
 
         {/* Kişiselleştirme */}
         <Section title={t('settings.personal')}>

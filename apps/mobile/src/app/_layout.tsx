@@ -12,11 +12,11 @@ import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
-import { initLocale, useT } from '../lib/i18n/index.ts';
-import { kv, secureSession } from '../lib/storage.ts';
+import { useT } from '../lib/i18n/index.ts';
+import { bootApp, initStorage } from '../lib/boot.ts';
+import { kv } from '../lib/storage.ts';
 import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
-import { hydrateUi } from '../store/ui.ts';
 import { ChatDrawer } from '../components/ChatDrawer.tsx';
 import { LogoMark } from '../components/Logo.tsx';
 import { ConfirmHost } from '../components/ConfirmHost.tsx';
@@ -103,13 +103,8 @@ export default function RootLayout() {
   const ready = useAuth((s) => s.ready);
 
   useEffect(() => {
-    (async () => {
-      await Promise.all([kv.init(), secureSession.init()]);
-      hydrateUi();
-      initLocale();
-      setStorageReady(true);
-      await useAuth.getState().boot();
-    })();
+    void initStorage().then(() => setStorageReady(true));
+    void bootApp();
   }, []);
 
   useEffect(() => {

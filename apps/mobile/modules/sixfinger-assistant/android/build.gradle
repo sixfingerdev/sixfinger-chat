@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'live.sixfinger'
+version = '1.0.0'
+
+android {
+  namespace "live.sixfinger.assistant"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // AssistantActivity bir ReactActivity'dir (ana uygulamayla aynı React örneğini paylaşır).
+  implementation 'com.facebook.react:react-android'
+  implementation 'androidx.appcompat:appcompat:1.7.0'
+}

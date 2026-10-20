@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { ChatDTO, MessageDTO, MessagePartDTO, StreamEvent } from '@sixfinger/shared';
+import type { ChatDTO, ChatMode, MessageDTO, MessagePartDTO, StreamEvent } from '@sixfinger/shared';
 import { ApiError, api, streamGet, streamRequest } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { translate } from '../lib/i18n/index.ts';
@@ -63,6 +63,8 @@ interface ChatsState {
     onChatCreated?: (id: string) => void;
     /** Code: plan modu (ajan değişiklik yapmaz, plan sunar). */
     planMode?: boolean;
+    /** Bu mesaj için çalışma modu (verilmezse arayüzdeki seçim). Asistan penceresi hız için Hızlı kullanır. */
+    mode?: ChatMode;
   }) => Promise<void>;
   regenerate: (chatId: string, messageId: string) => Promise<void>;
   stop: (chatId: string) => void;
@@ -394,7 +396,7 @@ export const useChats = create<ChatsState>((set, get) => {
     newChat: () => set({ activeId: null, loadError: null, loadingId: null }),
     setDraftPersona: (draftPersona) => set({ draftPersona }),
 
-    async send({ content, attachments = [], chatId, parentId, onChatCreated, planMode }) {
+    async send({ content, attachments = [], chatId, parentId, onChatCreated, planMode, mode }) {
       if (chatId && get().generating[chatId]) return;
       let id = chatId ?? null;
       try {
@@ -432,7 +434,7 @@ export const useChats = create<ChatsState>((set, get) => {
         content,
         parentId: parent,
         // Code oturumunda model tercihi Code'un kendi Hızlı/Derin seçimidir; sohbetin modu değil.
-        mode: detail.chat.kind === 'code' ? useCode.getState().codeMode : useUi.getState().mode,
+        mode: detail.chat.kind === 'code' ? useCode.getState().codeMode : (mode ?? useUi.getState().mode),
         effort: useUi.getState().effort,
         attachments: attachments.length ? attachments.map(({ name, mime, text }) => ({ name, mime, text })) : undefined,
         planMode: planMode || undefined,
