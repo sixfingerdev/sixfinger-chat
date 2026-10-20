@@ -13,6 +13,7 @@ export interface LinkDevice {
   name: string;
   platform: string;
   version: string;
+  capabilities?: string[];
   online: boolean;
   sessions: number;
 }
@@ -42,6 +43,12 @@ interface LinkMessage {
   role: 'user' | 'assistant';
   parts: LinkPart[];
 }
+interface LinkCommand {
+  id: string;
+  kind: string;
+  status: 'pending' | 'sent' | 'done' | 'failed' | 'expired';
+  error: string | null;
+}
 interface LinkPending {
   kind: 'permission' | 'question';
   requestId: string;
@@ -58,6 +65,9 @@ export function DevicesPage() {
   const guest = Boolean(useAuth((s) => s.user)?.isGuest);
   const [devices, setDevices] = useState<LinkDevice[] | null>(null);
   const [sessions, setSessions] = useState<LinkSession[]>([]);
+  const [newFor, setNewFor] = useState<string | null>(null);
+  const [newDir, setNewDir] = useState('');
+  const [newText, setNewText] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -115,6 +125,41 @@ export function DevicesPage() {
                     <Trash2 size={14} />
                   </button>
                 </h3>
+                {d.online && d.capabilities?.includes('new_session') && (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {newFor === d.id ? (
+                      <>
+                        <input className="input" value={newDir} placeholder={t('link.newDir')} onChange={(e) => setNewDir(e.target.value)} />
+                        <textarea className="input" rows={2} value={newText} placeholder={t('link.newText')} onChange={(e) => setNewText(e.target.value)} />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button
+                            className="btn btn-primary btn-sm"
+                            onClick={async () => {
+                              try {
+                                await api.linkNewSession(d.id, { directory: newDir.trim() || undefined, text: newText.trim() || undefined });
+                                setNewFor(null);
+                                setNewDir('');
+                                setNewText('');
+                                setTimeout(load, 1500);
+                              } catch (err) {
+                                reportError(err);
+                              }
+                            }}
+                          >
+                            {t('link.newStart')}
+                          </button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setNewFor(null)}>
+                            {t('link.newCancel')}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <button className="btn btn-ghost btn-sm" style={{ justifySelf: 'start' }} onClick={() => setNewFor(d.id)}>
+                        {t('link.new')}
+                      </button>
+                    )}
+                  </div>
+                )}
                 <ul className="skill-list">
                   {sessions
                     .filter((s) => s.deviceId === d.id)
@@ -160,7 +205,12 @@ function PartView({ p }: { p: LinkPart }) {
     );
   if (p.type === 'patch') return <div className="muted">± {(p.files ?? []).join(', ')}</div>;
   if (p.type === 'file') return <div className="muted">📎 {p.filename}</div>;
-  return null;
+  // Sunucunun/arayüzün tanımadığı parça türü (CLI'da yeni bir araç olabilir): genel kart.
+  return (
+    <div className="muted" style={{ fontSize: 13 }}>
+      [{p.type}] {p.title || p.text || p.tool || ''}
+    </div>
+  );
 }
 
 /** Cihazdaki bir oturumu izle ve yönet: mesajlar, bekleyen izinler, mesaj gönder, durdur. */
@@ -174,22 +224,43 @@ export function DeviceSessionPage() {
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
+  const [commands, setCommands] = useState<LinkCommand[]>([]);
+
+  const apply = useCallback((r: { session: LinkSession; messages: unknown[]; pending: unknown[]; commands?: unknown[] }) => {
+    setSession(r.session);
+    setMessages(r.messages as LinkMessage[]);
+    setPending(r.pending as LinkPending[]);
+    setCommands((r.commands ?? []) as LinkCommand[]);
+  }, []);
+
   const load = useCallback(async () => {
     try {
-      const r = await api.linkSession(deviceId, id);
-      setSession(r.session);
-      setMessages(r.messages as LinkMessage[]);
-      setPending(r.pending as LinkPending[]);
+      apply(await api.linkSession(deviceId, id));
     } catch (err) {
       reportError(err);
     }
-  }, [deviceId, id]);
+  }, [deviceId, id, apply]);
 
+  // Canlı akış (SSE); kopunca 2 sn sonra yeniden bağlanır, bağlanamazken tek seferlik okumayla güncel kalır.
   useEffect(() => {
-    void load();
-    const timer = setInterval(load, 2_000);
-    return () => clearInterval(timer);
-  }, [load]);
+    const ac = new AbortController();
+    let stopped = false;
+    (async () => {
+      while (!stopped) {
+        try {
+          await api.linkStream(deviceId, id, (d) => apply(d as Parameters<typeof apply>[0]), ac.signal);
+        } catch {
+          if (stopped) return;
+          void load();
+        }
+        if (!stopped) await new Promise((r) => setTimeout(r, 2_000));
+      }
+    })();
+    return () => {
+      stopped = true;
+      ac.abort();
+    };
+  }, [deviceId, id, apply, load]);
 
   const count = messages.length + (messages[messages.length - 1]?.parts.length ?? 0);
   useEffect(() => endRef.current?.scrollIntoView({ block: 'end' }), [count]);
@@ -252,6 +323,14 @@ export function DeviceSessionPage() {
               )}
             </div>
           ))}
+          {commands
+            .filter((c) => c.status === 'failed' || c.status === 'pending' || c.status === 'sent')
+            .slice(0, 3)
+            .map((c) => (
+              <div key={c.id} className="muted" style={{ fontSize: 13 }}>
+                {c.status === 'failed' ? t('link.cmdFailed', { kind: c.kind, error: c.error ?? '' }) : t('link.cmdSending', { kind: c.kind })}
+              </div>
+            ))}
           <div ref={endRef} />
         </div>
       </div>

@@ -102,3 +102,8 @@ Yani iki tür oturum tek listede:
 3. **Mobil**: "Cihazlarım" ekranı.
 4. **Sunucudaki skill ve sistem istemleri ile CLI'nın kendi (upstream) istemleri/skill'leri**: ikisi ayrıdır. Bulut Code'un istemleri `apps/server/src/services/code-prompt.ts` ve skill'ler `services/skills.ts`; CLI'nin istemleri çatalda `packages/sixfinger/src/session/prompt/*` ve `agent` tanımları. Öneri: CLI'da kendi istemini koru (araçları cihazda yerel çalışıyor), yalnızca marka/kimlik metnini ("You are opencode" → SixFinger Code) `script/rebrand.ts` ile dönüştürüldüğü gibi bırak; ortak skill kataloğu (sunucudakiler) sonraki aşamada `GET /api/code/skills` ile CLI'ya çekilebilir. Kimlik/çıktı kuralları için `grep -rn "SixFinger" packages/sixfinger/src/session/prompt` ile gözden geçir.
 5. Bulut oturumlarının CLI'da listelenmesi ve çek/it; `.icns` simgeleri (macOS) hâlâ eski.
+
+### Güncelleme (CLI + web RC tamam)
+- **CLI** (SixFinger-Code `link.ts`): itme (yerel `/global/event` + 5 sn yedek) ve çekme (`/link/poll` uzun yoklama) döngüleri, ack, komut tekilleştirme, `new_session`, `prompt.model` (`fast|deep`), bilinmeyen komut → `failed`, 401'de jeton yenileme, protokol/yetenek bildirimi. 9 test.
+- **Web:** oturum sayfası SSE akışı (kopunca 2 sn'de yeniden bağlanır), komut durumu (gönderiliyor/başarısız+hata), bilinmeyen parça türü için genel kart, cihaz kartında "Yeni oturum".
+- **Kalan:** mobil "Cihazlarım"; bulut oturumlarının CLI'da listelenmesi ve çek/it; Zen kalıntılarının temizliği; `.icns` simgeleri; `config.json` şeması; ilk CLI sürümü (`git tag v0.1.0`).
