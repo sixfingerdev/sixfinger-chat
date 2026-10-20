@@ -18,7 +18,7 @@ export default defineConfig({
       GITHUB_CLIENT_ID: 'test-client-id',
       GITHUB_CLIENT_SECRET: 'test-client-secret',
       CODE_SECRET_KEY: 'test-code-secret-test-code-secret-0001',
-      CODE_ALLOWED_EMAILS: 'coder@example.com',
+      CODE_ALLOWED_EMAILS: 'coder@example.com,second@example.com',
       PUBLIC_WEB_URL: 'http://localhost:5173',
     },
   },
