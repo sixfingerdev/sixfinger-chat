@@ -650,6 +650,13 @@ export const en: Record<DictKey, string> = {
 
   // Scheduled tasks + Artifacts
   'sched.nav': 'Scheduled',
+  'device.title': 'Device sign-in',
+  'device.lead': '{client} wants to connect to this account. Approve if the code matches your terminal.',
+  'device.approve': 'Approve and connect',
+  'device.signin': 'Sign in first',
+  'device.invalid': 'This code is invalid or expired. Restart in the terminal or enter the code manually.',
+  'device.done': 'Connected. You can go back to the terminal.',
+  'device.hint': 'If you did not start this sign-in, do not approve it.',
   'sched.title': 'Scheduled tasks',
   'sched.subtitle': 'Run a request automatically whenever you want; the result arrives as a new chat. You can also just tell the assistant “send me a news summary every morning at 9”.',
   'sched.empty': 'No scheduled tasks yet.',

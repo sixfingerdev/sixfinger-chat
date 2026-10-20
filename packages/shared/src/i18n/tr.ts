@@ -662,6 +662,13 @@ export const tr = {
 
   // Zamanlanmış görevler + Artifacts
   'sched.nav': 'Zamanlanmış',
+  'device.title': 'Cihaz girişi',
+  'device.lead': '{client} bu hesaba bağlanmak istiyor. Terminaldeki kodla aynıysa onayla.',
+  'device.approve': 'Onayla ve bağla',
+  'device.signin': 'Önce giriş yap',
+  'device.invalid': 'Kod geçersiz ya da süresi dolmuş. Terminalde yeniden başlat ya da kodu elle gir.',
+  'device.done': 'Bağlandı. Terminale dönebilirsin.',
+  'device.hint': 'Bu senin başlattığın bir giriş değilse onaylama.',
   'sched.title': 'Zamanlanmış görevler',
   'sched.subtitle': 'İstediğin zamanda bir isteği otomatik çalıştır; sonuç yeni bir sohbet olarak gelir. Asistana “her sabah 9’da haber özeti gönder” demen de yeter.',
   'sched.empty': 'Henüz zamanlanmış görev yok.',

@@ -383,6 +383,8 @@ export const api = {
   scheduleDelete: (id: string) => request<void>('DELETE', `/schedule/${id}`),
   scheduleRun: (id: string) => request<{ ok: boolean }>('POST', `/schedule/${id}/run`),
   scheduleRuns: (id: string) => request<{ runs: ScheduledRunDTO[] }>('GET', `/schedule/${id}/runs`),
+  deviceInfo: (userCode: string) => request<{ client: string }>('POST', '/device/info', { userCode }),
+  deviceApprove: (userCode: string) => request<{ ok: boolean }>('POST', '/device/approve', { userCode }),
   artifacts: (q?: string) => request<{ artifacts: ArtifactListItemDTO[] }>('GET', '/artifacts', undefined, { query: { q } }),
   // ---- MCP bağlayıcıları ----
   mcpPresets: () => request<McpPresetsResponse>('GET', '/mcp/presets'),
