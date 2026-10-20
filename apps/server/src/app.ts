@@ -20,6 +20,7 @@ import { chatRoutes } from './routes/chats.ts';
 import { messageRoutes } from './routes/messages.ts';
 import { meRoutes } from './routes/me.ts';
 import { publicRoutes } from './routes/public.ts';
+import { skillsPublicRoutes } from './routes/skills-public.ts';
 import { createAi, type AiProvider } from './services/ai.ts';
 import { createRunHub } from './services/runs.ts';
 import { createCodeClient, createSandboxClient, createTools, type Tools } from './services/tools/index.ts';
@@ -186,6 +187,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
   await app.register(
     async (api) => {
       await api.register(publicRoutes(ctx));
+      await api.register(skillsPublicRoutes());
       await api.register(authRoutes(ctx, guard));
       await api.register(meRoutes(ctx, guard));
       await api.register(chatRoutes(ctx, guard));
