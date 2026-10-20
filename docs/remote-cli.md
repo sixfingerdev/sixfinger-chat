@@ -52,3 +52,33 @@ Kullanıcı kendi cihazında (bilgisayar/Pi) çatalı Claude Code gibi CLI olara
 - Olay günlüğü ne kadar saklansın? Öneri: oturum başına son 2000 olay + bağlanınca cihazdan tam döküm istenebilsin.
 - v2 API'si (`/api/session/{id}/event`, `/history`) mı v1 SSE (`/global/event`) mi? Öneri: v1 ile başla (sabit görünüyor), v2'ye sonra geç; şema `packages/protocol` içinde, çatal ilerledikçe değişebilir.
 - Sürüm uyumu: köprü başlangıçta `version` bildirir, sunucu desteklenmeyen sürüme açık hata verir.
+
+## Eklenen kapsam (kullanıcı isteği, Ekim 2026)
+
+### 1. Tam yeniden markalama: "SixFinger Code"
+Hedef: kullanıcıya görünen hiçbir yerde "opencode" kalmasın.
+- **Komut ve paketler:** ikili `sixfinger` (kısa ad: `sf`), paket kapsamı `@opencode-ai/*` → `@sixfinger/*` (çatalın tüm `package.json`, `tsconfig` yolları ve içe aktarmaları), kurulum betikleri (`install/`), `nix`, `flake`, `sst`/`infra`.
+- **Görünen yüzey:** ana menü ASCII logosu ve sürüm başlığı, TUI metinleri/yardım/hata iletileri, `--help`, güncelleme iletileri, masaüstü/web uygulama adı ve simgeleri, `README.*.md` (25 dil) ve `docs`.
+- **Yapılandırma ve ortam:** `OPENCODE_*` ortam değişkenleri → `SIXFINGER_*`; yapılandırma dizini `~/.config/opencode` → `~/.config/sixfinger`; `opencode.json` → `sixfinger.json`. Geçiş için eski adlar yalnızca **okunur** (ilk açılışta içe aktarılır, sonra yazılmaz); istenirse bir sürüm sonra kaldırılır.
+- **Yöntem:** önce tek betikle (`script/rebrand.ts`) mekanik yeniden adlandırma (dizin/dosya adları, içe aktarmalar, sabitler), sonra elle: logo, metinler, simgeler. Sonunda `grep -ri opencode` ile kalan geçişleri listeleyen bir CI denetimi (izin verilenler dosyası: lisans/atıf).
+- **LİSENS UYARISI (önemli):** çatalın `LICENSE` dosyası MIT. MIT, telif ve izin bildiriminin kopyalarda **korunmasını** şart koşar. "opencode'dan hiç iz kalmasın" kullanıcıya görünen her yerde sağlanır; ama `LICENSE` ve `NOTICE`/"Hakkında" ekranındaki "Based on opencode (MIT), © ilgili sahipleri" atfı kalmalı. Bunu kaldırmak lisansı ihlal eder. Bu atıf tek bir yerde (`LICENSE` + `sixfinger about`) durur, menü/başlıklarda görünmez.
+- Upstream çekme (`git fetch upstream && rebase`) yeniden adlandırma sonrası zorlaşır: tüm dosya yolları değişir. Karar: upstream ile bağı kesip kendi yolunda mı gidilecek, yoksa her seferinde betikle mi yeniden adlandırılacak? Öneri: betik (`rebrand.ts` idempotent olsun), ama pratikte uzun vadede bağı kesmek daha ucuz.
+
+### 2. Bulut (cloud) oturumları da CLI'dan
+Yani iki tür oturum tek listede:
+| | Yerel (cihaz) | Bulut (sunucu sandbox) |
+|---|---|---|
+| Çalıştığı yer | kullanıcının cihazı | sandboxd (Pi), mevcut Code oturumları |
+| Model/anahtar | kullanıcının kendi yapılandırması | sunucunun zinciri (Qwen→Claude…) |
+| Maliyet | kredi yok (kendi anahtarı) | **kredi harcar**, daha pahalı (sandbox + sunucu modeli) |
+| Telefon/siteden | `link` köprüsüyle | zaten var |
+- CLI, bulut oturumlarını sunucunun mevcut Code API'siyle (`/api/code/sessions`, SSE, mesaj, durdur, onay/soru, kredi uçları) listeler ve **bağlanır**; TUI'de aynı ekran, başlıkta "☁ bulut" ya da "⌂ bu cihaz" rozeti ve kalan kredi.
+- **Devam ettirme:** bulut oturumunu cihazda sürdür = oturumun deposunu (GitHub dalı + sunucudaki çalışma alanı farkı) cihaza indirip yerel oturum aç ("çek"); cihaz oturumunu buluta taşı = dalı itip bulutta aynı depoyla yeni oturum aç ("it"). Konuşma geçmişi özet olarak taşınır (ham araç çıktıları değil); iki yönde de açık onay ve kredi maliyeti uyarısı gösterilir.
+- **Kredi şeffaflığı:** bulut oturumlarında her tur sonrası harcanan kredi ve kalan kredi satır içinde; yerel oturumlar "ücretsiz (kendi anahtarın)" yazar. Bulutta varsayılan olarak onay sorulur: "Bu bulutta çalışır, ≈N kredi harcar".
+- **Kimlik:** tek giriş (`sixfinger login`): cihaz kodu akışı hem köprü jetonunu hem bulut API oturumunu verir.
+
+### 3. Bu isteklerle değişen aşama sırası
+0. Yeniden markalama betiği + CI denetimi (diğer her şeyden önce, yoksa yollar ve adlar iki kez değişir).
+1. `sixfinger login`, cihaz/oturum listesi (yerel + bulut tek listede), bulut oturumuna TUI bağlantısı (salt API, köprü gerektirmez).
+2. Köprü: yerel oturumların site/uygulamadan izlenmesi (yukarıdaki aşama 1–2).
+3. Çek/it (taşıma), kredi uyarıları, bildirimler.
