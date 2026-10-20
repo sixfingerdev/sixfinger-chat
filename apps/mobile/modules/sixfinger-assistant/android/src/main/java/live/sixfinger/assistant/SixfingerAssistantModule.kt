@@ -42,6 +42,19 @@ class SixfingerAssistantModule : Module() {
       mapOf("source" to AssistBridge.source, "voice" to AssistBridge.autoVoice)
     }
     Function("getAssistContext") { AssistBridge.snapshot }
+
+    /** Sistem bizi çağırıyor mu? Sayaçlar + sistem ayarlarındaki asistan kayıtları. */
+    Function("getDiagnostics") {
+      val ctx = context
+      val out = LinkedHashMap<String, Any?>(AssistDiag.snapshot(ctx))
+      for (k in listOf("assistant", "voice_interaction_service", "voice_recognition_service")) {
+        out["setting.$k"] = try { Settings.Secure.getString(ctx.contentResolver, k) } catch (_: Throwable) { "okunamadı" }
+      }
+      out["roleHeld"] = try {
+        if (Build.VERSION.SDK_INT >= 29) ctx.getSystemService(RoleManager::class.java)?.isRoleHeld(RoleManager.ROLE_ASSISTANT) else null
+      } catch (_: Throwable) { null }
+      out
+    }
     Function("close") { AssistBridge.closer?.invoke() }
 
     /** Ana uygulamayı öne getirir (sohbeti JS tarafı zaten açtı). */

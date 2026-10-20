@@ -40,6 +40,15 @@
         <action android:name="android.intent.action.ASSIST" />
         <category android:name="android.intent.category.DEFAULT" />
       </intent-filter>
+      <!-- Üreticilerin güç/ana ekran uzun basma ve kulaklık düğmesi yolları. -->
+      <intent-filter>
+        <action android:name="android.intent.action.SEARCH_LONG_PRESS" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.VOICE_COMMAND" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
     </activity>
 
     <!-- Hızlı Ayarlar karosu: asistanı tek dokunuşla açar (asistan seçilmemiş olsa da çalışır). -->

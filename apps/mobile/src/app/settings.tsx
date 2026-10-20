@@ -11,13 +11,13 @@ import { type } from '../theme/type.ts';
 import { api, ApiError } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { shareText } from '../lib/export.ts';
-import { timeUntil } from '../lib/format.ts';
+import { copyText, timeUntil } from '../lib/format.ts';
 import { setLocale, useLocale, useT, type Locale } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
 import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi, type ThemePref } from '../store/ui.ts';
-import { assistantNative } from '../assistant/native.ts';
+import { assistantNative, formatDiagnostics } from '../assistant/native.ts';
 import { readSpeakPref, writeSpeakPref, type SpeakPref } from '../assistant/prefs.ts';
 import { Field } from '../components/Field.tsx';
 import { Segmented } from '../components/Segmented.tsx';
@@ -68,6 +68,7 @@ export default function SettingsScreen() {
   const assist = assistantNative;
   const [isAssistant, setIsAssistant] = useState(() => assist?.isDefaultAssistant() ?? false);
   const [speakPref, setSpeakPref] = useState<SpeakPref>(readSpeakPref);
+  const [diag, setDiag] = useState<string | null>(null);
   // Ayarlar ekranından dönünce asistan durumunu yeniden oku.
   useEffect(() => {
     if (!assist) return;
@@ -246,6 +247,19 @@ export default function SettingsScreen() {
               />
             </View>
             <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.tile')}</RNText>
+            <Press haptics="tap" scale={0.99} onPress={() => setDiag((d) => (d === null ? formatDiagnostics(assist.getDiagnostics()) : null))}>
+              <RNText style={[type.small, { color: c.text2, textDecorationLine: 'underline' }]}>{t('assist.diag.title')}</RNText>
+            </Press>
+            {diag !== null && (
+              <View style={{ gap: 10 }}>
+                <RNText selectable style={{ fontFamily: fonts.mono, fontSize: 11.5, lineHeight: 17, color: c.text2 }}>{diag}</RNText>
+                <RNText style={[type.small, { color: c.text3 }]}>{t('assist.diag.hint')}</RNText>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Button label={t('assist.diag.refresh')} variant="secondary" style={{ flex: 1 }} onPress={() => setDiag(formatDiagnostics(assist.getDiagnostics()))} />
+                  <Button label={t('common.copy')} variant="secondary" style={{ flex: 1 }} onPress={() => void copyText(diag).then((ok) => ok && useUi.getState().toast({ kind: 'success', text: t('common.copied') }))} />
+                </View>
+              </View>
+            )}
           </Section>
         )}
 

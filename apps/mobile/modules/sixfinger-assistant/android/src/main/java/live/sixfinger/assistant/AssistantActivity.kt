@@ -38,9 +38,13 @@ class AssistantActivity : ReactActivity() {
 
   /** Oturum sistemden başladıysa (`assistant`) köprü zaten sıfırlandı ve ekran içeriği gelmiş olabilir: ezme. */
   private fun begin(i: Intent?) {
+    val act = i?.action
     val src = i?.getStringExtra(EXTRA_SOURCE)
-      ?: if (i?.action == Intent.ACTION_ASSIST) "assist" else "app"
-    if (src != "assistant") AssistBridge.begin(src, i?.getBooleanExtra(EXTRA_VOICE, false) == true)
+      ?: if (act == Intent.ACTION_ASSIST || act == Intent.ACTION_VOICE_COMMAND || act == "android.intent.action.SEARCH_LONG_PRESS") "assist" else "app"
+    AssistDiag.mark(this, "activity")
+    // Kulaklık/bluetooth düğmesi (VOICE_COMMAND) konuşarak sormak içindir.
+    val voice = i?.getBooleanExtra(EXTRA_VOICE, false) == true || act == Intent.ACTION_VOICE_COMMAND
+    if (src != "assistant") AssistBridge.begin(src, voice)
   }
 
   override fun onDestroy() {
