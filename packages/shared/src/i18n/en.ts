@@ -734,6 +734,8 @@ export const en: Record<DictKey, string> = {
   'assist.diag.title': 'Diagnostics (if the power button does nothing)',
   'assist.diag.hint': 'Long-press the power button, then come back here and tap Refresh. If “window requested” still says “never”, the system isn’t calling SixFinger.',
   'assist.diag.refresh': 'Refresh',
+  'assist.settings.autoVoice': 'Start listening when opened',
+  'assist.settings.autoVoiceHint': 'The mic turns on right away when opened with the power button. Turn off to start by typing.',
   'tool.schedule_create': 'Scheduled a task',
   'tool.schedule_list': 'Listed tasks',
   'tool.schedule_update': 'Updated a task',

@@ -9,3 +9,7 @@ export const readSpeakPref = (): SpeakPref => {
 };
 
 export const writeSpeakPref = (v: SpeakPref): void => kv.set('sf.assist.speak', v);
+
+/** Güç tuşu / asistan kaydırmasıyla açılınca mikrofonu hemen aç (varsayılan: açık). */
+export const readAutoVoice = (): boolean => kv.get('sf.assist.voice') !== 'off';
+export const writeAutoVoice = (v: boolean): void => kv.set('sf.assist.voice', v ? 'on' : 'off');

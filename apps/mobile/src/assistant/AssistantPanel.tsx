@@ -18,7 +18,7 @@ import { useUi } from '../store/ui.ts';
 import { LogoMark } from '../components/Logo.tsx';
 import { WaitingLine } from '../components/WaitingLine.tsx';
 import { Markdown } from '../components/markdown/Markdown.tsx';
-import { readSpeakPref } from './prefs.ts';
+import { readAutoVoice, readSpeakPref } from './prefs.ts';
 import { SlashWave } from './SlashWave.tsx';
 import { appName, assistantNative, type AssistContext } from './native.ts';
 import { useSpeech } from './useSpeech.ts';
@@ -36,6 +36,9 @@ function plainSpeech(md: string, codeWord: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+/** Güç tuşu/kaydırma ("assistant", "assist") ve karo (voice) dinleyerek açılır; "Şimdi dene" yazıyla başlar. Ayarlardan kapatılabilir. */
+const wantsVoice = (source: string, voice: boolean): boolean => voice || ((source === 'assistant' || source === 'assist') && readAutoVoice());
 
 const chipBase = { height: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 6 } as const;
 
@@ -127,7 +130,7 @@ export function AssistantPanel() {
       awaiting.current = null;
       stopSpeaking();
       enter.value = withTiming(1, { duration: 280 });
-      if (e.voice) void speech.start();
+      if (wantsVoice(e.source, e.voice)) void speech.start();
     });
     return () => {
       a.remove();
@@ -138,7 +141,7 @@ export function AssistantPanel() {
 
   // Karo / "sesle sor" ile açıldıysa dinlemeye hemen başla.
   useEffect(() => {
-    if (launch.voice) void speech.start();
+    if (wantsVoice(launch.source, launch.voice)) void speech.start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

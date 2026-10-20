@@ -18,7 +18,7 @@ import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi, type ThemePref } from '../store/ui.ts';
 import { assistantNative, formatDiagnostics } from '../assistant/native.ts';
-import { readSpeakPref, writeSpeakPref, type SpeakPref } from '../assistant/prefs.ts';
+import { readAutoVoice, readSpeakPref, writeAutoVoice, writeSpeakPref, type SpeakPref } from '../assistant/prefs.ts';
 import { Field } from '../components/Field.tsx';
 import { Segmented } from '../components/Segmented.tsx';
 import { Sheet } from '../components/Sheet.tsx';
@@ -69,6 +69,7 @@ export default function SettingsScreen() {
   const [isAssistant, setIsAssistant] = useState(() => assist?.isDefaultAssistant() ?? false);
   const [speakPref, setSpeakPref] = useState<SpeakPref>(readSpeakPref);
   const [diag, setDiag] = useState<string | null>(null);
+  const [autoVoice, setAutoVoice] = useState(readAutoVoice);
   // Ayarlar ekranından dönünce asistan durumunu yeniden oku.
   useEffect(() => {
     if (!assist) return;
@@ -231,6 +232,20 @@ export default function SettingsScreen() {
               <Button label={t('assist.settings.try')} variant="secondary" style={{ flex: 1 }} onPress={() => assist.launchOverlay(false)} />
               <Button label={t('assist.settings.tryVoice')} variant="secondary" style={{ flex: 1 }} onPress={() => assist.launchOverlay(true)} />
             </View>
+            <Row
+              label={t('assist.settings.autoVoice')}
+              hint={t('assist.settings.autoVoiceHint')}
+              right={
+                <Switch
+                  value={autoVoice}
+                  onValueChange={(v) => {
+                    writeAutoVoice(v);
+                    setAutoVoice(v);
+                  }}
+                  trackColor={{ true: c.accent, false: c.surface3 }}
+                />
+              }
+            />
             <View style={{ gap: 8 }}>
               <RNText style={[type.small, { color: c.text2 }]}>{t('assist.settings.speak')}</RNText>
               <Segmented<SpeakPref>

@@ -6,7 +6,7 @@ import * as SecureStore from 'expo-secure-store';
  * yazmalar arka planda diske gider. Hassas olmayan tercihler (dil, tema, sunucu adresi…) burada durur.
  */
 const mem = new Map<string, string>();
-const KEYS = ['sf.apiBase', 'sf.locale', 'sf.theme', 'sf.effort', 'sf.mode', 'sf.thinking', 'sf.code.mode', 'sf.user', 'sf.pinned.hint', 'sf.pending', 'sf.assist.speak'] as const;
+const KEYS = ['sf.apiBase', 'sf.locale', 'sf.theme', 'sf.effort', 'sf.mode', 'sf.thinking', 'sf.code.mode', 'sf.user', 'sf.pinned.hint', 'sf.pending', 'sf.assist.speak', 'sf.assist.voice'] as const;
 
 export const kv = {
   async init(): Promise<void> {

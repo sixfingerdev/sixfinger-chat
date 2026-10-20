@@ -746,6 +746,8 @@ export const tr = {
   'assist.diag.title': 'Tanılama (güç tuşu çalışmıyorsa)',
   'assist.diag.hint': 'Güç tuşuna uzun bas, sonra buraya dönüp Yenile’ye bas. “pencere istendi” hâlâ “hiç” ise sistem SixFinger’ı çağırmıyor demektir.',
   'assist.diag.refresh': 'Yenile',
+  'assist.settings.autoVoice': 'Açılınca dinlemeye başla',
+  'assist.settings.autoVoiceHint': 'Güç tuşu ile açınca mikrofon hemen açılır. Kapatırsan yazarak başlarsın.',
   'tool.schedule_create': 'Görev zamanladı',
   'tool.schedule_list': 'Görevleri listeledi',
   'tool.schedule_update': 'Görevi güncelledi',
