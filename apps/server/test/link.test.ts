@@ -20,6 +20,7 @@ async function device(a: A, name = 'laptop') {
   return (await call(a, 'POST', '/link/register', { name, platform: 'linux', version: '1.0.0' })).json().deviceId as string;
 }
 const sync = (a: A, deviceId: string, body: object = {}) => call(a, 'POST', '/link/sync', { deviceId, ...body });
+const poll = (a: A, deviceId: string, body: object = {}) => call(a, 'POST', '/link/poll', { deviceId, ...body });
 const msgs = [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'merhaba' }] }];
 
 describe('uzaktan CLI köprüsü', () => {
@@ -103,5 +104,99 @@ describe('uzaktan CLI köprüsü', () => {
     expect((await call(g, 'GET', '/link/devices')).statusCode).toBeGreaterThanOrEqual(401);
     const m = await member(env);
     expect((await call(m, 'GET', '/link/devices')).statusCode).toBe(403);
+  });
+
+  it('uzun yoklama komut gelince hemen döner', async () => {
+    const a = await coder();
+    const id = await device(a);
+    await sync(a, id, { sessions: [{ id: 's' }] });
+    const t0 = Date.now();
+    const waiting = poll(a, id, { wait: 10 });
+    await new Promise((r) => setTimeout(r, 300));
+    await call(a, 'POST', `/link/sessions/${id}/s/prompt`, { text: 'merhaba' });
+    const r = (await waiting).json();
+    expect(Date.now() - t0).toBeLessThan(3_000);
+    expect(r.commands).toHaveLength(1);
+    expect(r.commands[0]).toMatchObject({ kind: 'prompt', sessionId: 's', attempt: 1 });
+  });
+
+  it('boş uzun yoklama süre dolunca boş döner ve cihazı canlı tutar', async () => {
+    const a = await coder();
+    const id = await device(a);
+    const r = await poll(a, id, { wait: 1 });
+    expect(r.json().commands).toEqual([]);
+    expect((await call(a, 'GET', '/link/devices')).json().devices[0].online).toBe(true);
+  });
+
+  it('onaylanmayan komut yeniden teslim edilir, onaylanan edilmez; ack durumu yansır', async () => {
+    const a = await coder();
+    const id = await device(a);
+    await sync(a, id, { sessions: [{ id: 's' }] });
+    const cmdId = (await call(a, 'POST', `/link/sessions/${id}/s/prompt`, { text: 'x' })).json().commandId;
+    expect((await poll(a, id)).json().commands).toHaveLength(1);
+    expect((await poll(a, id)).json().commands).toHaveLength(0); // henüz bekleme süresi dolmadı
+    await env.ctx.db.query(`update link_commands set sent_at = now() - interval '20 seconds'`);
+    const again = (await poll(a, id)).json().commands;
+    expect(again).toHaveLength(1);
+    expect(again[0].attempt).toBe(2);
+    await poll(a, id, { acks: [{ id: cmdId, ok: true }] });
+    await env.ctx.db.query(`update link_commands set sent_at = now() - interval '20 seconds'`);
+    expect((await poll(a, id)).json().commands).toHaveLength(0);
+    const st = (await call(a, 'GET', `/link/commands/${cmdId}`)).json();
+    expect(st.status).toBe('done');
+    const d = (await call(a, 'GET', `/link/sessions/${id}/s`)).json();
+    expect(d.commands[0]).toMatchObject({ id: cmdId, kind: 'prompt', status: 'done' });
+  });
+
+  it('3 denemeden sonra onaylanmayan komut failed olur', async () => {
+    const a = await coder();
+    const id = await device(a);
+    await sync(a, id, { sessions: [{ id: 's' }] });
+    const cmdId = (await call(a, 'POST', `/link/sessions/${id}/s/abort`)).json().commandId;
+    for (let i = 0; i < 3; i++) {
+      expect((await poll(a, id)).json().commands).toHaveLength(1);
+      await env.ctx.db.query(`update link_commands set sent_at = now() - interval '20 seconds'`);
+    }
+    expect((await poll(a, id)).json().commands).toHaveLength(0);
+    expect((await call(a, 'GET', `/link/commands/${cmdId}`)).json()).toMatchObject({ status: 'failed', result: { error: 'cihaz onaylamadı' } });
+  });
+
+  it('başarısız ack hata metniyle görünür', async () => {
+    const a = await coder();
+    const id = await device(a);
+    await sync(a, id, { sessions: [{ id: 's' }] });
+    const cmdId = (await call(a, 'POST', `/link/sessions/${id}/s/prompt`, { text: 'x' })).json().commandId;
+    await poll(a, id);
+    await poll(a, id, { acks: [{ id: cmdId, ok: false, error: 'desteklenmeyen komut' }] });
+    const d = (await call(a, 'GET', `/link/sessions/${id}/s`)).json();
+    expect(d.commands[0]).toMatchObject({ status: 'failed', error: 'desteklenmeyen komut' });
+  });
+
+  it('sunucunun tanımadığı komut türü iletilir; biçim bozuksa reddedilir', async () => {
+    const a = await coder();
+    const id = await device(a);
+    const ok = await call(a, 'POST', `/link/devices/${id}/commands`, { kind: 'new_session', payload: { directory: '/p', text: 'başla' } });
+    expect(ok.statusCode).toBe(200);
+    const cmds = (await poll(a, id)).json().commands;
+    expect(cmds[0]).toMatchObject({ kind: 'new_session', sessionId: '', payload: { directory: '/p', text: 'başla' } });
+    expect((await call(a, 'POST', `/link/devices/${id}/commands`, { kind: 'Bad Kind!', payload: {} })).statusCode).toBe(400);
+    expect((await call(a, 'POST', `/link/devices/${id}/commands`, { kind: 'x', sessionId: 'yok', payload: {} })).statusCode).toBe(404);
+  });
+
+  it('aynı idempotency anahtarı tek komut üretir', async () => {
+    const a = await coder();
+    const id = await device(a);
+    await sync(a, id, { sessions: [{ id: 's' }] });
+    const post = () => env.app.inject({ method: 'POST', url: `/api/link/sessions/${id}/s/prompt`, headers: { ...auth(a), 'x-idempotency-key': 'k1' }, payload: { text: 'x' } });
+    const [r1, r2] = [(await post()).json(), (await post()).json()];
+    expect(r1.commandId).toBe(r2.commandId);
+    expect((await poll(a, id)).json().commands).toHaveLength(1);
+  });
+
+  it('cihaz yeteneklerini ve protokolünü bildirir', async () => {
+    const a = await coder();
+    await call(a, 'POST', '/link/register', { name: 'pc', protocol: 1, capabilities: ['prompt', 'new_session'] });
+    expect((await call(a, 'GET', '/link/devices')).json().devices[0]).toMatchObject({ protocol: 1, capabilities: ['prompt', 'new_session'] });
+    expect((await call(a, 'POST', '/link/register', { name: 'old', protocol: 0 })).statusCode).toBe(426);
   });
 });
