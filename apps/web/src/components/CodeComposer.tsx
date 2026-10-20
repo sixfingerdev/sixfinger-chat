@@ -9,11 +9,12 @@ import {
   type CodeSessionDTO,
   type DictKey,
   type SlashCommand,
+  UPLOAD_MAX_BYTES,
 } from '@sixfinger/shared';
 import { api } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { clsx } from '../lib/format.ts';
-import { readTextFile } from '../lib/files.ts';
+import { fileToBase64 } from '../lib/files.ts';
 import { ensureNotifyPermission } from '../lib/notify.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 import { useT } from '../lib/i18n/index.ts';
@@ -87,29 +88,22 @@ export function CodeComposer({ session, generating, focusSignal }: { session: Co
     };
   }, [chatId, mention?.query, generating]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Metin dosyaları mesaja gömülür; ikili ya da büyük dosyalar çalışma alanına yüklenir (`.sixfinger/uploads/`). */
+  /** Her dosya (metin de ikili de) doğrudan çalışma alanına yüklenir (`.sixfinger/uploads/`, git'e girmez); mesaja yalnızca yol notu girer. */
   const addFiles = async (list: FileList) => {
     const ui = useUi.getState();
     const room = maxAttachments - attached.length;
     if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.attachMax', { n: maxAttachments }) });
+    if (!chatId) return;
     const next: PendingAttachment[] = [];
     for (const f of Array.from(list).slice(0, room)) {
-      const r = await readTextFile(f);
-      if (r.ok && !r.file.truncated) {
-        next.push(r.file);
-        continue;
-      }
-      if (!chatId) continue;
-      if (f.size > 2_000_000) {
-        ui.toast({ kind: 'error', text: t('code.upload.tooBig', { name: f.name }) });
+      if (f.size === 0) continue;
+      if (f.size > UPLOAD_MAX_BYTES) {
+        ui.toast({ kind: 'error', text: t('composer.uploadTooBig', { name: f.name, n: Math.floor(UPLOAD_MAX_BYTES / 1_048_576) }) });
         continue;
       }
       try {
-        const bytes = new Uint8Array(await f.arrayBuffer());
-        let bin = '';
-        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-        const up = await api.codeUpload(chatId, f.name, btoa(bin));
-        next.push({ name: up.name, mime: f.type || 'application/octet-stream', text: `[File uploaded to ${up.path} (${up.bytes} bytes). It lives outside the repository's tracked files; use it from that path.]`, truncated: false });
+        const up = await api.codeUpload(chatId, f.name, await fileToBase64(f));
+        next.push({ name: up.name, mime: f.type || 'application/octet-stream', text: '', truncated: false, path: up.path, bytes: up.bytes });
       } catch (err) {
         ui.toast({ kind: 'error', text: t('code.upload.failed', { name: f.name }) });
         reportError(err);

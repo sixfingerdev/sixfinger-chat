@@ -22,7 +22,7 @@ import type { Run } from '../services/runs.ts';
 import { runCodeGeneration, type CodeRunInput } from '../services/code-run.ts';
 import { HttpError, badRequest, conflict, forbidden, notFound, tierRestricted } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
-import type { AiMessage, AiToolCall, Effort } from '../services/ai.ts';
+import type { AiImage, AiMessage, AiToolCall, Effort } from '../services/ai.ts';
 import { isMcpToolName, type McpApprovalMeta } from '@sixfinger/shared';
 import { connectorsSection } from '../services/mcp/prompt.ts';
 import { runToolCall, toolSpecs } from '../services/tools/index.ts';
@@ -35,7 +35,7 @@ import {
   type MessageRow,
 } from '../services/chats.ts';
 import { addMemory, listMemories } from '../services/memories.ts';
-import { checkImages, imageRefs, loadImages, saveImages } from '../services/images.ts';
+import { checkImages, imageRefs, loadImages, saveImages, trimOldImages } from '../services/images.ts';
 import {
   MODEL_ID,
   buildSystemPrompt,
@@ -176,7 +176,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
 
   interface TurnBody {
     content: string;
-    attachments?: Array<{ name: string; mime: string; text: string }>;
+    attachments?: Array<{ name: string; mime: string; text: string; path?: string; bytes?: number }>;
     images?: ImageInput[];
     parentId?: string | null;
   }
@@ -200,6 +200,8 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         throw badRequest(`En fazla ${user.limits.maxAttachments} dosya eklenebilir.`);
       }
       if (attachments.some((a) => a.text.length > ATTACHMENT_MAX_CHARS)) throw badRequest('Dosya çok büyük.');
+      // Yüklenmiş dosyanın yolu yalnızca yükleme klasörlerinden olabilir (modele giden not bu yolu içerir).
+      if (attachments.some((a) => a.path && !/^(\/work\/uploads\/|\.sixfinger\/uploads\/)[^\0]+$/.test(a.path))) throw badRequest('Geçersiz dosya yolu.');
     }
     if (body.images?.length && !user.limits.features.images) throw tierRestricted('Görsel eklemek için e-postanı doğrulamış bir hesap gerekir.');
   }
@@ -363,7 +365,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     content: string;
     plan_mode: boolean;
     mode: string;
-    attachments: Array<{ name: string; mime: string; text: string }>;
+    attachments: Array<{ name: string; mime: string; text: string; path?: string; bytes?: number }>;
     created_at: Date;
   }
   const queueDto = (r: QueueRow): CodeQueueItemDTO => ({ id: r.id, text: r.content, plan: r.plan_mode, attachments: (r.attachments ?? []).map((a) => a.name) });
@@ -500,7 +502,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         }
 
         for await (const chunk of ai.stream({
-          messages,
+          messages: trimOldImages(messages),
           signal: stream.signal,
           mode: g.mode,
           effort: g.effort,
@@ -551,6 +553,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         // Modelin araç isteğini konuşmaya ekle, sonra çalıştır.
         messages.push({ role: 'assistant', content: stepText, tool_calls: calls });
         let waitingApproval: McpApprovalMeta | null = null;
+        const shownImages: AiImage[] = [];
         for (const call of calls.slice(0, 4)) {
           let shownArgs: Record<string, unknown> = {};
           try {
@@ -590,6 +593,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           if (mcpMeta) part.meta = mcpMeta;
           stream.send({ type: 'tool_end', id: part.id, status: run.status, output: run.output, summary: run.summary, ms: run.ms, ...(mcpMeta ? { meta: mcpMeta } : {}) });
           messages.push({ role: 'tool', tool_call_id: call.id, content: run.output });
+          if ('images' in run && run.images?.length) shownImages.push(...run.images);
           if (mcpMeta?.terminal === true && mcpMeta.approval) {
             waitingApproval = mcpMeta.approval as McpApprovalMeta;
             break;
@@ -598,6 +602,8 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         for (const extra of calls.slice(4)) {
           messages.push({ role: 'tool', tool_call_id: extra.id, content: 'Hata: Aynı turda en fazla 4 araç çağrılabilir.' });
         }
+        // `read` ile açılan görseller araç sonucuna (metin) girmez; hemen ardından kullanıcı mesajı olarak modele gösterilir.
+        if (shownImages.length) messages.push({ role: 'user', content: '[read ile açılan görsel dosyası]', images: shownImages });
         await saveParts();
         if (waitingApproval) {
           // Onay bekleniyor: tur biter, kullanıcı kartta karar verince yeni mesajla devam eder.

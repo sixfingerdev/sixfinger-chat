@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, FileText, Lock, Mic, MicOff, Paperclip, Square, X } from 'lucide-react';
-import { CHAT_MODES, IMAGE_LIMITS, THINKING_LEVELS, modeSupportsThinkingLevel, type ChatMode } from '@sixfinger/shared';
+import { CHAT_MODES, IMAGE_LIMITS, THINKING_LEVELS, UPLOAD_MAX_BYTES, modeSupportsThinkingLevel, type ChatMode } from '@sixfinger/shared';
 import type { Effort, PendingAttachment } from '../lib/types.ts';
 import { clsx, timeUntil } from '../lib/format.ts';
-import { ACCEPT_ATTR, readTextFile } from '../lib/files.ts';
+import { ACCEPT_ATTR, readAnyFile } from '../lib/files.ts';
 import { prepareImage, type PendingImage } from '../lib/images.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 import { dictationSupported, startDictation, type Dictation } from '../lib/speech.ts';
@@ -49,6 +49,7 @@ export function Composer({
   const limits = config?.limits;
   const maxChars = limits?.maxMessageChars ?? 4_000;
   const canAttach = Boolean(limits?.features.attachments);
+  const canSandbox = Boolean(limits?.features.sandbox);
   const canImage = Boolean(limits?.features.images);
   const busy = Boolean(generating);
   const remaining = config ? Math.max(0, config.usage.limit - config.usage.used) : null;
@@ -119,12 +120,12 @@ export function Composer({
     if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.attachMax', { n: limits?.maxAttachments ?? 0 }) });
     const next: PendingAttachment[] = [];
     for (const f of list.slice(0, room)) {
-      const r = await readTextFile(f);
+      const r = await readAnyFile(f, canSandbox);
       if (!r.ok) {
-        ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: f.name }) });
+        ui.toast({ kind: 'error', text: r.reason === 'too_big' ? t('composer.uploadTooBig', { name: f.name, n: Math.floor(UPLOAD_MAX_BYTES / 1_048_576) }) : t('composer.attachUnsupported', { name: f.name }) });
         continue;
       }
-      if (r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: f.name, n: r.file.text.length }) });
+      if (!r.file.data && r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: f.name, n: r.file.text.length }) });
       next.push(r.file);
     }
     if (next.length) setFiles((cur) => [...cur, ...next]);
@@ -254,7 +255,7 @@ export function Composer({
               type="file"
               hidden
               multiple
-              accept={canImage ? `${ACCEPT_ATTR},image/*` : ACCEPT_ATTR}
+              accept={canSandbox ? undefined : canImage ? `${ACCEPT_ATTR},image/*` : ACCEPT_ATTR}
               onChange={(e) => {
                 if (e.target.files) void addFiles(e.target.files);
                 e.target.value = '';

@@ -364,6 +364,7 @@ export const api = {
     if (!res.ok) throw await parseError(res);
     return { blob: await res.blob(), filename: path.split('/').pop() ?? 'file' };
   },
+  chatUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/chats/${id}/upload`, { name, dataBase64 }),
   codeUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/code/sessions/${id}/upload`, { name, dataBase64 }),
   // ---- skill'ler ----
   codeSkills: () => request<{ skills: SkillListItemDTO[]; limits: { perUser: number; own: number } }>('GET', '/code/skills'),
@@ -404,7 +405,7 @@ export const api = {
   codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),
   /** Sunucu tarafı mesaj kuyruğu (Code): çalışırken eklenen mesajlar sunucuda bekler, tur bitince sunucu başlatır. */
   codeQueue: (id: string) => request<{ queue: CodeQueueItemDTO[] }>('GET', `/chats/${id}/queue`),
-  codeEnqueue: (id: string, body: { content: string; planMode?: boolean; mode?: 'fast' | 'deep'; attachments?: Array<{ name: string; mime: string; text: string }> }) =>
+  codeEnqueue: (id: string, body: { content: string; planMode?: boolean; mode?: 'fast' | 'deep'; attachments?: Array<{ name: string; mime: string; text: string; path?: string; bytes?: number }> }) =>
     request<{ queue: CodeQueueItemDTO[]; started: boolean }>('POST', `/chats/${id}/queue`, body),
   codeQueueRemove: (id: string, queueId: string) => request<void>('DELETE', `/chats/${id}/queue/${queueId}`),
   deleteCodeSession: (id: string) => request<void>('DELETE', `/code/sessions/${id}`),

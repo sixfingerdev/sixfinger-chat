@@ -3,11 +3,11 @@ import { ScrollView, Text as RNText, TextInput, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowUp, Brain, FileText, GitBranch, ListChecks, Paperclip, Square, X, Zap } from 'lucide-react-native';
-import { BUILTIN_COMMANDS, activeMention, expandTemplate, matchCommands, parseSlash, type CodeSessionDTO, type DictKey, type SlashCommand } from '@sixfinger/shared';
+import { BUILTIN_COMMANDS, UPLOAD_MAX_BYTES, activeMention, expandTemplate, matchCommands, parseSlash, type CodeSessionDTO, type DictKey, type SlashCommand } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../../theme/index.tsx';
 import { api } from '../../lib/api.ts';
 import { reportError } from '../../lib/errors.ts';
-import { pickTextFiles, readBase64 } from '../../lib/files.ts';
+import { pickAnyFiles } from '../../lib/files.ts';
 import { haptic } from '../../lib/haptics.ts';
 import type { PendingAttachment } from '../../lib/types.ts';
 import { useT } from '../../lib/i18n/index.ts';
@@ -87,24 +87,17 @@ export function CodeComposer({ session, ready, focusSignal }: { session: CodeSes
     const room = (limits?.maxAttachments ?? 0) - attached.length;
     if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.attachMax', { n: limits?.maxAttachments ?? 0 }) });
     const next: PendingAttachment[] = [];
-    for (const r of await pickTextFiles(room)) {
-      // Metin dosyaları mesaja gömülür; ikili, boş ya da büyük dosyalar çalışma alanına yüklenir (.sixfinger/uploads/).
-      if (r.ok && !r.file.truncated) {
-        next.push(r.file);
-        continue;
-      }
-      const name = r.ok ? r.file.name : r.name;
-      const size = r.size;
-      const mime = r.ok ? r.file.mime : r.mime || 'application/octet-stream';
-      if (size > 2_000_000) {
-        ui.toast({ kind: 'error', text: t('code.upload.tooBig', { name }) });
+    // Her dosya (metin de ikili de) doğrudan çalışma alanına yüklenir (.sixfinger/uploads/, git'e girmez); mesaja yalnızca yol notu girer.
+    for (const r of await pickAnyFiles(room)) {
+      if (!r.ok) {
+        ui.toast({ kind: 'error', text: r.reason === 'too_big' ? t('composer.uploadTooBig', { name: r.name, n: Math.floor(UPLOAD_MAX_BYTES / 1_048_576) }) : t('composer.attachUnsupported', { name: r.name }) });
         continue;
       }
       try {
-        const up = await api.codeUpload(chatId, name, await readBase64(r.uri));
-        next.push({ name: up.name, mime, text: `[File uploaded to ${up.path} (${up.bytes} bytes). It lives outside the repository's tracked files; use it from that path.]`, truncated: false });
+        const up = await api.codeUpload(chatId, r.file.name, r.file.data!);
+        next.push({ name: up.name, mime: r.file.mime, text: '', truncated: false, path: up.path, bytes: up.bytes });
       } catch (err) {
-        ui.toast({ kind: 'error', text: t('code.upload.failed', { name }) });
+        ui.toast({ kind: 'error', text: t('code.upload.failed', { name: r.file.name }) });
         reportError(err);
       }
     }

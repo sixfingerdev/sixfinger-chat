@@ -48,6 +48,18 @@ describe('görselli isteklerde sağlayıcı zinciri', () => {
     ]);
   });
 
+  it('Code: görselli istek (read ile açılan resim) yalnızca görsel destekleyenlere gider; DeepSeek/GLM/gpt-oss denenmez', async () => {
+    const calls: string[] = [];
+    const fetchMock = async (url: string, init: { body: string }) => {
+      calls.push(`${new URL(url).hostname}|${JSON.parse(init.body).model}`);
+      if (url.includes('kilo.ai')) return new Response('x', { status: 400 });
+      return sse([{ choices: [{ index: 0, delta: { content: 'ok' } }] }]);
+    };
+    const ai = createAi({ ...loadConfig(), AI_FREE_ENABLED: true, AI_FREE_FOR_CODE: true }, undefined, fetchMock as unknown as typeof fetch);
+    for await (const _ of ai.stream({ route: 'code', mode: 'deep', messages: [{ role: 'user', content: 'bak', images: [IMG] }] })) void _;
+    expect(calls).toEqual(['api.kilo.ai|minimax/minimax-m3.1-flash:free', 'oai.endpoints.kepler.ai.cloud.ovh.net|Qwen3.8-27B']);
+  });
+
   it('görselsiz istek eskisi gibi (içerik düz metin)', () => {
     const m: AiMessage = { role: 'user', content: 'merhaba' };
     expect(wireMessage(m)).toEqual({ role: 'user', content: 'merhaba' });

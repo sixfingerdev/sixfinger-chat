@@ -1,10 +1,10 @@
 import { IMAGE_LIMITS, type ImageInput, type ImageRefDTO } from '@sixfinger/shared';
 import type { Queryable } from '../db/pool.ts';
 import { badRequest } from '../lib/errors.ts';
-import type { AiImage } from './ai.ts';
+import type { AiImage, AiMessage } from './ai.ts';
 
 /** Dosya imzası (magic bytes) bildirilen türle uyuşuyor mu? İstemciye güvenmeyiz. */
-function sniff(buf: Buffer): 'image/jpeg' | 'image/png' | 'image/webp' | null {
+export function sniff(buf: Buffer): 'image/jpeg' | 'image/png' | 'image/webp' | null {
   if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
   if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
   if (buf.length > 12 && buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
@@ -70,4 +70,19 @@ export async function loadImages(db: Queryable, messageIds: string[]): Promise<M
     out.set(row.message_id, list);
   }
   return out;
+}
+
+/**
+ * Modele giden görsel sayısını sınırlar: yalnızca en yeni `keep` görselli mesaj görselini taşır, eskilerinki atılır
+ * (bağlam ve maliyet; model gerekirse dosyayı `read` ile yeniden açar).
+ */
+export function trimOldImages(messages: AiMessage[], keep: number = IMAGE_LIMITS.historyMessages): AiMessage[] {
+  const withImages = messages.map((m, i) => (m.images?.length ? i : -1)).filter((i) => i >= 0);
+  if (withImages.length <= keep) return messages;
+  const drop = new Set(withImages.slice(0, withImages.length - keep));
+  return messages.map((m, i) => {
+    if (!drop.has(i)) return m;
+    const { images, ...rest } = m;
+    return { ...rest, content: `${m.content}\n[${images!.length} görsel artık gösterilmiyor; gerekirse ilgili dosyayı read ile yeniden aç]` };
+  });
 }

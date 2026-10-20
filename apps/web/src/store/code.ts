@@ -112,7 +112,7 @@ export const useCode = create<CodeState>((set, get) => ({
         content: m.text,
         planMode: m.plan,
         mode: get().codeMode,
-        attachments: m.attachments?.map((a) => ({ name: a.name, mime: a.mime, text: a.text })),
+        attachments: m.attachments?.map((a) => ({ name: a.name, mime: a.mime, text: a.text, path: a.path, bytes: a.bytes })),
       });
       set((s) => ({ queue: { ...s.queue, [chatId]: r.queue } }));
       return r.started;

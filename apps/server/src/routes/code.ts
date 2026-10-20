@@ -332,7 +332,7 @@ export function codeRoutes(ctx: AppContext, guard: Guard) {
       });
 
       /** Kullanıcının dosya yüklemesi: `.sixfinger/uploads/` altına yazılır (git'e girmez); ajan yolu mesajda görür. */
-      authed.post<{ Params: { id: string } }>('/code/sessions/:id/upload', { bodyLimit: 5 * 1024 * 1024 }, async (req) => {
+      authed.post<{ Params: { id: string } }>('/code/sessions/:id/upload', { bodyLimit: 15 * 1024 * 1024 }, async (req) => {
         const body = parse(uploadSchema, req.body);
         if (!(await code.getSession(req.user!.id, req.params.id))) throw notFound('Oturum bulunamadı.');
         const data = Buffer.from(body.dataBase64, 'base64');

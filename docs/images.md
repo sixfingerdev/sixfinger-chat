@@ -20,3 +20,13 @@ Bu yüzden görselli istek **yalnızca** şu sırayı kullanır: MiniMax → Qwe
 - Baytlar `message_images` tablosunda (`bytea`); mesaj DTO'sunda yalnızca `images: [{id,name,mime}]`. Bayt: `GET /api/images/:id` (yalnızca sahibi, değişmez önbellek).
 - Modele giden geçmişte görsel yalnızca **en yeni 2 görselli kullanıcı mesajında** taşınır; eskilerin yerine metin notu girer (bağlam/maliyet).
 - Code oturumlarında görsel yok.
+
+## Dosya yükleme (sohbet ve Code) ve `read` ile görsel
+Dosya seçilince (web ataç/sürükle, mobil ataç → Dosya) **doğrudan sandbox çalışma alanına** yazılır; mesaja içerik gömülmez, yalnızca yol notu girer
+(`<ek ad="…" yol="/work/uploads/x.pdf" boyut="…">`). Model metin dosyasını `read`, diğerlerini (pdf, zip, xlsx…) `bash` ile açar.
+
+- Sohbet: `POST /api/chats/:id/upload` → `/work/uploads/<ad>` (yalnızca sandbox hakkı olan üyeler). Code: `POST /api/code/sessions/:id/upload` → `.sixfinger/uploads/<ad>` (git'e girmez).
+- Her tür dosya (ikili dahil), en çok **10 MB** (`UPLOAD_MAX_BYTES` / sandboxd `UPLOAD_MAX_BYTES`). sandboxd `write` `encoding: 'base64'` kabul eder, yeni `POST /v1/raw` ham bayt verir.
+- Yükleme gönderim anında yapılır; başarısızsa metin dosyası mesaja gömülür (yedek), ikili dosya atılıp kullanıcıya bildirilir. Mesaj her durumda gider.
+- **Görsel dosyaları**: `read` (.png/.jpg/.jpeg/.webp) görseli **modele gösterir** (sohbet ve Code): sonuç metin notu + hemen ardından kullanıcı mesajı olarak görsel. En çok ~2,5 MB; daha büyükse model `bash` ile küçültür. İmza dosya uzantısıyla uyuşmuyorsa hata. Code'da bu istekler yalnızca görsel destekleyen modellere gider (MiniMax → Qwen → Qwen llmtr → Claude).
+- Modele giden görsel sayısı sınırlıdır (en yeni 2 görselli mesaj); eskilerin yerine not girer, gerekirse model dosyayı yeniden açar.

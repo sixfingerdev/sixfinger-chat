@@ -320,6 +320,7 @@ export const api = {
   codeArchiveRequest: (id: string) => ({ url: `${getApiBase()}/api/code/sessions/${id}/archive`, headers: { authorization: `Bearer ${sessionStore.read()?.accessToken ?? ''}` } }),
   /** Önizleme bağlantısı (kısa ömürlü token'lı); `url` sunucu köküne göredir. */
   codePreview: (id: string, body: { path?: string; port?: number; root?: string }) => request<CodePreviewDTO>('POST', `/code/sessions/${id}/preview`, body),
+  chatUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/chats/${id}/upload`, { name, dataBase64 }),
   codeUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/code/sessions/${id}/upload`, { name, dataBase64 }),
   /** Tek dosya indirme adresi ve yetki başlığı. */
   codeDownloadRequest: (id: string, path: string) => ({ url: `${getApiBase()}/api/code/sessions/${id}/download?path=${encodeURIComponent(path)}`, headers: { authorization: `Bearer ${sessionStore.read()?.accessToken ?? ''}` } }),
@@ -359,7 +360,7 @@ export const api = {
   /** PR'ı ajan açar (başlık/açıklamayı model yazar): otomatik adım başarısız olduğunda ya da "Otomatik PR" kapalıyken yeniden deneme. */
   /** Sunucu tarafı mesaj kuyruğu (Code): çalışırken eklenen mesajlar sunucuda bekler, tur bitince sunucu başlatır. */
   codeQueue: (id: string) => request<{ queue: CodeQueueItemDTO[] }>('GET', `/chats/${id}/queue`),
-  codeEnqueue: (id: string, body: { content: string; planMode?: boolean; mode?: 'fast' | 'deep'; attachments?: Array<{ name: string; mime: string; text: string }> }) =>
+  codeEnqueue: (id: string, body: { content: string; planMode?: boolean; mode?: 'fast' | 'deep'; attachments?: Array<{ name: string; mime: string; text: string; path?: string; bytes?: number }> }) =>
     request<{ queue: CodeQueueItemDTO[]; started: boolean }>('POST', `/chats/${id}/queue`, body),
   codeQueueRemove: (id: string, queueId: string) => request<void>('DELETE', `/chats/${id}/queue/${queueId}`),
   codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),

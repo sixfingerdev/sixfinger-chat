@@ -69,6 +69,9 @@ export interface AttachmentDTO {
   name: string;
   mime: string;
   text: string;
+  /** Sandbox'a yüklenmişse çalışma alanındaki yol (içerik mesajda yok; model okur). */
+  path?: string;
+  bytes?: number;
 }
 
 export type MessageStatus = 'complete' | 'streaming' | 'error' | 'stopped';

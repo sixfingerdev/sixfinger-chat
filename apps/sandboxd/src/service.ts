@@ -192,20 +192,40 @@ export class SandboxService {
     );
   }
 
-  async writeFile(user: string, session: string, path: string, content: string): Promise<{ bytes: number }> {
+  async writeFile(user: string, session: string, path: string, content: string, encoding: 'utf8' | 'base64' = 'utf8'): Promise<{ bytes: number }> {
     const rel = workPath(path);
-    const data = Buffer.from(content, 'utf8');
-    if (data.length > this.cfg.FILE_MAX_BYTES) throw new SandboxError(`Dosya çok büyük (en fazla ${this.cfg.FILE_MAX_BYTES} bayt).`, 'too_large');
+    const data = Buffer.from(content, encoding);
+    // Metin yazmaları eski sınırda kalır; yüklemeler (base64) ikili olabilir ve daha büyük sınırı kullanır.
+    const max = encoding === 'base64' ? this.cfg.UPLOAD_MAX_BYTES : this.cfg.FILE_MAX_BYTES;
+    if (data.length > max) throw new SandboxError(`Dosya çok büyük (en fazla ${max} bayt).`, 'too_large');
     const r = await this.run(user, session, (id) =>
       this.runtime.exec(id, {
         argv: ['sh', '-c', 'mkdir -p -- "$(dirname -- "$1")" && cat > "$1"', 'sh', rel],
         stdin: data,
-        timeoutMs: 20_000,
+        timeoutMs: 30_000,
         maxOutput: 4096,
       }),
     );
     if (r.exitCode !== 0) throw new SandboxError(`Dosya yazılamadı: ${(r.stderr || r.stdout).trim().slice(0, 200) || 'bilinmeyen hata'}`);
     return { bytes: data.length };
+  }
+
+  /** Dosyanın ham baytları (görsel okuma). `maxBytes` aşılırsa hata. */
+  async rawFile(user: string, session: string, path: string, maxBytes: number): Promise<{ data: Buffer }> {
+    const rel = workPath(path);
+    const r = await this.run(user, session, (id) =>
+      this.runtime.exec(id, {
+        argv: ['sh', '-c', 'if [ ! -e "$1" ]; then exit 44; fi; if [ -d "$1" ]; then exit 45; fi; head -c "$2" -- "$1"', 'sh', rel, String(maxBytes + 1)],
+        timeoutMs: 30_000,
+        maxOutput: maxBytes + 16,
+      }),
+    );
+    if (r.exitCode === 44) throw new SandboxError(`Dosya bulunamadı: ${path}`, 'not_found');
+    if (r.exitCode === 45) throw new SandboxError(`Bu bir klasör, dosya değil: ${path}`);
+    if (r.exitCode !== 0) throw new SandboxError(`Dosya okunamadı: ${r.stderr.trim().slice(0, 200)}`);
+    const data = r.stdoutBuf ?? Buffer.from(r.stdout);
+    if (r.truncated || data.length > maxBytes) throw new SandboxError(`Dosya çok büyük (en fazla ${Math.floor(maxBytes / 1_048_576)} MB).`, 'too_large');
+    return { data };
   }
 
   async readFile(user: string, session: string, path: string): Promise<FileRead> {

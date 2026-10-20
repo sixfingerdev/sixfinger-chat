@@ -120,6 +120,32 @@ const upsert = (list: ChatDTO[], chat: ChatDTO) => (chat.kind === 'code' ? list 
 let tmpSeq = 0;
 const tmpId = (p: string) => `tmp-${p}-${++tmpSeq}`;
 
+/** Dosya yüklemesi süren sohbetler (çift gönderimi önler). */
+const uploading = new Set<string>();
+
+/**
+ * Gönderimde sandbox'a yüklenecek dosyaları yazar. Yükleme başarısızsa metin dosyası mesaja gömülür (yedek), ikili dosya atılır ve kullanıcıya bildirilir.
+ * Mesaj her durumda gider (başarısız ikili dosyalar olmadan).
+ */
+async function resolveUploads(kind: 'chat' | 'code', chatId: string, atts: PendingAttachment[]): Promise<PendingAttachment[]> {
+  const out: PendingAttachment[] = [];
+  for (const a of atts) {
+    if (!a.data) {
+      out.push(a);
+      continue;
+    }
+    try {
+      const up = await (kind === 'code' ? api.codeUpload : api.chatUpload)(chatId, a.name, a.data);
+      out.push({ name: up.name, mime: a.mime, text: '', truncated: false, path: up.path, bytes: up.bytes });
+    } catch (err) {
+      if (a.text) out.push({ ...a, data: undefined });
+      else useUi.getState().toast({ kind: 'error', text: translate('composer.uploadFailed', { name: a.name }) });
+      reportError(err);
+    }
+  }
+  return out;
+}
+
 function blankMessage(over: Partial<MessageDTO> & Pick<MessageDTO, 'id' | 'chatId' | 'role'>): MessageDTO {
   return {
     parentId: null,
@@ -399,7 +425,7 @@ export const useChats = create<ChatsState>((set, get) => {
     newChat: () => set({ activeId: null, loadError: null, loadingId: null }),
     setDraftPersona: (draftPersona) => set({ draftPersona }),
 
-    async send({ content, attachments = [], images = [], chatId, parentId, onChatCreated, planMode, mode }) {
+    async send({ content, attachments: rawAttachments = [], images = [], chatId, parentId, onChatCreated, planMode, mode }) {
       if (chatId && get().generating[chatId]) return;
       let id = chatId ?? null;
       try {
@@ -416,6 +442,17 @@ export const useChats = create<ChatsState>((set, get) => {
       }
 
       const detail = get().detail[id]!;
+      // Dosyalar (sohbet ve Code) doğrudan sandbox çalışma alanına yüklenir; mesaja yalnızca yol notu girer.
+      let attachments = rawAttachments;
+      if (rawAttachments.some((a) => a.data)) {
+        if (uploading.has(id)) return;
+        uploading.add(id);
+        try {
+          attachments = await resolveUploads(detail.chat.kind, id, rawAttachments);
+        } finally {
+          uploading.delete(id);
+        }
+      }
       const parent = parentId === undefined ? detail.chat.leafId : parentId;
       const userTmp = blankMessage({
         id: tmpId('u'),
@@ -423,7 +460,7 @@ export const useChats = create<ChatsState>((set, get) => {
         role: 'user',
         parentId: parent,
         content,
-        attachments: attachments.map((a) => ({ name: a.name, mime: a.mime, text: a.text })),
+        attachments: attachments.map((a) => ({ name: a.name, mime: a.mime, text: a.text, path: a.path, bytes: a.bytes })),
         images: images.map((im, i) => {
           const imgId = `local:${tmpId('i')}:${i}`;
           seedLocalImage(imgId, im.preview);
@@ -444,7 +481,7 @@ export const useChats = create<ChatsState>((set, get) => {
         // Code oturumunda model tercihi Code'un kendi Hızlı/Derin seçimidir; sohbetin modu değil.
         mode: detail.chat.kind === 'code' ? useCode.getState().codeMode : (mode ?? useUi.getState().mode),
         effort: useUi.getState().effort,
-        attachments: attachments.length ? attachments.map(({ name, mime, text }) => ({ name, mime, text })) : undefined,
+        attachments: attachments.length ? attachments.map(({ name, mime, text, path, bytes }) => ({ name, mime, text, path, bytes })) : undefined,
         images: images.length ? images.map(({ name, mime, data }) => ({ name, mime, data })) : undefined,
         planMode: planMode || undefined,
       };

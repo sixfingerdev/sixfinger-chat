@@ -490,7 +490,9 @@ export class CodeService {
     const rel = workPath(path);
     if (rel === '.git' || rel.startsWith('.git/')) throw new SandboxError('.git klasörüne yazılamaz (git işlemleri sunucu tarafından yapılır).');
     const data = Buffer.from(content, encoding);
-    if (data.length > this.cfg.CODE_FILE_MAX_BYTES) throw new SandboxError(`Dosya çok büyük (en fazla ${this.cfg.CODE_FILE_MAX_BYTES} bayt). Daha küçük parçalara böl.`, 'too_large');
+    // Yüklemeler (base64) ikili olabilir ve daha büyük sınırı kullanır; modelin metin yazması eski sınırda kalır.
+    const max = encoding === 'base64' ? this.cfg.UPLOAD_MAX_BYTES : this.cfg.CODE_FILE_MAX_BYTES;
+    if (data.length > max) throw new SandboxError(`Dosya çok büyük (en fazla ${max} bayt). Daha küçük parçalara böl.`, 'too_large');
     const s = this.state(user, session);
     return this.serial(s, async () => {
       if (s.diskUsedMb + data.length / 1_048_576 > s.req.diskMb) {

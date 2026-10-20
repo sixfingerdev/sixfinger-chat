@@ -12,7 +12,8 @@ import type { Config } from '../config.ts';
 import type { Db } from '../db/pool.ts';
 import { HttpError } from '../lib/errors.ts';
 import type { AuthUser } from '../lib/types.ts';
-import type { AiMessage, AiProvider, AiToolCall } from './ai.ts';
+import type { AiImage, AiMessage, AiProvider, AiToolCall } from './ai.ts';
+import { trimOldImages } from './images.ts';
 import { MESSAGE_COLUMNS, toMessageDTO, type ChatRow, type MessageRow } from './chats.ts';
 import type { Code } from './code.ts';
 import type { CodeGit } from './code-git.ts';
@@ -339,7 +340,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
         let calls: AiToolCall[] = [];
         let text = '';
         let outChars = 0;
-        for await (const chunk of ai.stream({ messages: input, signal, mode: g.codeMode ?? 'deep', route: 'code', tools: subSpecs, patient: report.steps > 0, onProvider: (n) => (provider = n) })) {
+        for await (const chunk of ai.stream({ messages: trimOldImages(input), signal, mode: g.codeMode ?? 'deep', route: 'code', tools: subSpecs, patient: report.steps > 0, onProvider: (n) => (provider = n) })) {
           if (chunk.type === 'content') {
             text += chunk.text;
             outChars += chunk.text.length;
@@ -366,6 +367,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
         }
         msgs.push({ role: 'assistant', content: text, tool_calls: calls });
         let loop = false;
+        const subImages: AiImage[] = [];
         for (const call of calls.slice(0, MAX_CALLS_PER_STEP)) {
           report.tools[call.function.name] = (report.tools[call.function.name] ?? 0) + 1;
           const r = await runToolCall(subDefs, call, ctx);
@@ -375,9 +377,11 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
           if (seenSub.filter((k) => k === key).length >= LOOP_STOP) loop = true;
           if (call.function.name === 'bash' && typeof r.meta?.durationMs === 'number') sandboxMs += r.meta.durationMs;
           msgs.push({ role: 'tool', tool_call_id: call.id, content: r.output });
+          if (r.images?.length) subImages.push(...r.images);
           if (signal.aborted) throw new DOMException('aborted', 'AbortError');
         }
         for (const extra of calls.slice(MAX_CALLS_PER_STEP)) msgs.push({ role: 'tool', tool_call_id: extra.id, content: `Error: at most ${MAX_CALLS_PER_STEP} tool calls per turn.` });
+        if (subImages.length) msgs.push({ role: 'user', content: '[Image file opened with read]', images: subImages });
         if (loop) {
           report.stopped = 'loop';
           break;
@@ -469,7 +473,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
       let stepOut = 0;
       let truncated = false;
       for await (const chunk of ai.stream({
-        messages: pruned, signal, mode: g.codeMode ?? 'deep', route: 'code', tools: specs, patient: step > 0, onProvider: (n) => (provider = n),
+        messages: trimOldImages(pruned), signal, mode: g.codeMode ?? 'deep', route: 'code', tools: specs, patient: step > 0, onProvider: (n) => (provider = n),
       })) {
         if (chunk.type === 'reasoning') {
           buf.addReasoning(chunk.text);
@@ -518,6 +522,7 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
       messages.push({ role: 'assistant', content: stepText, tool_calls: calls });
       let loopStop = false;
       let terminal = false;
+      const shownImages: AiImage[] = [];
       for (const call of calls.slice(0, MAX_CALLS_PER_STEP)) {
         let shown: Record<string, unknown> = {};
         try {
@@ -542,11 +547,14 @@ export async function runCodeGeneration(deps: CodeRunDeps, run: Run, g: CodeRunI
         Object.assign(part, { status: result.status, output, summary: result.summary, meta: result.meta, ms: result.ms });
         send({ type: 'tool_end', id: part.id, status: result.status, output, summary: result.summary, meta: result.meta, ms: result.ms });
         messages.push({ role: 'tool', tool_call_id: call.id, content: output });
+        if (result.images?.length) shownImages.push(...result.images);
         if ((TERMINAL_TOOLS.has(call.function.name) || isMcpToolName(call.function.name)) && result.meta?.terminal === true) terminal = true;
         if (signal.aborted) throw new DOMException('aborted', 'AbortError');
         if (loopStop || terminal) break;
       }
       for (const extra of calls.slice(MAX_CALLS_PER_STEP)) messages.push({ role: 'tool', tool_call_id: extra.id, content: `Error: at most ${MAX_CALLS_PER_STEP} tool calls per turn.` });
+      // `read` ile açılan görseller (ekran görüntüsü, tasarım…) araç sonucunun ardından kullanıcı mesajı olarak modele gösterilir.
+      if (shownImages.length) messages.push({ role: 'user', content: '[Image file opened with read]', images: shownImages });
       buf.persist(true);
       // Soru/plan araçları turu bitirir: kullanıcı yanıtlayınca yeni turla devam edilir.
       if (terminal) break;

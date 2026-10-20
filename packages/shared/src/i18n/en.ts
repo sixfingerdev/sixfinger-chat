@@ -91,6 +91,8 @@ export const en: Record<DictKey, string> = {
   'composer.imageMax': 'You can attach up to {n} images.',
   'composer.imageFail': 'Couldn’t process {name}.',
   'composer.imageDefault': 'What’s in this image?',
+  'composer.uploadFailed': 'Couldn’t upload {name}.',
+  'composer.uploadTooBig': '{name} is too large (max {n} MB).',
   'composer.attach.photos': 'Choose photo',
   'composer.attach.camera': 'Camera',
   'composer.attach.file': 'File',

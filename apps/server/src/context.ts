@@ -19,6 +19,7 @@ import type { Skills } from './services/skills.ts';
 import type { CodeQueue } from './services/code-queue.ts';
 import type { Schedule, ScheduledTask } from './services/schedule.ts';
 import type { CodeSandboxClient } from './services/tools/code-client.ts';
+import type { SandboxClient } from './services/tools/sandbox.ts';
 
 export interface AppContext {
   config: Config;
@@ -39,6 +40,8 @@ export interface AppContext {
   /** SixFinger Code çalıştırma kuyruğu ve sandboxd Code istemcisi (yapılandırılmamışsa null). */
   codeQueue: CodeQueue;
   codeSandbox: CodeSandboxClient | null;
+  /** Sohbet sandbox'ı (bash/read/write/edit ve dosya yükleme); yapılandırılmamışsa null. */
+  sandbox: SandboxClient | null;
   /** Code oturumunun GitHub tarafı: PR taslağı, push, PR açma, fark. */
   codeGit: CodeGit;
   /** Önizleme: çalışma alanı dosyaları (statik) ve dev-server proxy'si. */

@@ -50,6 +50,8 @@ export interface BuildOptions {
   github?: ReturnType<typeof createGithub>;
   /** sandboxd Code istemcisi (testlerde sahte). */
   codeSandbox?: import('./services/tools/code-client.ts').CodeSandboxClient | null;
+  /** sandboxd sohbet istemcisi (testlerde gerçek sandboxd'ye). */
+  sandbox?: import('./services/tools/sandbox.ts').SandboxClient | null;
   /** Yerleşik skill'ler (testlerde sabit küme). */
   skills?: import('./services/skills.ts').Skills;
   /** MCP istekleri için fetch (testlerde korumasız yerel sunucuya; üretimde SSRF korumalı). */
@@ -83,6 +85,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
   const secrets = config.CODE_SECRET_KEY ? createSecretBox(config.CODE_SECRET_KEY) : null;
   const sandboxUrl = config.SANDBOXD_URL && config.SANDBOXD_TOKEN ? { url: config.SANDBOXD_URL, token: config.SANDBOXD_TOKEN } : null;
   const codeSandbox = opts.codeSandbox ?? (sandboxUrl ? createCodeClient(sandboxUrl.url, sandboxUrl.token) : null);
+  const chatSandbox = opts.sandbox ?? (sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : null);
   const ctx: AppContext = {
     config,
     db,
@@ -99,7 +102,8 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     ai: opts.ai ?? createAi(config, app.log),
     codeQueue: new CodeQueue({ maxRuns: config.CODE_MAX_RUNS, maxQueue: config.CODE_MAX_QUEUE }),
     codeSandbox,
-    tools: opts.tools ?? createTools([], { sandbox: sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : undefined, code: codeSandbox ?? undefined, searxngUrl: config.SEARXNG_URL || undefined }),
+    sandbox: chatSandbox,
+    tools: opts.tools ?? createTools([], { sandbox: chatSandbox ?? undefined, code: codeSandbox ?? undefined, searxngUrl: config.SEARXNG_URL || undefined }),
     codeGit: undefined as never,
     codePreview: undefined as never,
     skills: opts.skills ?? createSkills({ db, log: app.log }),

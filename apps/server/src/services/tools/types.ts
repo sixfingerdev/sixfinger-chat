@@ -1,4 +1,5 @@
 import type { AuthUser } from '../../lib/types.ts';
+import type { AiImage } from '../ai.ts';
 
 export interface ToolContext {
   user: AuthUser;
@@ -25,6 +26,8 @@ export interface ToolResult {
   summary?: string;
   /** İstemcinin zengin gösterim için kullandığı yapısal veri (dosya +N −M, çıkış kodu, yapılacaklar...). Modele gitmez. */
   meta?: Record<string, unknown>;
+  /** Aracın modele GÖSTERDİĞİ görseller (ör. read ile açılan resim dosyası). Araç sonucu metin kalır; görseller ardından bir kullanıcı mesajı olarak eklenir. */
+  images?: AiImage[];
 }
 
 export interface ToolDef {

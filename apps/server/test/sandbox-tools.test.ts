@@ -25,7 +25,8 @@ beforeAll(async () => {
     await server.close();
     runtime.cleanup();
   };
-  env = await setup([], { sandbox: createSandboxClient(url, TOKEN) });
+  const client = createSandboxClient(url, TOKEN);
+  env = await setup([], { sandbox: client }, { sandbox: client });
 });
 afterAll(async () => {
   await env.app.close();
@@ -136,5 +137,76 @@ describe('sandbox araçları (uçtan uca)', () => {
     env.ai.steps = [[text('x')]];
     await send(u, c2.id);
     expect(main()[0]!.messages[0]!.content).not.toContain('Sandbox:');
+  });
+});
+
+// ---- Dosya yükleme + görsel okuma ----
+const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+describe('dosya yükleme ve görsel okuma', () => {
+  it('yüklenen dosya sandbox\'a yazılır (ikili bozulmadan); model read/bash ile açar; mesaja yol notu girer', async () => {
+    const a = await member(env);
+    const chat = await newChat(env.app, a);
+    const bin = Buffer.concat([Buffer.from(PNG, 'base64'), Buffer.from([0, 1, 2, 255])]);
+    const up = await env.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/upload`, headers: auth(a), payload: { name: '../rapor özet.pdf', dataBase64: bin.toString('base64') } });
+    expect(up.statusCode).toBe(200);
+    expect(up.json()).toMatchObject({ path: '/work/uploads/rapor özet.pdf', name: 'rapor özet.pdf', bytes: bin.length });
+
+    // Model dosyayı bash ile okur (bayt sayısını sayar).
+    env.ai.steps = [[call('t1', 'bash', { command: 'wc -c < "uploads/rapor özet.pdf"' })], [text('Bitti.')]];
+    const r = await env.app.inject({
+      method: 'POST',
+      url: `/api/chats/${chat.id}/messages`,
+      headers: auth(a),
+      payload: { content: 'bu dosyayı incele', attachments: [{ name: 'rapor özet.pdf', mime: 'application/pdf', path: '/work/uploads/rapor özet.pdf', bytes: bin.length }] },
+    });
+    expect(r.statusCode).toBe(200);
+    const first = main()[0]!;
+    const user = first.messages.filter((m) => m.role === 'user').at(-1)!;
+    expect(user.content).toContain('yol="/work/uploads/rapor özet.pdf"');
+    expect(user.content).toContain(`boyut="${bin.length} bayt"`);
+    const m = await last(a, chat.id);
+    const tool = m.parts.find((p) => p.type === 'tool');
+    expect(tool && 'output' in tool ? tool.output : '').toContain(String(bin.length));
+  });
+
+  it('read bir görsel dosyasında görseli modele gösterir (araç sonucundan sonra kullanıcı mesajı olarak)', async () => {
+    const a = await member(env);
+    const chat = await newChat(env.app, a);
+    await env.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/upload`, headers: auth(a), payload: { name: 'foto.png', dataBase64: PNG } });
+    env.ai.steps = [[call('t1', 'read', { path: '/work/uploads/foto.png' })], [text('Küçük bir görsel.')]];
+    const r = await env.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/messages`, headers: auth(a), payload: { content: 'foto.png ne içeriyor?' } });
+    expect(r.statusCode).toBe(200);
+    const second = main()[1]!;
+    const lastUser = second.messages.at(-1)!;
+    expect(lastUser.role).toBe('user');
+    expect(lastUser.images).toEqual([{ mime: 'image/png', data: PNG }]);
+    const toolMsg = second.messages.find((m) => m.role === 'tool')!;
+    expect(toolMsg.content).toContain('Görsel dosyası');
+    expect((await last(a, chat.id)).content).toContain('Küçük bir görsel');
+  });
+
+  it('sahte uzantılı dosya görsel sayılmaz; büyük dosya ve misafir reddedilir', async () => {
+    const a = await member(env);
+    const chat = await newChat(env.app, a);
+    await env.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/upload`, headers: auth(a), payload: { name: 'sahte.png', dataBase64: Buffer.from('merhaba dünya').toString('base64') } });
+    env.ai.steps = [[call('t1', 'read', { path: 'uploads/sahte.png' })], [text('Tamam.')]];
+    await env.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/messages`, headers: auth(a), payload: { content: 'oku' } });
+    const toolMsg = main()[1]!.messages.find((m) => m.role === 'tool')!;
+    expect(toolMsg.content).toContain('geçerli bir JPEG/PNG/WebP');
+
+    const big = Buffer.alloc(10 * 1024 * 1024 + 1).toString('base64');
+    expect((await env.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/upload`, headers: auth(a), payload: { name: 'b.bin', dataBase64: big } })).statusCode).toBe(400);
+
+    const g = await guest(env.app);
+    const gc = await newChat(env.app, g);
+    expect((await env.app.inject({ method: 'POST', url: `/api/chats/${gc.id}/upload`, headers: auth(g), payload: { name: 'a.txt', dataBase64: 'aGk=' } })).statusCode).toBe(403);
+  });
+
+  it('geçersiz yükleme yolu içeren ek reddedilir', async () => {
+    const a = await member(env);
+    const chat = await newChat(env.app, a);
+    const r = await env.app.inject({ method: 'POST', url: `/api/chats/${chat.id}/messages`, headers: auth(a), payload: { content: 'x', attachments: [{ name: 'a', path: '/etc/passwd' }] } });
+    expect(r.statusCode).toBe(400);
   });
 });

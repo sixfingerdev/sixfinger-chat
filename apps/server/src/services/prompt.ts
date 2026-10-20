@@ -61,7 +61,8 @@ export function buildSystemPrompt(ctx: PromptContext): string {
       `Sandbox: bash, read, write ve edit araçlarıyla izole bir Linux ortamında (/work klasörü) çalışabilirsin: hesaplama, veri işleme, kısa betikler (python3, node, git, curl, jq hazır), ` +
         `dosya üretme/dönüştürme, bir şeyi denemek için. Çalışma klasörü bu sohbet boyunca korunur. İnternet yalnızca 80/443 portlarıyla vardır. Komutlar 30 sn sonra durdurulur; arka planda sunucu başlatma. ` +
         `Büyük proje iskeleti kurma: uygulama, oyun ya da sayfa istenirse artifact (tek dosya) kullan; sandbox yalnızca gerçekten çalıştırman/hesaplaman gerektiğinde. ` +
-        `Hata alırsan çıktıyı oku ve düzelt; aynı komutu körlemesine tekrarlama. Gerekmedikçe araç çağırma. Sandbox'ta sır yok ve ana sisteme erişimin yok.`,
+        `Hata alırsan çıktıyı oku ve düzelt; aynı komutu körlemesine tekrarlama. Gerekmedikçe araç çağırma. Sandbox'ta sır yok ve ana sisteme erişimin yok. ` +
+        `Kullanıcının yüklediği dosyalar /work/uploads/ altındadır (mesajda <ek yol="…"> olarak görürsün): metin dosyalarını read ile, diğerlerini (pdf, zip, xlsx…) bash ile aç; görsel dosyalarını (.png/.jpg/.webp) read ile açarsan görseli sana gösterilir.`,
     );
   }
 
@@ -173,9 +174,14 @@ export function fitHistory(history: HistoryItem[], budget: number): AiMessage[] 
   return out;
 }
 
-export function renderUserContent(content: string, attachments: { name: string; text: string }[]): string {
+export function renderUserContent(content: string, attachments: { name: string; text: string; path?: string; bytes?: number }[]): string {
   if (!attachments.length) return content;
-  const blocks = attachments.map((a) => `<ek ad="${a.name.replace(/"/g, "'")}">\n${a.text}\n</ek>`);
+  const blocks = attachments.map((a) => {
+    const name = a.name.replace(/"/g, "'");
+    // Sandbox'a yüklenen dosya: içerik mesajda yok, model yoldan açar (metin: read/bash; görsel: read görseli gösterir).
+    if (a.path) return `<ek ad="${name}" yol="${a.path.replace(/"/g, "'")}"${a.bytes != null ? ` boyut="${a.bytes} bayt"` : ''}>Kullanıcı bu dosyayı sandbox çalışma alanına yükledi; read ya da bash ile aç.</ek>`;
+    return `<ek ad="${name}">\n${a.text}\n</ek>`;
+  });
   return `${blocks.join('\n\n')}\n\n${content}`;
 }
 

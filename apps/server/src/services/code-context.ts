@@ -8,7 +8,7 @@ import { expandAssistant, fitHistory, type HistoryItem } from './prompt.ts';
 const estimateTokens = (s: string): number => Math.ceil(s.length / 3.5);
 
 export const messagesTokens = (messages: AiMessage[]): number =>
-  messages.reduce((n, m) => n + estimateTokens(m.content) + (m.tool_calls ? estimateTokens(JSON.stringify(m.tool_calls)) : 0), 0);
+  messages.reduce((n, m) => n + estimateTokens(m.content) + (m.tool_calls ? estimateTokens(JSON.stringify(m.tool_calls)) : 0) + (m.images?.length ?? 0) * 1_200, 0);
 
 /** `skill` aracının sonuçları bununla başlar: son birkaçı kırpılmaz (talimat bağlamdan düşmesin). */
 export const SKILL_MARK = '[skill:';

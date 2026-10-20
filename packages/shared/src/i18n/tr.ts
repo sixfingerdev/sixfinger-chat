@@ -94,6 +94,8 @@ export const tr = {
   'composer.imageMax': 'En fazla {n} görsel eklenebilir.',
   'composer.imageFail': '{name} görseli işlenemedi.',
   'composer.imageDefault': 'Bu görselde ne var?',
+  'composer.uploadFailed': '{name} yüklenemedi.',
+  'composer.uploadTooBig': '{name} çok büyük (en fazla {n} MB).',
   'composer.attach.photos': 'Fotoğraf seç',
   'composer.attach.camera': 'Kamera',
   'composer.attach.file': 'Dosya',

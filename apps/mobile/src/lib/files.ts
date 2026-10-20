@@ -1,6 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
-import { ATTACHMENT_MAX_CHARS } from '@sixfinger/shared';
+import { ATTACHMENT_MAX_CHARS, UPLOAD_MAX_BYTES } from '@sixfinger/shared';
 import type { PendingAttachment } from './types.ts';
 
 const TEXT_EXT = new Set([
@@ -54,4 +54,45 @@ export async function readBase64(uri: string): Promise<string> {
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(bin);
+}
+
+export type AnyPick =
+  | { ok: true; file: PendingAttachment; uri: string; size: number }
+  | { ok: false; reason: 'too_big' | 'empty'; name: string; size: number };
+
+/**
+ * Sistem dosya seçicisini açar; her tür dosya (ikili dahil) sandbox yüklemesi için hazırlanır (gönderimde çalışma alanına yazılır).
+ * Metin dosyasının içeriği yedek olarak saklanır (yükleme başarısız olursa mesaja gömülür). İptalde boş dizi.
+ */
+export async function pickAnyFiles(max: number): Promise<AnyPick[]> {
+  const res = await DocumentPicker.getDocumentAsync({ type: ['*/*'], multiple: max > 1, copyToCacheDirectory: true });
+  if (res.canceled) return [];
+  const out: AnyPick[] = [];
+  for (const asset of res.assets.slice(0, max)) {
+    const size = asset.size ?? 0;
+    if (size === 0) {
+      out.push({ ok: false, reason: 'empty', name: asset.name, size });
+      continue;
+    }
+    if (size > UPLOAD_MAX_BYTES) {
+      out.push({ ok: false, reason: 'too_big', name: asset.name, size });
+      continue;
+    }
+    const mime = asset.mimeType ?? 'application/octet-stream';
+    const text = await readTextFallback(asset.uri, asset.name, mime);
+    out.push({ ok: true, uri: asset.uri, size, file: { name: asset.name, mime, text, truncated: false, data: await readBase64(asset.uri), size } });
+  }
+  return out;
+}
+
+/** Metin dosyasıysa içeriği (yedek için); değilse boş. */
+async function readTextFallback(uri: string, name: string, mime: string): Promise<string> {
+  const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : name.toLowerCase();
+  if (!(mime.startsWith('text/') || mime === 'application/json' || TEXT_EXT.has(ext))) return '';
+  try {
+    const text = await new File(uri).text();
+    return text.includes('\u0000') || text.length > ATTACHMENT_MAX_CHARS ? '' : text;
+  } catch {
+    return '';
+  }
 }

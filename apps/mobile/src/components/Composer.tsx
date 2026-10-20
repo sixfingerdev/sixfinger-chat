@@ -4,12 +4,12 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } fr
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { ArrowUp, Camera, FileText, Image as ImageIcon, Lock, Paperclip, Square, X } from 'lucide-react-native';
-import { IMAGE_LIMITS } from '@sixfinger/shared';
+import { IMAGE_LIMITS, UPLOAD_MAX_BYTES } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 import { timeUntil } from '../lib/format.ts';
-import { pickTextFiles } from '../lib/files.ts';
+import { pickAnyFiles, pickTextFiles } from '../lib/files.ts';
 import { pickImages, type ImageSource, type PendingImage } from '../lib/images.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
@@ -49,6 +49,7 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
   const maxChars = limits?.maxMessageChars ?? 4_000;
   const canAttach = Boolean(limits?.features.attachments);
   const canImage = Boolean(limits?.features.images);
+  const canSandbox = Boolean(limits?.features.sandbox);
   const busy = Boolean(generating);
   const remaining = config ? Math.max(0, config.usage.limit - config.usage.used) : null;
 
@@ -112,15 +113,25 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
     const ui = useUi.getState();
     const room = (limits?.maxAttachments ?? 0) - files.length;
     if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.attachMax', { n: limits?.maxAttachments ?? 0 }) });
-    const results = await pickTextFiles(room);
     const next: PendingAttachment[] = [];
-    for (const r of results) {
-      if (!r.ok) {
-        ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: r.name }) });
-        continue;
+    if (canSandbox) {
+      // Her tür dosya gönderimde sandbox çalışma alanına yüklenir (model read/bash ile açar).
+      for (const r of await pickAnyFiles(room)) {
+        if (!r.ok) {
+          ui.toast({ kind: 'error', text: r.reason === 'too_big' ? t('composer.uploadTooBig', { name: r.name, n: Math.floor(UPLOAD_MAX_BYTES / 1_048_576) }) : t('composer.attachUnsupported', { name: r.name }) });
+          continue;
+        }
+        next.push(r.file);
       }
-      if (r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: r.file.name, n: r.file.text.length }) });
-      next.push(r.file);
+    } else {
+      for (const r of await pickTextFiles(room)) {
+        if (!r.ok) {
+          ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: r.name }) });
+          continue;
+        }
+        if (r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: r.file.name, n: r.file.text.length }) });
+        next.push(r.file);
+      }
     }
     if (next.length) setFiles((cur) => [...cur, ...next]);
   };

@@ -10,7 +10,7 @@ const user = { id: 'u1', limits: { features: { sandbox: true } } } as unknown as
 
 function fake(initial: Record<string, string> = {}) {
   const fs = new Map(Object.entries(initial));
-  const state = { needPrepare: false, prepareCalls: 0, execs: [] as string[], exec: (_c: string): Partial<ExecOutcome & { diskUsedMb: number }> => ({}), globFiles: [] as string[], grepLines: [] as string[], truncatedRead: false };
+  const state = { needPrepare: false, prepareCalls: 0, execs: [] as string[], exec: (_c: string): Partial<ExecOutcome & { diskUsedMb: number }> => ({}), globFiles: [] as string[], grepLines: [] as string[], truncatedRead: false, rawFiles: new Map<string, Buffer>() };
   const client: CodeSandboxClient = {
     async prepare() {
       state.prepareCalls++;
@@ -56,8 +56,10 @@ function fake(initial: Record<string, string> = {}) {
     async push() {
       return { sha: 'a'.repeat(40), branch: 'x', output: '' };
     },
-    async raw() {
-      throw new Error('raw: bu sahtede yok');
+    async raw(_s, path) {
+      const f = state.rawFiles.get(path);
+      if (!f) throw new FileNotFoundError();
+      return f;
     },
     async ports() {
       return [];
@@ -139,6 +141,26 @@ describe('araç çağırma (genel)', () => {
     expect(r.status).toBe('done');
     expect(state.prepareCalls).toBe(1);
     expect(r.output).toContain('1: merhaba');
+  });
+});
+
+describe('read (görsel)', () => {
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  it('görsel dosyası modele görsel olarak döner', async () => {
+    const { call, state } = fake();
+    state.rawFiles.set('.sixfinger/uploads/shot.png', PNG);
+    const r = await call('read', { path: '.sixfinger/uploads/shot.png' });
+    expect(r.status).toBe('done');
+    expect(r.images).toEqual([{ mime: 'image/png', data: PNG.toString('base64') }]);
+    expect(r.output).toContain('Görsel dosyası');
+  });
+  it('sahte uzantı, eksik dosya ve çok büyük görsel hata verir', async () => {
+    const { call, state } = fake();
+    state.rawFiles.set('a.png', Buffer.from('metin'));
+    expect((await call('read', { path: 'a.png' })).output).toContain('geçerli bir JPEG/PNG/WebP');
+    expect((await call('read', { path: 'yok.png' })).output).toContain('File not found');
+    state.rawFiles.set('big.jpg', Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(2_600_000)]));
+    expect((await call('read', { path: 'big.jpg' })).output).toContain('Görsel çok büyük');
   });
 });
 

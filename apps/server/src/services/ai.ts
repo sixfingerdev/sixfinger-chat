@@ -430,6 +430,16 @@ export function createAi(
   const chain = (mode: ChatMode | undefined, route?: 'code', vision = false): Array<{ name: string; ai: AiProvider }> => {
     // Code: seçilen modele göre sıra (Hızlı/Derin); ücretsiz modeller kapalıysa Qwen, olmazsa Claude. Hızlı (Pollinations) modeline ASLA düşülmez: kod ajanında sessizce zayıf modele geçmek kötü sonuç verir.
     if (route === 'code') {
+      // Görselli istek (read ile açılan resim): yalnızca görsel destekleyenler. Nemotron Code'a girmez.
+      if (vision) {
+        const vPool: Record<string, { name: string; ai: AiProvider } | undefined> = {
+          minimax: config.AI_FREE_FOR_CODE ? free.find((f) => f.name === 'minimax') : undefined,
+          qwen: deep && { name: 'qwen', ai: deep },
+          qwenllmtr: config.AI_FREE_FOR_CODE && qwenLlmtr ? { name: 'qwen-llmtr', ai: qwenLlmtr } : undefined,
+          claude: backup && { name: 'claude', ai: backup },
+        };
+        return ['minimax', 'qwen', 'qwenllmtr', 'claude'].map((k) => vPool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
+      }
       // Kullanıcının seçtiği model: Hızlı = hız öncelikli (MiniMax önde), Derin = güç öncelikli (DeepSeek > GLM > Qwen > Claude).
       // Ücretsiz üçüncü taraf modeller yalnızca `AI_FREE_FOR_CODE` açıksa girer; kapalıyken ikisi de Qwen → Claude'dur.
       const codeOrder = mode === 'fast' ? ['minimax', 'deepseek', 'glm', 'qwen', 'qwenllmtr', 'claude'] : ['deepseek', 'glm', 'qwen', 'qwenllmtr', 'claude'];

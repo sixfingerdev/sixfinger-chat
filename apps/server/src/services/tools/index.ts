@@ -51,6 +51,8 @@ export interface ToolRun {
   summary?: string;
   /** İstemci gösterimi için yapısal veri (modele gitmez). */
   meta?: Record<string, unknown>;
+  /** Modele gösterilecek görseller (bkz. ToolResult.images). */
+  images?: ToolResult['images'];
   ms: number;
   args: Record<string, unknown>;
 }
@@ -67,6 +69,7 @@ export async function runToolCall(defs: ToolDef[], call: AiToolCall, ctx: ToolCo
     output: r.output.length > limit ? `${r.output.slice(0, limit)}\n[… kısaltıldı]` : r.output,
     summary: r.summary,
     meta: r.meta,
+    ...(r.images?.length ? { images: r.images } : {}),
     ms: Date.now() - started,
     args,
   });
