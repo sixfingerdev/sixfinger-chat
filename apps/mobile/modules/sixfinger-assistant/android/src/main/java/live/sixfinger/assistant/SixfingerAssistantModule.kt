@@ -5,12 +5,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -18,8 +15,7 @@ import expo.modules.kotlin.modules.ModuleDefinition
 /** Asistan penceresinin JS köprüsü: açılış bilgisi, ekran içeriği, kapatma, ses tanıma ve ayar kısayolları. */
 class SixfingerAssistantModule : Module() {
   private val main = Handler(Looper.getMainLooper())
-  private var recognizer: SpeechRecognizer? = null
-  private var lastLevelAt = 0L
+  private var controller: SpeechController? = null
 
   private val context: Context
     get() = appContext.reactContext ?: throw IllegalStateException("React context yok")
@@ -34,7 +30,7 @@ class SixfingerAssistantModule : Module() {
     }
     OnDestroy {
       AssistBridge.emit = null
-      main.post { destroyRecognizer() }
+      main.post { controller?.destroy(); controller = null }
     }
 
     Function("getLaunchInfo") {
@@ -112,72 +108,20 @@ class SixfingerAssistantModule : Module() {
       mapOf("path" to r.path, "data" to r.base64, "width" to r.width, "height" to r.height)
     }
 
-    // ---- Ses tanıma (cihazdaki konuşma tanıma servisi) ----
+    // ---- Ses tanıma (cihazdaki konuşma tanıma servisi; çok dilde aynı sesi her dile verir) ----
     Function("isSpeechAvailable") { SpeechRecognizer.isRecognitionAvailable(context) }
 
-    Function("startListening") { lang: String ->
-      main.post { startRecognizer(lang) }
+    Function("startListening") { langs: List<String>, forceSingle: Boolean ->
+      main.post { speech().start(langs, forceSingle) }
     }
-    Function("stopListening") { main.post { recognizer?.stopListening() } }
-    Function("cancelListening") { main.post { destroyRecognizer() } }
+    Function("stopListening") { main.post { controller?.stop() } }
+    Function("cancelListening") { main.post { controller?.destroy() } }
   }
 
-  private fun emit(type: String, extra: Map<String, Any?> = emptyMap()) {
-    sendEvent("onSpeech", mapOf("type" to type) + extra)
-  }
-
-  private fun startRecognizer(lang: String) {
-    destroyRecognizer()
-    val ctx = context
-    val comp = try { pickRealRecognizer(ctx) } catch (_: Throwable) { null }
-    val r = try {
-      if (comp != null) SpeechRecognizer.createSpeechRecognizer(ctx, comp) else SpeechRecognizer.createSpeechRecognizer(ctx)
-    } catch (e: Throwable) {
-      emit("error", mapOf("code" to -1, "message" to (e.message ?: "tanıyıcı yok")))
-      return
-    }
-    recognizer = r
-    r.setRecognitionListener(object : RecognitionListener {
-      override fun onReadyForSpeech(params: Bundle?) = emit("ready")
-      override fun onBeginningOfSpeech() = emit("start")
-      override fun onRmsChanged(rmsdB: Float) {
-        val now = System.currentTimeMillis()
-        if (now - lastLevelAt < 70) return
-        lastLevelAt = now
-        emit("level", mapOf("value" to rmsdB.toDouble()))
-      }
-      override fun onBufferReceived(buffer: ByteArray?) {}
-      override fun onEndOfSpeech() = emit("end")
-      override fun onError(error: Int) = emit("error", mapOf("code" to error))
-      override fun onResults(results: Bundle?) {
-        val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
-        emit("final", mapOf("text" to text))
-      }
-      override fun onPartialResults(partialResults: Bundle?) {
-        val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
-        emit("partial", mapOf("text" to text))
-      }
-      override fun onEvent(eventType: Int, params: Bundle?) {}
-    })
-    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-      putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-      putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
-      putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-      putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, ctx.packageName)
-      putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-    }
-    try {
-      r.startListening(intent)
-    } catch (e: Throwable) {
-      emit("error", mapOf("code" to -1, "message" to (e.message ?: "başlatılamadı")))
-    }
-  }
-
-  private fun destroyRecognizer() {
-    recognizer?.let {
-      try { it.cancel() } catch (_: Throwable) {}
-      try { it.destroy() } catch (_: Throwable) {}
-    }
-    recognizer = null
+  private fun speech(): SpeechController {
+    controller?.let { return it }
+    val c = SpeechController(context) { body -> sendEvent("onSpeech", body) }
+    controller = c
+    return c
   }
 }

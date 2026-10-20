@@ -7,7 +7,7 @@ import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowUp, ArrowUpRight, Check, Copy, Crop, Mic, ScanText, Square, SquarePen, Volume2, X, Zap } from 'lucide-react-native';
-import { IMAGE_LIMITS } from '@sixfinger/shared';
+import { IMAGE_LIMITS, segmentByLanguage } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { copyText } from '../lib/format.ts';
@@ -19,7 +19,7 @@ import { useUi } from '../store/ui.ts';
 import { LogoMark } from '../components/Logo.tsx';
 import { WaitingLine } from '../components/WaitingLine.tsx';
 import { Markdown } from '../components/markdown/Markdown.tsx';
-import { readAutoVoice, readSpeakPref } from './prefs.ts';
+import { readAutoVoice, readSpeakPref, readSpeechLangs } from './prefs.ts';
 import { SlashWave } from './SlashWave.tsx';
 import { appName, assistantNative, type AssistContext, type ScreenshotInfo } from './native.ts';
 import type { PendingImage } from '../lib/images.ts';
@@ -77,7 +77,8 @@ export function AssistantPanel() {
   const path = useMemo(() => selectPath(detail), [detail]);
   const answer = [...path].reverse().find((m) => m.role === 'assistant');
   const question = [...path].reverse().find((m) => m.role === 'user');
-  const speechLang = locale === 'tr' ? 'tr-TR' : 'en-US';
+  const langs = useRef<string[]>(readSpeechLangs());
+  const spokenLang = useRef<string | null>(null);
 
   // ---- giriş / kapanış animasyonu ----
   const enter = useSharedValue(0);
@@ -98,8 +99,11 @@ export function AssistantPanel() {
   }, []);
 
   const speech = useSpeech(
-    speechLang,
-    (spoken) => void submit(spoken, { voice: true }),
+    () => (langs.current = readSpeechLangs()),
+    (spoken, lang) => {
+      spokenLang.current = lang;
+      void submit(spoken, { voice: true });
+    },
     (key) => setHint(t(key)),
   );
 
@@ -129,6 +133,8 @@ export function AssistantPanel() {
     const s1 = assistantNative.addListener('onScreenshot', (e) => setShot(e));
     const b = assistantNative.addListener('onSession', (e) => {
       setLaunch({ source: e.source, voice: e.voice });
+      langs.current = readSpeechLangs();
+      spokenLang.current = null;
       setCtx(null);
       setShot(null);
       setPicked(null);
@@ -174,14 +180,20 @@ export function AssistantPanel() {
     if (answer.status !== 'complete' || !answer.content.trim()) return;
     const pref = readSpeakPref();
     if (pref === 'off' || (pref === 'auto' && !pending.voice)) return;
+    // Her cümlenin dili ayrı bulunur (karışık yanıtlarda cümle cümle farklı dille okunur); belirsizse sorunun dili, o da yoksa birincil dil.
+    const primary = spokenLang.current ?? langs.current[0] ?? locale;
+    const segments = segmentByLanguage(plainSpeech(answer.content, t('assist.codeBlock')), langs.current.length > 1 ? langs.current : [primary], primary);
+    if (segments.length === 0) return;
     setSpeaking(true);
-    Speech.speak(plainSpeech(answer.content, t('assist.codeBlock')), {
-      language: speechLang,
-      onDone: () => setSpeaking(false),
-      onStopped: () => setSpeaking(false),
-      onError: () => setSpeaking(false),
-    });
-  }, [answer, speechLang, t]);
+    let left = segments.length;
+    const finish = () => {
+      left -= 1;
+      if (left <= 0) setSpeaking(false);
+    };
+    for (const seg of segments) {
+      Speech.speak(seg.text, { language: seg.lang, onDone: finish, onStopped: () => setSpeaking(false), onError: finish });
+    }
+  }, [answer, locale, t]);
 
   // ---- gönder ----
   async function submit(raw: string, opts: { voice?: boolean; screen?: boolean } = {}) {
@@ -189,6 +201,7 @@ export function AssistantPanel() {
     if (!q || generating) return;
     setHint('');
     stopSpeaking();
+    if (!opts.voice) spokenLang.current = null;
     let content = q;
     let attachments: Array<{ name: string; mime: string; text: string; truncated: boolean }> | undefined;
     if ((opts.screen || withScreen) && ctx?.text) {

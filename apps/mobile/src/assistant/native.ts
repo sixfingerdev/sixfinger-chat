@@ -16,11 +16,14 @@ export interface ScreenshotInfo {
   height: number;
 }
 
+/** `lang` yalnızca tanıyıcıya özgü olaylarda gelir (çok dilli kipte her dil ayrı bir "şerit"tir). */
 export type SpeechEvent =
-  | { type: 'ready' | 'start' | 'end' }
+  | { type: 'ready' | 'start' | 'end'; lang?: string }
+  | { type: 'lanes'; langs: string[] }
   | { type: 'level'; value: number }
-  | { type: 'partial' | 'final'; text: string }
-  | { type: 'error'; code: number; message?: string };
+  | { type: 'partial'; lang: string; text: string }
+  | { type: 'final'; lang: string; text: string; confidence: number }
+  | { type: 'error'; lang?: string; code: number; message?: string };
 
 interface Subscription {
   remove(): void;
@@ -38,7 +41,8 @@ interface NativeAssistant {
   isDefaultAssistant(): boolean;
   openAssistantSettings(): boolean;
   isSpeechAvailable(): boolean;
-  startListening(lang: string): void;
+  /** `langs`: etiketler ("tr-TR"). 2+ dilde aynı ses hepsine verilir; `forceSingle` yalnızca ilk dille cihaz mikrofonunu kullanır. */
+  startListening(langs: string[], forceSingle: boolean): void;
   stopListening(): void;
   cancelListening(): void;
   addListener(event: 'onSession', cb: (e: { source: string; voice: boolean }) => void): Subscription;
