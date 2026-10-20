@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, FileText, Lock, Mic, MicOff, Paperclip, Square, X } from 'lucide-react';
-import { CHAT_MODES, THINKING_LEVELS, modeSupportsThinkingLevel, type ChatMode } from '@sixfinger/shared';
+import { CHAT_MODES, IMAGE_LIMITS, THINKING_LEVELS, modeSupportsThinkingLevel, type ChatMode } from '@sixfinger/shared';
 import type { Effort, PendingAttachment } from '../lib/types.ts';
 import { clsx, timeUntil } from '../lib/format.ts';
 import { ACCEPT_ATTR, readTextFile } from '../lib/files.ts';
+import { prepareImage, type PendingImage } from '../lib/images.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 import { dictationSupported, startDictation, type Dictation } from '../lib/speech.ts';
 import { useAuth } from '../store/auth.ts';
@@ -38,6 +39,7 @@ export function Composer({
 
   const [value, setValue] = useState(() => drafts.get(draftKey) ?? '');
   const [files, setFiles] = useState<PendingAttachment[]>([]);
+  const [images, setImages] = useState<PendingImage[]>([]);
   const [dragging, setDragging] = useState(false);
   const [listening, setListening] = useState(false);
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -47,6 +49,7 @@ export function Composer({
   const limits = config?.limits;
   const maxChars = limits?.maxMessageChars ?? 4_000;
   const canAttach = Boolean(limits?.features.attachments);
+  const canImage = Boolean(limits?.features.images);
   const busy = Boolean(generating);
   const remaining = config ? Math.max(0, config.usage.limit - config.usage.used) : null;
   const coarse = useMemo(() => matchMedia('(pointer: coarse)').matches, []);
@@ -55,6 +58,7 @@ export function Composer({
   useEffect(() => {
     setValue(drafts.get(draftKey) ?? '');
     setFiles([]);
+    setImages([]);
     if (!coarse) ta.current?.focus();
   }, [draftKey, coarse]);
 
@@ -88,13 +92,33 @@ export function Composer({
     drafts.set(draftKey, v);
   };
 
-  const addFiles = async (list: FileList | File[]) => {
+  const addImages = async (list: File[]) => {
     const ui = useUi.getState();
+    if (!canImage) return lockedNotice();
+    const room = IMAGE_LIMITS.perMessage - images.length;
+    if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.imageMax', { n: IMAGE_LIMITS.perMessage }) });
+    const next: PendingImage[] = [];
+    for (const f of list.slice(0, room)) {
+      try {
+        next.push(await prepareImage(f));
+      } catch {
+        ui.toast({ kind: 'error', text: t('composer.imageFail', { name: f.name }) });
+      }
+    }
+    if (next.length) setImages((cur) => [...cur, ...next]);
+  };
+
+  const addFiles = async (all: FileList | File[]) => {
+    const ui = useUi.getState();
+    const imgs = Array.from(all).filter((f) => f.type.startsWith('image/'));
+    const list = Array.from(all).filter((f) => !f.type.startsWith('image/'));
+    if (imgs.length) await addImages(imgs);
+    if (!list.length) return;
     if (!canAttach) return lockedNotice();
     const room = (limits?.maxAttachments ?? 0) - files.length;
     if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.attachMax', { n: limits?.maxAttachments ?? 0 }) });
     const next: PendingAttachment[] = [];
-    for (const f of Array.from(list).slice(0, room)) {
+    for (const f of list.slice(0, room)) {
       const r = await readTextFile(f);
       if (!r.ok) {
         ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: f.name }) });
@@ -116,14 +140,15 @@ export function Composer({
   };
 
   const submit = () => {
-    const text = value.trim();
+    const text = value.trim() || (images.length ? t('composer.imageDefault') : '');
     if (!text || busy) return;
     if (text.length > maxChars) return useUi.getState().toast({ kind: 'error', text: t('composer.tooLong') });
     dictation.current?.stop();
-    void useChats.getState().send({ content: text, attachments: files, chatId, onChatCreated });
+    void useChats.getState().send({ content: text, attachments: files, images, chatId, onChatCreated });
     update('');
     drafts.delete(draftKey);
     setFiles([]);
+    setImages([]);
   };
 
   const toggleDictation = () => {
@@ -175,6 +200,18 @@ export function Composer({
           if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
         }}
       >
+        {images.length > 0 && (
+          <div className="composer-images">
+            {images.map((im, i) => (
+              <span key={`${im.name}-${i}`} className="thumb">
+                <img src={im.preview} alt={im.name} />
+                <button aria-label={t('common.delete')} onClick={() => setImages((cur) => cur.filter((_, j) => j !== i))}>
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         {files.length > 0 && (
           <div className="composer-files">
             {files.map((f, i) => (
@@ -195,6 +232,13 @@ export function Composer({
           value={value}
           placeholder={user?.isGuest ? t('composer.placeholderGuest') : t('composer.placeholder')}
           onChange={(e) => update(e.target.value)}
+          onPaste={(e) => {
+            const pics = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'));
+            if (pics.length) {
+              e.preventDefault();
+              void addImages(pics);
+            }
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !coarse) {
               e.preventDefault();
@@ -210,19 +254,19 @@ export function Composer({
               type="file"
               hidden
               multiple
-              accept={ACCEPT_ATTR}
+              accept={canImage ? `${ACCEPT_ATTR},image/*` : ACCEPT_ATTR}
               onChange={(e) => {
                 if (e.target.files) void addFiles(e.target.files);
                 e.target.value = '';
               }}
             />
             <button
-              className={clsx('icon-btn', !canAttach && 'is-locked')}
-              title={canAttach ? t('composer.attach') : t('composer.attachLocked')}
+              className={clsx('icon-btn', !canAttach && !canImage && 'is-locked')}
+              title={canAttach || canImage ? t('composer.attach') : t('composer.attachLocked')}
               aria-label={t('composer.attach')}
-              onClick={() => (canAttach ? fileInput.current?.click() : lockedNotice())}
+              onClick={() => (canAttach || canImage ? fileInput.current?.click() : lockedNotice())}
             >
-              {canAttach ? <Paperclip size={18} /> : <Lock size={16} />}
+              {canAttach || canImage ? <Paperclip size={18} /> : <Lock size={16} />}
             </button>
             {dictationSupported() && (
               <button
@@ -289,7 +333,7 @@ export function Composer({
                 <Square size={14} fill="currentColor" />
               </button>
             ) : (
-              <button className="send-btn" onClick={submit} disabled={!value.trim() || over} aria-label={t('composer.send')} title={t('composer.send')}>
+              <button className="send-btn" onClick={submit} disabled={(!value.trim() && !images.length) || over} aria-label={t('composer.send')} title={t('composer.send')}>
                 <ArrowUp size={18} strokeWidth={2.4} />
               </button>
             )}

@@ -80,6 +80,25 @@ export const attachmentSchema = z.object({
 });
 export type AttachmentInput = z.infer<typeof attachmentSchema>;
 
+/** Mesaja eklenen görseller (istemcide küçültülmüş JPEG/PNG/WebP). */
+export const IMAGE_LIMITS = {
+  /** Bir mesajdaki en fazla görsel. */
+  perMessage: 4,
+  /** Çözülmüş tek görselin en büyük boyutu (bayt). İstemci uzun kenarı ~1280 px'e küçültüp JPEG sıkıştırır (genelde 100–400 KB). */
+  maxBytes: 900_000,
+  /** Modele yeniden gönderilen geçmişte görselli en fazla kaç kullanıcı mesajı taşınır (eskilerin yerine metin notu girer). */
+  historyMessages: 2,
+  mimes: ['image/jpeg', 'image/png', 'image/webp'],
+} as const;
+
+export const imageInputSchema = z.object({
+  name: z.string().trim().min(1).max(160).default('gorsel'),
+  mime: z.enum(IMAGE_LIMITS.mimes),
+  /** Base64 (başlıksız). */
+  data: z.string().min(16).max(Math.ceil((IMAGE_LIMITS.maxBytes * 4) / 3) + 8),
+});
+export type ImageInput = z.infer<typeof imageInputSchema>;
+
 /** Düşünme düzeyi (`reasoning_effort`). */
 export const effortSchema = z.enum(['low', 'medium', 'high']);
 /** Çalışma modu: hangi model yanıtlar. */
@@ -94,6 +113,8 @@ export const sendMessageSchema = z.object({
   /** Yeni mesajın bağlanacağı mesaj. Verilmezse sohbetin aktif ucu. Düzenlemede, düzenlenen mesajın üstü. */
   parentId: z.string().uuid().nullable().optional(),
   attachments: z.array(attachmentSchema).max(8).optional(),
+  /** Görseller (yalnızca sohbette; görsel destekleyen modele yönlendirilir). */
+  images: z.array(imageInputSchema).max(IMAGE_LIMITS.perMessage).optional(),
   /** Code: plan modu (yalnızca okuma araçları; ajan değişiklik yapmaz, plan sunar). */
   planMode: z.boolean().optional(),
 });

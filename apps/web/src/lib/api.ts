@@ -255,6 +255,13 @@ async function readEvents(res: Response, onEvent: (e: StreamEvent) => void): Pro
 }
 
 /** SSE akışı (POST): sunucu olaylarını tek tek `onEvent`'e verir. */
+/** Mesaja eklenmiş görselin baytları (kimlik doğrulamalı). */
+export async function fetchImageBlob(id: string): Promise<Blob> {
+  const res = await send('GET', `/images/${id}`, undefined, {});
+  if (!res.ok) throw new ApiError(res.status, 'not_found', 'Görsel alınamadı.');
+  return res.blob();
+}
+
 export async function streamRequest(
   path: string,
   body: unknown,

@@ -1,6 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   ATTACHMENT_MAX_CHARS,
+  IMAGE_LIMITS,
+  type ImageInput,
+  type ImageRefDTO,
   DEFAULT_THINKING_LEVEL,
   feedbackSchema,
   legacyModeFromEffort,
@@ -32,6 +35,7 @@ import {
   type MessageRow,
 } from '../services/chats.ts';
 import { addMemory, listMemories } from '../services/memories.ts';
+import { checkImages, imageRefs, loadImages, saveImages } from '../services/images.ts';
 import {
   MODEL_ID,
   buildSystemPrompt,
@@ -173,10 +177,12 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
   interface TurnBody {
     content: string;
     attachments?: Array<{ name: string; mime: string; text: string }>;
+    images?: ImageInput[];
     parentId?: string | null;
   }
   interface BegunTurn {
     userRow: MessageRow;
+    images: ImageRefDTO[];
     assistantId: string;
     history: HistoryItem[];
     isFirstExchange: boolean;
@@ -195,6 +201,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       }
       if (attachments.some((a) => a.text.length > ATTACHMENT_MAX_CHARS)) throw badRequest('Dosya çok büyük.');
     }
+    if (body.images?.length && !user.limits.features.images) throw tierRestricted('Görsel eklemek için e-postanı doğrulamış bir hesap gerekir.');
   }
 
   /** Kullanıcı mesajını ve boş asistan yanıtını yazar, modele gidecek geçmişi hazırlar (doğrulamalar dahil). Hem istek hem sunucu kuyruğu kullanır. */
@@ -202,6 +209,9 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     const isCode = chat.kind === 'code';
     assertTurnBody(user, body);
     const attachments = body.attachments ?? [];
+    if (isCode && body.images?.length) throw badRequest('Code oturumlarında görsel eklenemez.');
+    // Görseller kota düşülmeden önce doğrulanır (boyut, tür, dosya imzası).
+    const checkedImages = body.images?.length ? checkImages(body.images) : [];
 
     // Yeni mesajın ebeveyni: açıkça verilmişse o, yoksa sohbetin ucu.
     const parentId = body.parentId === undefined ? chat.leaf_id : body.parentId;
@@ -219,6 +229,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     if (!isCode) await usage.consume(user.id, user.tier, user.isGuest ? ip : null);
 
     let userRow: MessageRow, assistantId: string;
+    let images: ImageRefDTO[] = [];
     let isFirstExchange = false;
     try {
       const count = await db.query<{ n: number }>('select count(*)::int as n from messages where chat_id = $1', [chat.id]);
@@ -229,6 +240,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         [chat.id, parentId, body.content, JSON.stringify(attachments)],
       );
       userRow = u.rows[0]!;
+      if (checkedImages.length) images = await saveImages(db, userRow.id, user.id, checkedImages);
       const a = await db.query<{ id: string }>(
         `insert into messages (chat_id, parent_id, role, status, model)
          values ($1, $2, 'assistant', 'streaming', $3) returning id`,
@@ -244,13 +256,27 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       throw err;
     }
 
-    const path = await getPath(db, userRow.id);
-    const history = path.map((m) => ({
-      role: m.role,
-      content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
-      parts: m.role === 'assistant' ? m.parts : undefined,
-    }));
-    return { userRow, assistantId, history, isFirstExchange };
+    const history = await buildHistory(await getPath(db, userRow.id));
+    return { userRow, images, assistantId, history, isFirstExchange };
+  }
+
+  /**
+   * Yoldaki mesajlardan modele gidecek geçmiş. Görseller bağlamı şişirir: yalnızca en yeni birkaç görselli kullanıcı mesajında taşınır,
+   * eskilerin yerine metin notu girer.
+   */
+  async function buildHistory(path: Array<Pick<MessageRow, 'id' | 'role' | 'content' | 'attachments' | 'parts'>>): Promise<HistoryItem[]> {
+    const refs = await imageRefs(db, path.filter((m) => m.role === 'user').map((m) => m.id));
+    const withImages = path.filter((m) => m.role === 'user' && refs.has(m.id));
+    const keep = new Set(withImages.slice(-IMAGE_LIMITS.historyMessages).map((m) => m.id));
+    const loaded = await loadImages(db, [...keep]);
+    return path.map((m): HistoryItem => {
+      if (m.role === 'assistant') return { role: 'assistant', content: m.content, parts: m.parts };
+      let content = renderUserContent(m.content, m.attachments ?? []);
+      const r = refs.get(m.id);
+      if (r && !keep.has(m.id)) content += `\n\n[Eklenen görsel: ${r.map((x) => x.name).join(', ')} — eski olduğu için bu turda gösterilmiyor]`;
+      const imgs = loaded.get(m.id);
+      return { role: 'user', content, ...(imgs?.length ? { images: imgs } : {}) };
+    });
   }
 
   /** Üretimi başlatır, istek sahibini ona bağlar ve beklemeden döner; üretim arka planda sürer. */
@@ -289,7 +315,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       await generate(null, null, {
         chat,
         user,
-        userMessage: toMessageDTO(turn.userRow),
+        userMessage: toMessageDTO(turn.userRow, turn.images),
         assistantId: turn.assistantId,
         history: turn.history,
         mode: task.mode,
@@ -373,7 +399,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         generateCode(null, {
           chat,
           user,
-          userMessage: toMessageDTO(turn.userRow),
+          userMessage: toMessageDTO(turn.userRow, turn.images),
           assistantId: turn.assistantId,
           history: turn.history,
           userText: item.content,
@@ -685,14 +711,14 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         }
 
         const turn = await beginTurn(chat, user, body, req.ip);
-        const { userRow, assistantId, history, isFirstExchange } = turn;
+        const { userRow, images, assistantId, history, isFirstExchange } = turn;
         if (isCode) {
           return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange, planMode: body.planMode === true, codeMode: body.mode === 'fast' ? 'fast' : 'deep' });
         }
         generate(req, reply, {
           chat,
           user,
-          userMessage: toMessageDTO(userRow),
+          userMessage: toMessageDTO(userRow, images),
           assistantId,
           history,
           ...chosenMode(body),
@@ -780,11 +806,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         }
 
         const path = await getPath(db, t.parent_id);
-        const history = path.map((m) => ({
-          role: m.role,
-          content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
-          parts: m.role === 'assistant' ? m.parts : undefined,
-        }));
+        const history = await buildHistory(path);
         const lastUser = [...path].reverse().find((m) => m.role === 'user');
         generate(req, reply, {
           chat,

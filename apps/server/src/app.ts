@@ -68,7 +68,8 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     trustProxy: config.TRUST_PROXY,
     // Önizleme adresindeki imzalı token (oturum + kök/port) varsayılan 100 karakter sınırından uzundur.
     maxParamLength: 2_000,
-    bodyLimit: 1_048_576 * 2,
+    // Görselli mesajlar: en fazla 4 görsel × ~1,2 MB base64.
+    bodyLimit: 1_048_576 * 6,
     genReqId: () => crypto.randomUUID(),
   });
 

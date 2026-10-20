@@ -15,9 +15,17 @@ export interface AiToolSpec {
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
 
+/** Kullanıcı mesajına eklenmiş görsel (base64). Yalnızca görsel destekleyen modellere gider. */
+export interface AiImage {
+  mime: string;
+  data: string;
+}
+
 export interface AiMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  /** Yalnızca user: eklenmiş görseller. Varsa istek görsel destekleyen modellere yönlenir (MiniMax → Qwen → Nemotron → Claude). */
+  images?: AiImage[];
   /** Yalnızca asistan: bu turda istenen araç çağrıları. */
   tool_calls?: AiToolCall[];
   /** Yalnızca tool: hangi çağrının sonucu. */
@@ -138,6 +146,22 @@ export function stripToolMarkup(text: string): string {
 /** Zaman aşımı hatası (bağlanma ya da akış arası sessizlik): yeniden denenebilir sayılır. */
 const timeoutError = () => new DOMException('The operation was aborted due to timeout', 'TimeoutError');
 
+/** OpenAI biçimi: görselli kullanıcı mesajı içerik dizisine (metin + image_url) çevrilir; iç alan `images` dışarı gitmez. */
+export function wireMessage(m: AiMessage): Omit<AiMessage, 'images' | 'content'> & { content: AiMessage['content'] | Array<Record<string, unknown>> } {
+  const { images, ...rest } = m;
+  if (!images?.length) return rest;
+  return {
+    ...rest,
+    content: [
+      { type: 'text', text: m.content || '.' },
+      ...images.map((img) => ({ type: 'image_url', image_url: { url: `data:${img.mime};base64,${img.data}` } })),
+    ],
+  };
+}
+
+/** İsteğin herhangi bir mesajında görsel var mı? */
+export const hasImages = (req: Pick<AiRequest, 'messages'>): boolean => req.messages.some((m) => m.images?.length);
+
 function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl: typeof fetch): AiProvider {
   const gate = new Semaphore(config.AI_MAX_CONCURRENCY);
 
@@ -154,7 +178,7 @@ function createEndpoint(profile: Profile, config: Config, log: Logger, fetchImpl
   function body(req: AiRequest, stream: boolean) {
     return JSON.stringify({
       model: profile.model,
-      messages: req.messages,
+      messages: req.messages.map(wireMessage),
       stream,
       temperature: req.temperature ?? 0.7,
       ...(profile.sendEffort ? { reasoning_effort: (config.AI_MAX_EFFORT && profile.maxEffort) || req.effort || 'medium' } : {}),
@@ -403,7 +427,7 @@ export function createAi(
   const approxTokens = (req: AiRequest) => Math.ceil(req.messages.reduce((n, m) => n + m.content.length + (m.tool_calls ? JSON.stringify(m.tool_calls).length : 0), 0) / 3.5);
 
   /** Bu mod için denenecek sağlayıcılar, sırayla (yapılandırılmamış olanlar atlanır). */
-  const chain = (mode: ChatMode | undefined, route?: 'code'): Array<{ name: string; ai: AiProvider }> => {
+  const chain = (mode: ChatMode | undefined, route?: 'code', vision = false): Array<{ name: string; ai: AiProvider }> => {
     // Code: seçilen modele göre sıra (Hızlı/Derin); ücretsiz modeller kapalıysa Qwen, olmazsa Claude. Hızlı (Pollinations) modeline ASLA düşülmez: kod ajanında sessizce zayıf modele geçmek kötü sonuç verir.
     if (route === 'code') {
       // Kullanıcının seçtiği model: Hızlı = hız öncelikli (MiniMax önde), Derin = güç öncelikli (DeepSeek > GLM > Qwen > Claude).
@@ -437,14 +461,16 @@ export function createAi(
       balanced: ['gptoss120', 'minimax', 'glm', 'deepseek', 'qwen', 'qwenllmtr', 'nemotron', 'gptoss20', 'claude'],
       deep: ['deepseek', 'glm', 'qwen', 'qwenllmtr', 'minimax', 'nemotron', 'gptoss120', 'gptoss20', 'claude'],
     };
-    return ORDER[mode ?? 'fast'].map((k) => pool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
+    // Görselli istek: yalnızca görsel destekleyen modeller (gpt-oss görseli sessizce yok sayar, DeepSeek/GLM/Pollinations 400 verir). Test edilmiş sıra: MiniMax → Qwen (OVH) → Qwen (llmtr) → Nemotron VL → Claude.
+    const VISION = ['minimax', 'qwen', 'qwenllmtr', 'nemotron', 'claude'];
+    return (vision ? VISION : ORDER[mode ?? 'fast']).map((k) => pool[k]).filter(Boolean) as Array<{ name: string; ai: AiProvider }>;
   };
   const aborted = (req: AiRequest, err: unknown) => req.signal?.aborted || (err as Error)?.name === 'AbortError';
 
   return {
     async *stream(req) {
-      const list = chain(req.mode, req.route);
-      if (!list.length) throw new HttpError(503, 'upstream_unavailable', 'Code için model yapılandırılmamış (AI_DEEP_BASE_URL).');
+      const list = chain(req.mode, req.route, hasImages(req));
+      if (!list.length) throw new HttpError(503, 'upstream_unavailable', hasImages(req) ? 'Görsel destekleyen bir model şu an yapılandırılmamış.' : 'Code için model yapılandırılmamış (AI_DEEP_BASE_URL).');
       for (const [i, p] of list.entries()) {
         const last = i === list.length - 1;
         let started = false;
@@ -477,8 +503,8 @@ export function createAi(
       }
     },
     async complete(req) {
-      const list = chain(req.mode, req.route);
-      if (!list.length) throw new HttpError(503, 'upstream_unavailable', 'Code için model yapılandırılmamış (AI_DEEP_BASE_URL).');
+      const list = chain(req.mode, req.route, hasImages(req));
+      if (!list.length) throw new HttpError(503, 'upstream_unavailable', hasImages(req) ? 'Görsel destekleyen bir model şu an yapılandırılmamış.' : 'Code için model yapılandırılmamış (AI_DEEP_BASE_URL).');
       for (const [i, p] of list.entries()) {
         const last = i === list.length - 1;
         try {

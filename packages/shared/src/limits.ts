@@ -22,6 +22,8 @@ export interface TierLimits {
   maxToolSteps: number;
   features: {
     attachments: boolean;
+    /** Mesaja görsel eklemek (görsel destekleyen modellere gider). */
+    images: boolean;
     memory: boolean;
     customInstructions: boolean;
     share: boolean;
@@ -46,6 +48,7 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
     maxToolSteps: 4,
     features: {
       attachments: false,
+      images: false,
       memory: false,
       customInstructions: false,
       share: false,
@@ -66,6 +69,7 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
     maxToolSteps: 4,
     features: {
       attachments: false,
+      images: false,
       memory: false,
       customInstructions: true,
       share: false,
@@ -86,6 +90,7 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
     maxToolSteps: 8,
     features: {
       attachments: true,
+      images: true,
       memory: true,
       customInstructions: true,
       share: true,

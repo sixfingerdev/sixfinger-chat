@@ -102,6 +102,13 @@ export type MessagePartDTO =
       ms?: number;
     };
 
+/** Mesaja eklenmiş görselin başvurusu; baytlar `GET /api/images/:id` ile alınır. */
+export interface ImageRefDTO {
+  id: string;
+  name: string;
+  mime: string;
+}
+
 export interface MessageDTO {
   id: string;
   chatId: string;
@@ -112,6 +119,8 @@ export interface MessageDTO {
   status: MessageStatus;
   model: string | null;
   attachments: AttachmentDTO[];
+  /** Eklenen görseller (yoksa boş ya da yok). */
+  images?: ImageRefDTO[];
   feedback: 1 | -1 | null;
   /** Düşünme süresi (ms) */
   reasoningMs: number | null;
