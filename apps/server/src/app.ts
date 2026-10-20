@@ -37,6 +37,7 @@ import { codeRoutes } from './routes/code.ts';
 import { mcpRoutes } from './routes/mcp.ts';
 import { scheduleRoutes } from './routes/schedule.ts';
 import { llmRoutes } from './routes/llm.ts';
+import { deviceRoutes } from './routes/device.ts';
 import { createSchedule, startScheduler } from './services/schedule.ts';
 import { createMcp } from './services/mcp/index.ts';
 import type { FetchLike } from './services/mcp/guarded-fetch.ts';
@@ -192,6 +193,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
       await api.register(mcpRoutes(ctx, guard));
       await api.register(scheduleRoutes(ctx, guard));
       await api.register(llmRoutes(ctx, guard));
+      await api.register(deviceRoutes(ctx, guard));
     },
     { prefix: '/api' },
   );
