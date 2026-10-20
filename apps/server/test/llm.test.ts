@@ -79,4 +79,18 @@ describe('SixFinger Code model ucu', () => {
     const m = await member(env);
     expect((await post(m, { messages: [{ role: 'user', content: 'x' }] })).statusCode).toBe(403);
   });
+
+  it('web araması: sunucunun kendi aramasıyla sonuç döner; kural dışı istek reddedilir', async () => {
+    const a = await coder();
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('{"results":[{"title":"SixFinger","url":"https://example.com/a","content":"özet"}]}', { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    try {
+      const bad = await env.app.inject({ method: 'POST', url: '/api/llm/v1/web_search', headers: auth(a), payload: { query: '' } });
+      expect(bad.statusCode).toBe(400);
+      const m = await member(env);
+      expect((await env.app.inject({ method: 'POST', url: '/api/llm/v1/web_search', headers: auth(m), payload: { query: 'x' } })).statusCode).toBe(403);
+    } finally {
+      globalThis.fetch = orig;
+    }
+  });
 });

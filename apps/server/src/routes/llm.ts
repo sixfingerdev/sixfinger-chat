@@ -6,6 +6,7 @@ import type { Guard } from '../guard.ts';
 import type { AiImage, AiMessage, AiToolCall, AiToolSpec } from '../services/ai.ts';
 import { HttpError, badRequest, forbidden } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
+import { createSearcher } from '../services/tools/search.ts';
 
 /**
  * SixFinger Code CLI'nin model ucu (OpenAI uyumlu `chat/completions`). CLI ajan döngüsünü cihazda çalıştırır, modeli buradan çağırır.
@@ -42,6 +43,8 @@ const bodySchema = z.object({
   reasoning_effort: z.enum(['low', 'medium', 'high']).optional(),
 });
 
+const searchBody = z.object({ query: z.string().trim().min(1).max(300), limit: z.number().int().min(1).max(10).optional() });
+
 const DATA_URL = /^data:(image\/[a-z+.-]+);base64,(.+)$/i;
 
 /** OpenAI içerik dizisini bizim mesaj biçimimize çevirir (görseller yalnızca data: URL; dış adrese istek yapmayız). */
@@ -69,7 +72,8 @@ function toAiMessage(m: z.infer<typeof messageSchema>): AiMessage {
 const approx = (s: string) => Math.ceil(s.length / 3.5);
 
 export function llmRoutes(ctx: AppContext, guard: Guard) {
-  const { ai, code } = ctx;
+  const { ai, code, config } = ctx;
+  const searcher = createSearcher(fetch, Date.now, { searxngUrl: config.SEARXNG_URL || undefined });
 
   return async function (app: FastifyInstance) {
     app.addHook('preHandler', guard.requireUser);
@@ -78,6 +82,14 @@ export function llmRoutes(ctx: AppContext, guard: Guard) {
       object: 'list',
       data: MODELS.map((id) => ({ id, object: 'model', owned_by: 'sixfinger' })),
     }));
+
+    /** CLI'nın web araması: dış hizmet (Exa vb.) yerine kendi aramamız (SearXNG + DuckDuckGo/Bing birleşik). */
+    app.post('/llm/v1/web_search', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
+      if (!code.isAllowed(req.user!)) throw forbidden('SixFinger Code için erişimin yok.');
+      const b = parse(searchBody, req.body);
+      const { provider, results } = await searcher.search(b.query, { locale: req.user!.locale, limit: b.limit ?? 8 });
+      return { provider, results };
+    });
 
     app.post('/llm/v1/chat/completions', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } }, bodyLimit: 8 * 1024 * 1024 }, async (req, reply) => {
       const user = req.user!;
