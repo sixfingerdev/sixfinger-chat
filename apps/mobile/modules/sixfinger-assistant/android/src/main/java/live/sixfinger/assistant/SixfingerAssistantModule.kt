@@ -10,7 +10,6 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.speech.RecognitionListener
-import android.speech.RecognitionService
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import expo.modules.kotlin.modules.Module
@@ -118,20 +117,10 @@ class SixfingerAssistantModule : Module() {
     sendEvent("onSpeech", mapOf("type" to type) + extra)
   }
 
-  /** Asistan olarak seçildiğimizde varsayılan tanıyıcı biz olabiliriz: gerçek bir tanıyıcıyı (tercihen Google) açıkça seçeriz. */
-  private fun pickRecognizer(): ComponentName? {
-    val services = context.packageManager.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
-      .mapNotNull { it.serviceInfo }
-      .filter { it.packageName != context.packageName }
-    val google = services.firstOrNull { it.packageName == "com.google.android.googlequicksearchbox" }
-    val chosen = google ?: services.firstOrNull() ?: return null
-    return ComponentName(chosen.packageName, chosen.name)
-  }
-
   private fun startRecognizer(lang: String) {
     destroyRecognizer()
     val ctx = context
-    val comp = try { pickRecognizer() } catch (_: Throwable) { null }
+    val comp = try { pickRealRecognizer(ctx) } catch (_: Throwable) { null }
     val r = try {
       if (comp != null) SpeechRecognizer.createSpeechRecognizer(ctx, comp) else SpeechRecognizer.createSpeechRecognizer(ctx)
     } catch (e: Throwable) {

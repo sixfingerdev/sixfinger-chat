@@ -19,7 +19,7 @@ object AssistDiag {
   fun snapshot(ctx: Context): Map<String, Any?> {
     val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val out = LinkedHashMap<String, Any?>()
-    for (k in listOf("ready", "sessionNew", "show", "assist", "startActivity", "startActivityError", "hide", "activity", "keyguard")) {
+    for (k in listOf("ready", "sessionNew", "show", "assist", "startActivity", "startActivityError", "hide", "activity", "keyguard", "recognizer")) {
       val n = p.getInt("$k.n", 0)
       out[k] = if (n == 0) null else mapOf("n" to n, "at" to p.getLong("$k.at", 0), "err" to p.getString("$k.err", null))
     }

@@ -67,6 +67,7 @@ export function formatDiagnostics(d: Record<string, unknown>): string {
     hide: 'oturum kapandı',
     activity: 'pencere açıldı (Activity)',
     keyguard: 'kilit ekranından çağrı',
+    recognizer: 'ses tanıma isteği (SixFinger tanıyıcısı)',
   };
   const lines: string[] = [String(d.device ?? '')];
   for (const k of ['assistant', 'voice_interaction_service', 'voice_recognition_service']) lines.push(`${k}: ${String(d[`setting.${k}`] ?? '—')}`);

@@ -26,6 +26,20 @@
       android:exported="true"
       android:permission="android.permission.BIND_VOICE_INTERACTION" />
 
+    <!-- Asistan servisinin geçerli sayılması için konuşma tanıma servisi (isteği cihazdaki gerçek tanıyıcıya iletir). -->
+    <service
+      android:name=".SfRecognitionService"
+      android:exported="true"
+      android:label="SixFinger">
+      <intent-filter>
+        <action android:name="android.speech.RecognitionService" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+      <meta-data
+        android:name="android.speech"
+        android:resource="@xml/sf_recognition_service" />
+    </service>
+
     <!-- Diğer uygulamaların üstünde açılan yarı saydam asistan penceresi. -->
     <activity
       android:name=".AssistantActivity"
