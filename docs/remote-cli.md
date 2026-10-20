@@ -82,3 +82,8 @@ Yani iki tür oturum tek listede:
 1. `sixfinger login`, cihaz/oturum listesi (yerel + bulut tek listede), bulut oturumuna TUI bağlantısı (salt API, köprü gerektirmez).
 2. Köprü: yerel oturumların site/uygulamadan izlenmesi (yukarıdaki aşama 1–2).
 3. Çek/it (taşıma), kredi uyarıları, bildirimler.
+
+## İlerleme (Ekim 2026)
+- **Yapıldı (SixFinger-Code deposu, dal `ccr-e29a21fb-ncys28`):** mekanik yeniden markalama (`script/rebrand.ts`), SIX FINGER logosu, tek sağlayıcı SixFinger (Hızlı/Derin; models.dev, BYOK, Zen ve eklenti sağlayıcıları kapalı).
+- **Yapıldı (bu depo):** `POST /api/llm/v1/chat/completions` ve `GET /api/llm/v1/models` (`routes/llm.ts`): OpenAI uyumlu, akışlı, araç çağrılı; yalnızca `fast`/`deep`; Code zinciri (`route: 'code'`) ve Code günlük kredisi; görseller yalnızca `data:` URL. CLI `SIXFINGER_API_URL` ile bu uca bağlanır, anahtar olarak oturum erişim jetonunu (`SIXFINGER_TOKEN`) kullanır.
+- **Sıradaki:** `sixfinger login` (cihaz kodu → jeton), `auth`/`providers` komutları ile TUI sağlayıcı-bağlama diyaloglarının kaldırılması, `opencode.ai` alan adı/simgeler, ardından köprü (`sixfinger link`).
