@@ -5,6 +5,11 @@ package live.sixfinger.assistant
  * Olaylar JS hazır olmadan önce gelebilir; bu yüzden son durum burada tutulur ve JS açılışta çeker (`getLaunchInfo`, `getAssistContext`).
  */
 object AssistBridge {
+  /** Sistemin verdiği ekran görüntüsü (tam çözünürlük; bölge seçiminde kırpılır). */
+  @Volatile var screenshot: android.graphics.Bitmap? = null
+  /** Önizleme dosyası: { path, width, height }. */
+  @Volatile var screenshotInfo: Map<String, Any?>? = null
+
   /** Pencere nereden açıldı: "assistant" (güç tuşu/kaydırma), "assist" (ACTION_ASSIST), "tile", "app". */
   @Volatile var source: String = "app"
   /** Açılır açılmaz mikrofonu başlat (karo ve "sesle sor" kısayolu). */
@@ -21,7 +26,14 @@ object AssistBridge {
     source = src
     autoVoice = voice
     snapshot = null
+    screenshot = null
+    screenshotInfo = null
     emit?.invoke("onSession", mapOf("source" to src, "voice" to voice))
+  }
+
+  fun setScreenshot(info: Map<String, Any?>) {
+    screenshotInfo = info
+    emit?.invoke("onScreenshot", info)
   }
 
   fun setContext(s: Map<String, Any?>) {

@@ -5,6 +5,7 @@ import { reportError } from '../lib/errors.ts';
 import { translate } from '../lib/i18n/index.ts';
 import { kv } from '../lib/storage.ts';
 import type { PendingAttachment } from '../lib/types.ts';
+import { seedLocalImage, type PendingImage } from '../lib/images.ts';
 import { activePath, deepestLeaf, indexMessages } from '../lib/tree.ts';
 import { useCode } from './code.ts';
 import { useUi } from './ui.ts';
@@ -57,6 +58,8 @@ interface ChatsState {
   send: (p: {
     content: string;
     attachments?: PendingAttachment[];
+    /** Küçültülmüş görseller (yalnızca sohbette). */
+    images?: PendingImage[];
     chatId?: string | null;
     /** Düzenleme için: yeni mesajın bağlanacağı üst mesaj (null = kök). */
     parentId?: string | null;
@@ -396,7 +399,7 @@ export const useChats = create<ChatsState>((set, get) => {
     newChat: () => set({ activeId: null, loadError: null, loadingId: null }),
     setDraftPersona: (draftPersona) => set({ draftPersona }),
 
-    async send({ content, attachments = [], chatId, parentId, onChatCreated, planMode, mode }) {
+    async send({ content, attachments = [], images = [], chatId, parentId, onChatCreated, planMode, mode }) {
       if (chatId && get().generating[chatId]) return;
       let id = chatId ?? null;
       try {
@@ -421,6 +424,11 @@ export const useChats = create<ChatsState>((set, get) => {
         parentId: parent,
         content,
         attachments: attachments.map((a) => ({ name: a.name, mime: a.mime, text: a.text })),
+        images: images.map((im, i) => {
+          const imgId = `local:${tmpId('i')}:${i}`;
+          seedLocalImage(imgId, im.preview);
+          return { id: imgId, name: im.name, mime: im.mime };
+        }),
       });
       const asstTmp = blankMessage({ id: tmpId('a'), chatId: id, role: 'assistant', parentId: userTmp.id, status: 'streaming' });
       patchDetail(id, (d) => ({
@@ -437,6 +445,7 @@ export const useChats = create<ChatsState>((set, get) => {
         mode: detail.chat.kind === 'code' ? useCode.getState().codeMode : (mode ?? useUi.getState().mode),
         effort: useUi.getState().effort,
         attachments: attachments.length ? attachments.map(({ name, mime, text }) => ({ name, mime, text })) : undefined,
+        images: images.length ? images.map(({ name, mime, data }) => ({ name, mime, data })) : undefined,
         planMode: planMode || undefined,
       };
       const dropped = await runStream(chat, (onEvent, signal) => streamRequest(`/chats/${chat}/messages`, body, onEvent, signal), {

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Pressable, ScrollView, Text as RNText, TextInput, View, useWindowDimensions } from 'react-native';
+import { BackHandler, Image, Pressable, ScrollView, Text as RNText, TextInput, View, useWindowDimensions } from 'react-native';
 import * as Speech from 'expo-speech';
 import { router } from 'expo-router';
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowUp, ArrowUpRight, Check, Copy, Mic, ScanText, Square, SquarePen, Volume2, X, Zap } from 'lucide-react-native';
+import { ArrowUp, ArrowUpRight, Check, Copy, Crop, Mic, ScanText, Square, SquarePen, Volume2, X, Zap } from 'lucide-react-native';
+import { IMAGE_LIMITS } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { copyText } from '../lib/format.ts';
@@ -20,7 +21,9 @@ import { WaitingLine } from '../components/WaitingLine.tsx';
 import { Markdown } from '../components/markdown/Markdown.tsx';
 import { readAutoVoice, readSpeakPref } from './prefs.ts';
 import { SlashWave } from './SlashWave.tsx';
-import { appName, assistantNative, type AssistContext } from './native.ts';
+import { appName, assistantNative, type AssistContext, type ScreenshotInfo } from './native.ts';
+import type { PendingImage } from '../lib/images.ts';
+import { RegionSelect, type RegionBox } from './RegionSelect.tsx';
 import { useSpeech } from './useSpeech.ts';
 
 /** Sesli okumak için Markdown işaretlerini ve kod bloklarını sadeleştirir. */
@@ -57,6 +60,9 @@ export function AssistantPanel() {
 
   const [launch, setLaunch] = useState(() => assistantNative?.getLaunchInfo() ?? { source: 'app', voice: false });
   const [ctx, setCtx] = useState<AssistContext | null>(() => assistantNative?.getAssistContext() ?? null);
+  const [shot, setShot] = useState<ScreenshotInfo | null>(() => assistantNative?.getScreenshot() ?? null);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<PendingImage | null>(null);
   const [withScreen, setWithScreen] = useState(false);
   const [text, setText] = useState('');
   const [chatId, setChatId] = useState<string | null>(null);
@@ -120,9 +126,13 @@ export function AssistantPanel() {
   useEffect(() => {
     if (!assistantNative) return;
     const a = assistantNative.addListener('onAssistContext', (e) => setCtx(e));
+    const s1 = assistantNative.addListener('onScreenshot', (e) => setShot(e));
     const b = assistantNative.addListener('onSession', (e) => {
       setLaunch({ source: e.source, voice: e.voice });
       setCtx(null);
+      setShot(null);
+      setPicked(null);
+      setSelecting(false);
       setWithScreen(false);
       setChatId(null);
       setText('');
@@ -134,6 +144,7 @@ export function AssistantPanel() {
     });
     return () => {
       a.remove();
+      s1.remove();
       b.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -147,12 +158,13 @@ export function AssistantPanel() {
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (speech.state !== 'idle') speech.cancel();
+      if (selecting) setSelecting(false);
+      else if (speech.state !== 'idle') speech.cancel();
       else close();
       return true;
     });
     return () => sub.remove();
-  }, [close, speech]);
+  }, [close, speech, selecting]);
 
   // ---- yanıtı sesli oku (tercihe göre) ----
   useEffect(() => {
@@ -173,7 +185,7 @@ export function AssistantPanel() {
 
   // ---- gönder ----
   async function submit(raw: string, opts: { voice?: boolean; screen?: boolean } = {}) {
-    const q = raw.trim();
+    const q = raw.trim() || (picked ? t('assist.qi.what') : '');
     if (!q || generating) return;
     setHint('');
     stopSpeaking();
@@ -188,8 +200,30 @@ export function AssistantPanel() {
     setText('');
     awaiting.current = { voice: Boolean(opts.voice) };
     haptic.tap();
-    await useChats.getState().send({ content, attachments, chatId, mode: deep ? 'deep' : 'fast', onChatCreated: setChatId });
+    const images = picked ? [picked] : undefined;
+    setPicked(null);
+    await useChats.getState().send({ content, attachments, images, chatId, mode: deep ? 'deep' : 'fast', onChatCreated: setChatId });
   }
+
+  const startSelect = () => {
+    if (!config?.limits.features.images) return setHint(t('assist.imageLocked'));
+    if (!shot) return setHint(t('assist.noShot'));
+    stopSpeaking();
+    speech.cancel();
+    setSelecting(true);
+  };
+
+  const confirmRegion = async (b: RegionBox) => {
+    setSelecting(false);
+    try {
+      const r = await assistantNative!.cropScreenshot(b.l, b.t, b.r, b.b, 1280, IMAGE_LIMITS.maxBytes);
+      setPicked({ name: 'secim.jpg', mime: 'image/jpeg', data: r.data, preview: r.path });
+      setHint('');
+      haptic.success();
+    } catch {
+      setHint(t('assist.imageFail'));
+    }
+  };
 
   const newConversation = () => {
     stopSpeaking();
@@ -224,7 +258,7 @@ export function AssistantPanel() {
 
   // ---- görünüm ----
   const listening = speech.state !== 'idle';
-  const canSend = text.trim().length > 0;
+  const canSend = text.trim().length > 0 || Boolean(picked);
   const loggedOut = !user;
   const quick = ctx?.text
     ? [t('assist.q.summarize'), t('assist.q.points'), t('assist.q.reply'), t('assist.q.translate')]
@@ -284,8 +318,15 @@ export function AssistantPanel() {
         )}
 
         {/* Ekran bağlamı + hızlı eylemler */}
-        {ctx?.text ? (
+        {ctx?.text || shot ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}>
+            {shot && (
+              <Pressable onPress={startSelect} style={[chipBase, { borderColor: c.lineStrong, backgroundColor: c.surface }]}>
+                <Crop size={14} color={c.text} />
+                <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text }}>{t('assist.select')}</RNText>
+              </Pressable>
+            )}
+            {ctx?.text && (
             <Pressable
               onPress={() => {
                 haptic.select();
@@ -296,13 +337,23 @@ export function AssistantPanel() {
               {withScreen ? <Check size={14} color={c.bg} /> : <ScanText size={14} color={c.text2} />}
               <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: withScreen ? c.bg : c.text2 }}>{t('assist.screen', { app: appName(ctx.packageName) })}</RNText>
             </Pressable>
-            {quick.map((q) => (
-              <Pressable key={q} disabled={generating} onPress={() => void submit(q, { screen: true })} style={[chipBase, { borderColor: c.lineStrong, backgroundColor: c.surface, opacity: generating ? 0.5 : 1 }]}>
+            )}
+            {(picked ? [t('assist.qi.what'), t('assist.qi.read'), t('assist.qi.translate'), t('assist.qi.explain')] : quick).map((q) => (
+              <Pressable key={q} disabled={generating} onPress={() => void submit(q, { screen: !picked })} style={[chipBase, { borderColor: c.lineStrong, backgroundColor: c.surface, opacity: generating ? 0.5 : 1 }]}>
                 <RNText style={{ fontFamily: fonts.sansMedium, fontSize: 13, color: c.text }}>{q}</RNText>
               </Pressable>
             ))}
           </ScrollView>
         ) : null}
+
+        {picked && (
+          <View style={{ alignSelf: 'flex-start', marginLeft: 6, width: 72, height: 72, borderRadius: 14, overflow: 'hidden', borderWidth: 1, borderColor: c.lineStrong, backgroundColor: c.surface }}>
+            <Image source={{ uri: picked.preview }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+            <Pressable accessibilityLabel={t('common.delete')} onPress={() => setPicked(null)} hitSlop={6} style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.62)' }}>
+              <X size={12} color="#fff" />
+            </Pressable>
+          </View>
+        )}
 
         {!!hint && <RNText style={[type.small, { color: c.text2, paddingHorizontal: 8 }]}>{hint}</RNText>}
 
@@ -380,6 +431,7 @@ export function AssistantPanel() {
           </View>
         )}
       </Animated.View>
+      {selecting && shot && <RegionSelect shot={shot} onConfirm={(b) => void confirmRegion(b)} onCancel={() => setSelecting(false)} />}
     </View>
   );
 }

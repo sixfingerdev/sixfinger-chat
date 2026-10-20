@@ -9,6 +9,13 @@ export interface AssistContext {
   truncated: boolean;
 }
 
+/** Sistemin verdiği ekran görüntüsünün önizleme dosyası (bölge seçimi için). */
+export interface ScreenshotInfo {
+  path: string;
+  width: number;
+  height: number;
+}
+
 export type SpeechEvent =
   | { type: 'ready' | 'start' | 'end' }
   | { type: 'level'; value: number }
@@ -23,6 +30,9 @@ interface NativeAssistant {
   getLaunchInfo(): { source: string; voice: boolean };
   getAssistContext(): AssistContext | null;
   getDiagnostics(): Record<string, unknown>;
+  getScreenshot(): ScreenshotInfo | null;
+  cropScreenshot(left: number, top: number, right: number, bottom: number, maxSide: number, maxBytes: number): Promise<{ path: string; data: string; width: number; height: number }>;
+  compressImage(uri: string, maxSide: number, maxBytes: number): Promise<{ path: string; data: string; width: number; height: number }>;
   close(): void;
   openApp(): void;
   launchOverlay(voice: boolean): void;
@@ -34,6 +44,7 @@ interface NativeAssistant {
   cancelListening(): void;
   addListener(event: 'onSession', cb: (e: { source: string; voice: boolean }) => void): Subscription;
   addListener(event: 'onAssistContext', cb: (e: AssistContext) => void): Subscription;
+  addListener(event: 'onScreenshot', cb: (e: ScreenshotInfo) => void): Subscription;
   addListener(event: 'onHide', cb: () => void): Subscription;
   addListener(event: 'onSpeech', cb: (e: SpeechEvent) => void): Subscription;
 }
@@ -67,6 +78,7 @@ export function formatDiagnostics(d: Record<string, unknown>): string {
     hide: 'oturum kapandı',
     activity: 'pencere açıldı (Activity)',
     keyguard: 'kilit ekranından çağrı',
+    screenshot: 'ekran görüntüsü geldi',
     recognizer: 'ses tanıma isteği (SixFinger tanıyıcısı)',
   };
   const lines: string[] = [String(d.device ?? '')];

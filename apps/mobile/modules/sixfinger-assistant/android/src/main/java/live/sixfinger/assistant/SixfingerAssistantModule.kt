@@ -27,7 +27,7 @@ class SixfingerAssistantModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("SixfingerAssistant")
 
-    Events("onSession", "onAssistContext", "onHide", "onSpeech")
+    Events("onSession", "onAssistContext", "onScreenshot", "onHide", "onSpeech")
 
     OnCreate {
       AssistBridge.emit = { name, body -> sendEvent(name, body) }
@@ -41,6 +41,7 @@ class SixfingerAssistantModule : Module() {
       mapOf("source" to AssistBridge.source, "voice" to AssistBridge.autoVoice)
     }
     Function("getAssistContext") { AssistBridge.snapshot }
+    Function("getScreenshot") { AssistBridge.screenshotInfo }
 
     /** Sistem bizi çağırıyor mu? Sayaçlar + sistem ayarlarındaki asistan kayıtları. */
     Function("getDiagnostics") {
@@ -101,6 +102,26 @@ class SixfingerAssistantModule : Module() {
         }
       }
       false
+    }
+
+    /** Görseli hazırlar (küçült + JPEG). Arka plan iş parçacığında çalışır. Dönen `path` önizleme, `data` sunucuya gidecek base64'tür. */
+    AsyncFunction("compressImage") { uri: String, maxSide: Int, maxBytes: Int ->
+      val r = ImageTools.compress(context, uri, maxSide, maxBytes)
+      mapOf("path" to r.path, "data" to r.base64, "width" to r.width, "height" to r.height)
+    }
+
+    /** Ekran görüntüsünden bölge kırpar. Kutu, görüntünün yüzdesidir (0–1). Küçültülür ve JPEG'e çevrilir. */
+    AsyncFunction("cropScreenshot") { left: Double, top: Double, right: Double, bottom: Double, maxSide: Int, maxBytes: Int ->
+      val src = AssistBridge.screenshot ?: throw IllegalStateException("ekran görüntüsü yok")
+      val x = (left.coerceIn(0.0, 1.0) * src.width).toInt()
+      val y = (top.coerceIn(0.0, 1.0) * src.height).toInt()
+      val w = ((right.coerceIn(0.0, 1.0) - left.coerceIn(0.0, 1.0)) * src.width).toInt().coerceAtLeast(8).coerceAtMost(src.width - x)
+      val h = ((bottom.coerceIn(0.0, 1.0) - top.coerceIn(0.0, 1.0)) * src.height).toInt().coerceAtLeast(8).coerceAtMost(src.height - y)
+      var part = android.graphics.Bitmap.createBitmap(src, x.coerceAtMost(src.width - 1), y.coerceAtMost(src.height - 1), w, h)
+      val scale = minOf(1f, maxSide.toFloat() / maxOf(part.width, part.height))
+      if (scale < 1f) part = android.graphics.Bitmap.createScaledBitmap(part, (part.width * scale).toInt().coerceAtLeast(1), (part.height * scale).toInt().coerceAtLeast(1), true)
+      val r = ImageTools.encode(context, part, maxBytes)
+      mapOf("path" to r.path, "data" to r.base64, "width" to r.width, "height" to r.height)
     }
 
     // ---- Ses tanıma (cihazdaki konuşma tanıma servisi) ----

@@ -18,4 +18,5 @@ dependencies {
   // AssistantActivity bir ReactActivity'dir (ana uygulamayla aynı React örneğini paylaşır).
   implementation 'com.facebook.react:react-android'
   implementation 'androidx.appcompat:appcompat:1.7.0'
+  implementation 'androidx.exifinterface:exifinterface:1.4.1'
 }

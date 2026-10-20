@@ -261,6 +261,7 @@ export default function SettingsScreen() {
                 ]}
               />
             </View>
+            <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.shot')}</RNText>
             <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.tile')}</RNText>
             <Press haptics="tap" scale={0.99} onPress={() => setDiag((d) => (d === null ? formatDiagnostics(assist.getDiagnostics()) : null))}>
               <RNText style={[type.small, { color: c.text2, textDecorationLine: 'underline' }]}>{t('assist.diag.title')}</RNText>

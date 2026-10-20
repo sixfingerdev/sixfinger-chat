@@ -3,6 +3,7 @@ package live.sixfinger.assistant
 import android.app.assist.AssistContent
 import android.app.assist.AssistStructure
 import android.content.Context
+import android.graphics.Bitmap
 import android.content.Intent
 import android.os.Bundle
 import android.service.voice.VoiceInteractionSession
@@ -62,6 +63,19 @@ class SfSession(private val ctx: Context) : VoiceInteractionSession(ctx) {
       AssistExtractor.extract(structure, content, ctx.packageName)?.let { AssistBridge.setContext(it) }
     } catch (_: Throwable) {
       // Ekran okunamazsa asistan bağlamsız çalışmaya devam eder.
+    }
+  }
+
+  /** Ekran görüntüsü ("Ekran görüntüsünü kullan" açıksa sistem verir): bölge seçimi için saklanır, önizleme dosyaya yazılır. */
+  override fun onHandleScreenshot(screenshot: Bitmap?) {
+    AssistDiag.mark(ctx, "screenshot")
+    if (screenshot == null) return
+    try {
+      val prev = ImageTools.encode(ctx, screenshot, 4_000_000)
+      AssistBridge.screenshot = screenshot
+      AssistBridge.setScreenshot(mapOf("path" to prev.path, "width" to screenshot.width, "height" to screenshot.height))
+    } catch (e: Throwable) {
+      AssistDiag.mark(ctx, "screenshot", "hata: $e")
     }
   }
 
