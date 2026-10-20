@@ -6,6 +6,7 @@ import {
   CalendarClock,
   ChevronDown,
   Code2,
+  Laptop,
   Ellipsis,
   LogIn,
   MessageSquare,
@@ -164,6 +165,9 @@ function CodeSidebarBody({ activeId }: { activeId: string | undefined }) {
       </div>
       <nav className="chat-list">
         <section className="chat-group">
+          <button className="btn btn-ghost btn-block sidebar-link" onClick={() => go('/code/devices')}>
+            <Laptop size={15} /> {t('link.nav')}
+          </button>
           <h3>{t('code.sessions')}</h3>
           {sessions === null && [78, 64, 88].map((w, i) => <div key={i} className="skeleton" style={{ width: `${w}%`, height: 14, margin: '10px 12px' }} />)}
           {sessions?.length === 0 && (

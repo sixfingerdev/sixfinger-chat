@@ -383,6 +383,16 @@ export const api = {
   scheduleDelete: (id: string) => request<void>('DELETE', `/schedule/${id}`),
   scheduleRun: (id: string) => request<{ ok: boolean }>('POST', `/schedule/${id}/run`),
   scheduleRuns: (id: string) => request<{ runs: ScheduledRunDTO[] }>('GET', `/schedule/${id}/runs`),
+  // ---- Cihazlar (uzaktan CLI köprüsü) ----
+  linkDevices: () => request<{ devices: import('../pages/DevicesPage.tsx').LinkDevice[] }>('GET', '/link/devices'),
+  linkDeviceDelete: (id: string) => request<void>('DELETE', `/link/devices/${id}`),
+  linkSessions: () => request<{ sessions: import('../pages/DevicesPage.tsx').LinkSession[] }>('GET', '/link/sessions'),
+  linkSession: (deviceId: string, id: string) =>
+    request<{ session: import('../pages/DevicesPage.tsx').LinkSession; messages: unknown[]; pending: unknown[] }>('GET', `/link/sessions/${deviceId}/${encodeURIComponent(id)}`),
+  linkPrompt: (deviceId: string, id: string, text: string) => request<{ ok: boolean }>('POST', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/prompt`, { text }),
+  linkAbort: (deviceId: string, id: string) => request<{ ok: boolean }>('POST', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/abort`, {}),
+  linkPermission: (deviceId: string, id: string, requestId: string, reply: 'once' | 'always' | 'reject') =>
+    request<{ ok: boolean }>('POST', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/permission`, { requestId, reply }),
   deviceInfo: (userCode: string) => request<{ client: string }>('POST', '/device/info', { userCode }),
   deviceApprove: (userCode: string) => request<{ ok: boolean }>('POST', '/device/approve', { userCode }),
   artifacts: (q?: string) => request<{ artifacts: ArtifactListItemDTO[] }>('GET', '/artifacts', undefined, { query: { q } }),
