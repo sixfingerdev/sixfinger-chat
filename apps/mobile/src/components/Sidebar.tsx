@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { SectionList, Text as RNText, TextInput, View } from 'react-native';
 import { router, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Archive, ArchiveRestore, CalendarClock, ChevronDown, ChevronUp, MessageSquare, Pencil, Pin, PinOff, Plug, Plus, Search, Settings, Shapes, SquareCode, Trash2 } from 'lucide-react-native';
+import { Archive, ArchiveRestore, CalendarClock, Laptop, ChevronDown, ChevronUp, MessageSquare, Pencil, Pin, PinOff, Plug, Plus, Search, Settings, Shapes, SquareCode, Trash2 } from 'lucide-react-native';
 import type { ChatDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
@@ -114,7 +114,7 @@ export function Sidebar() {
     drawer.close();
     if (inCode) leaveCode();
   };
-  const go = (path: '/scheduled' | '/artifacts') => {
+  const go = (path: '/scheduled' | '/artifacts' | '/devices') => {
     haptic.tap();
     drawer.close();
     router.push(path as never);
@@ -219,6 +219,7 @@ export function Sidebar() {
         <View style={{ paddingHorizontal: 8, paddingBottom: 4 }}>
           {!user?.isGuest && <NavRow Icon={CalendarClock} label={t('sched.nav')} onPress={() => go('/scheduled')} />}
           <NavRow Icon={Shapes} label={t('art.nav')} onPress={() => go('/artifacts')} />
+          {!user?.isGuest && <NavRow Icon={Laptop} label={t('link.nav')} onPress={() => go('/devices')} />}
         </View>
       )}
 

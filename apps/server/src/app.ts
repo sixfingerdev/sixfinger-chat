@@ -20,6 +20,7 @@ import { chatRoutes } from './routes/chats.ts';
 import { messageRoutes } from './routes/messages.ts';
 import { meRoutes } from './routes/me.ts';
 import { publicRoutes } from './routes/public.ts';
+import { skillsPublicRoutes } from './routes/skills-public.ts';
 import { createAi, type AiProvider } from './services/ai.ts';
 import { createRunHub } from './services/runs.ts';
 import { createCodeClient, createSandboxClient, createTools, type Tools } from './services/tools/index.ts';
@@ -36,6 +37,9 @@ import { createSecretBox } from './lib/secretbox.ts';
 import { codeRoutes } from './routes/code.ts';
 import { mcpRoutes } from './routes/mcp.ts';
 import { scheduleRoutes } from './routes/schedule.ts';
+import { llmRoutes } from './routes/llm.ts';
+import { deviceRoutes } from './routes/device.ts';
+import { linkRoutes } from './routes/link.ts';
 import { createSchedule, startScheduler } from './services/schedule.ts';
 import { createMcp } from './services/mcp/index.ts';
 import type { FetchLike } from './services/mcp/guarded-fetch.ts';
@@ -183,6 +187,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
   await app.register(
     async (api) => {
       await api.register(publicRoutes(ctx));
+      await api.register(skillsPublicRoutes());
       await api.register(authRoutes(ctx, guard));
       await api.register(meRoutes(ctx, guard));
       await api.register(chatRoutes(ctx, guard));
@@ -190,6 +195,9 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
       await api.register(codeRoutes(ctx, guard));
       await api.register(mcpRoutes(ctx, guard));
       await api.register(scheduleRoutes(ctx, guard));
+      await api.register(llmRoutes(ctx, guard));
+      await api.register(deviceRoutes(ctx, guard));
+      await api.register(linkRoutes(ctx, guard));
     },
     { prefix: '/api' },
   );

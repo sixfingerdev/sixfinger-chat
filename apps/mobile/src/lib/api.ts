@@ -1,3 +1,4 @@
+import type { LinkDetail, LinkDevice, LinkSession } from './link.ts';
 import type {
   ArtifactListItemDTO,
   CreateScheduledTaskBody,
@@ -336,6 +337,17 @@ export const api = {
   // ---- MCP bağlayıcıları ----
   mcpPresets: () => request<McpPresetsResponse>('GET', '/mcp/presets'),
   // ---- zamanlanmış görevler + artifacts ----
+  // ---- Cihazlar (uzaktan CLI köprüsü) ----
+  linkDevices: () => request<{ devices: LinkDevice[] }>('GET', '/link/devices'),
+  linkDeviceDelete: (id: string) => request<void>('DELETE', `/link/devices/${id}`),
+  linkSessions: () => request<{ sessions: LinkSession[] }>('GET', '/link/sessions'),
+  linkSession: (deviceId: string, id: string) => request<LinkDetail>('GET', `/link/sessions/${deviceId}/${encodeURIComponent(id)}`),
+  linkPrompt: (deviceId: string, id: string, text: string) => request<{ ok: boolean }>('POST', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/prompt`, { text }),
+  linkAbort: (deviceId: string, id: string) => request<{ ok: boolean }>('POST', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/abort`, {}),
+  linkPermission: (deviceId: string, id: string, requestId: string, reply: 'once' | 'always' | 'reject') =>
+    request<{ ok: boolean }>('POST', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/permission`, { requestId, reply }),
+  linkNewSession: (deviceId: string, payload: { directory?: string; text?: string }) =>
+    request<{ ok: boolean; commandId: string }>('POST', `/link/devices/${deviceId}/commands`, { kind: 'new_session', payload }),
   schedules: () => request<{ tasks: ScheduledTaskDTO[] }>('GET', '/schedule'),
   scheduleCreate: (body: CreateScheduledTaskBody) => request<{ task: ScheduledTaskDTO }>('POST', '/schedule', body),
   scheduleUpdate: (id: string, body: UpdateScheduledTaskInput) => request<{ task: ScheduledTaskDTO }>('PATCH', `/schedule/${id}`, body),

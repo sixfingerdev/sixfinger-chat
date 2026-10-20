@@ -383,6 +383,46 @@ export const api = {
   scheduleDelete: (id: string) => request<void>('DELETE', `/schedule/${id}`),
   scheduleRun: (id: string) => request<{ ok: boolean }>('POST', `/schedule/${id}/run`),
   scheduleRuns: (id: string) => request<{ runs: ScheduledRunDTO[] }>('GET', `/schedule/${id}/runs`),
+  // ---- Cihazlar (uzaktan CLI köprüsü) ----
+  linkDevices: () => request<{ devices: import('../pages/DevicesPage.tsx').LinkDevice[] }>('GET', '/link/devices'),
+  linkDeviceDelete: (id: string) => request<void>('DELETE', `/link/devices/${id}`),
+  linkSessions: () => request<{ sessions: import('../pages/DevicesPage.tsx').LinkSession[] }>('GET', '/link/sessions'),
+  linkSession: (deviceId: string, id: string) =>
+    request<{ session: import('../pages/DevicesPage.tsx').LinkSession; messages: unknown[]; pending: unknown[]; commands: unknown[] }>('GET', `/link/sessions/${deviceId}/${encodeURIComponent(id)}`),
+  linkPrompt: (deviceId: string, id: string, text: string) => request<{ ok: boolean }>('POST', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/prompt`, { text }),
+  linkAbort: (deviceId: string, id: string) => request<{ ok: boolean }>('POST', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/abort`, {}),
+  linkPermission: (deviceId: string, id: string, requestId: string, reply: 'once' | 'always' | 'reject') =>
+    request<{ ok: boolean }>('POST', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/permission`, { requestId, reply }),
+  linkNewSession: (deviceId: string, payload: { directory?: string; text?: string; model?: 'fast' | 'deep' }) =>
+    request<{ ok: boolean; commandId: string }>('POST', `/link/devices/${deviceId}/commands`, { kind: 'new_session', payload }),
+  /** Oturumun canlı akışı (SSE): her değişiklikte tam ayrıntı gelir. Kopunca promise reddedilir; çağıran yeniden bağlanır. */
+  linkStream: async (deviceId: string, id: string, onData: (d: unknown) => void, signal: AbortSignal): Promise<void> => {
+    const res = await send('GET', `/link/sessions/${deviceId}/${encodeURIComponent(id)}/stream`, undefined, { signal });
+    if (!res.ok || !res.body) throw new ApiError(res.status, 'network', 'Akış açılamadı.');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      buf += decoder.decode(value, { stream: true });
+      let i: number;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const block = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        for (const line of block.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          try {
+            onData(JSON.parse(line.slice(5).trim()));
+          } catch {
+            /* bozuk parça */
+          }
+        }
+      }
+    }
+  },
+  deviceInfo: (userCode: string) => request<{ client: string }>('POST', '/device/info', { userCode }),
+  deviceApprove: (userCode: string) => request<{ ok: boolean }>('POST', '/device/approve', { userCode }),
   artifacts: (q?: string) => request<{ artifacts: ArtifactListItemDTO[] }>('GET', '/artifacts', undefined, { query: { q } }),
   // ---- MCP bağlayıcıları ----
   mcpPresets: () => request<McpPresetsResponse>('GET', '/mcp/presets'),

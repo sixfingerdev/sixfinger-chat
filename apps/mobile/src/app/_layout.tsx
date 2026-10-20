@@ -81,6 +81,8 @@ function Shell() {
           <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="connectors" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="scheduled" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="devices" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="device-session" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="artifacts" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="code/index" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="code/new" options={{ animation: 'slide_from_right' }} />

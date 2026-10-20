@@ -55,7 +55,7 @@ export function defaultSkillsDir(): string {
   return [join(here, 'skills'), join(here, '..', '..', 'skills')].find((d) => existsSync(d)) ?? join(here, 'skills');
 }
 
-function walkFiles(root: string, rel = ''): string[] {
+export function walkFiles(root: string, rel = ''): string[] {
   const out: string[] = [];
   for (const name of readdirSync(join(root, rel)).sort()) {
     const r = rel ? `${rel}/${name}` : name;
