@@ -16,11 +16,14 @@ export interface ScreenshotInfo {
   height: number;
 }
 
+/** `lang` yalnızca tanıyıcıya özgü olaylarda gelir (çok dilli kipte her dil ayrı bir "şerit"tir). */
 export type SpeechEvent =
-  | { type: 'ready' | 'start' | 'end' }
+  | { type: 'ready' | 'start' | 'end'; lang?: string }
+  | { type: 'lanes'; langs: string[] }
   | { type: 'level'; value: number }
-  | { type: 'partial' | 'final'; text: string }
-  | { type: 'error'; code: number; message?: string };
+  | { type: 'partial'; lang: string; text: string }
+  | { type: 'final'; lang: string; text: string; confidence: number }
+  | { type: 'error'; lang?: string; code: number; message?: string };
 
 interface Subscription {
   remove(): void;
@@ -29,7 +32,6 @@ interface Subscription {
 interface NativeAssistant {
   getLaunchInfo(): { source: string; voice: boolean };
   getAssistContext(): AssistContext | null;
-  getDiagnostics(): Record<string, unknown>;
   getScreenshot(): ScreenshotInfo | null;
   cropScreenshot(left: number, top: number, right: number, bottom: number, maxSide: number, maxBytes: number): Promise<{ path: string; data: string; width: number; height: number }>;
   compressImage(uri: string, maxSide: number, maxBytes: number): Promise<{ path: string; data: string; width: number; height: number }>;
@@ -39,7 +41,8 @@ interface NativeAssistant {
   isDefaultAssistant(): boolean;
   openAssistantSettings(): boolean;
   isSpeechAvailable(): boolean;
-  startListening(lang: string): void;
+  /** `langs`: etiketler ("tr-TR"). 2+ dilde aynı ses hepsine verilir; `forceSingle` yalnızca ilk dille cihaz mikrofonunu kullanır. */
+  startListening(langs: string[], forceSingle: boolean): void;
   stopListening(): void;
   cancelListening(): void;
   addListener(event: 'onSession', cb: (e: { source: string; voice: boolean }) => void): Subscription;
@@ -58,35 +61,4 @@ export function appName(pkg: string): string {
   const parts = pkg.split('.').filter((p) => p && !skip.has(p));
   const name = parts[parts.length - 1] ?? pkg.split('.').pop() ?? pkg;
   return name.charAt(0).toUpperCase() + name.slice(1);
-}
-
-interface DiagCounter {
-  n: number;
-  at: number;
-  err: string | null;
-}
-
-/** Tanılama sayaçlarını okunur metne çevirir (paylaşılabilir). */
-export function formatDiagnostics(d: Record<string, unknown>): string {
-  const labels: Record<string, string> = {
-    ready: 'servis bağlandı (onReady)',
-    sessionNew: 'oturum oluştu',
-    show: 'pencere istendi (onShow)',
-    startActivity: 'pencere başlatıldı',
-    startActivityError: 'pencere başlatma HATASI',
-    assist: 'ekran içeriği geldi',
-    hide: 'oturum kapandı',
-    activity: 'pencere açıldı (Activity)',
-    keyguard: 'kilit ekranından çağrı',
-    screenshot: 'ekran görüntüsü geldi',
-    recognizer: 'ses tanıma isteği (SixFinger tanıyıcısı)',
-  };
-  const lines: string[] = [String(d.device ?? '')];
-  for (const k of ['assistant', 'voice_interaction_service', 'voice_recognition_service']) lines.push(`${k}: ${String(d[`setting.${k}`] ?? '—')}`);
-  lines.push(`rol (ASSISTANT): ${String(d.roleHeld)}`);
-  for (const [k, label] of Object.entries(labels)) {
-    const c = d[k] as DiagCounter | null | undefined;
-    lines.push(c ? `${label}: ${c.n}× (son ${new Date(c.at).toLocaleTimeString()})${c.err ? ` — ${c.err}` : ''}` : `${label}: hiç`);
-  }
-  return lines.join('\n');
 }

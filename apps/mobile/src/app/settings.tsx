@@ -5,24 +5,33 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import Constants from 'expo-constants';
 import { ChevronLeft, ChevronRight, Lock, Trash2, X } from 'lucide-react-native';
-import { PERSONAS, type MemoryDTO, type SessionDTO } from '@sixfinger/shared';
+import { langBase, PERSONAS, type MemoryDTO, type SessionDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import { api, ApiError } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { shareText } from '../lib/export.ts';
-import { copyText, timeUntil } from '../lib/format.ts';
+import { timeUntil } from '../lib/format.ts';
 import { setLocale, useLocale, useT, type Locale } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
 import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi, type ThemePref } from '../store/ui.ts';
-import { assistantNative, formatDiagnostics } from '../assistant/native.ts';
-import { readAutoVoice, readSpeakPref, writeAutoVoice, writeSpeakPref, type SpeakPref } from '../assistant/prefs.ts';
+import { assistantNative } from '../assistant/native.ts';
+import { deviceSpeechLangs, MAX_SPEECH_LANGS, readAutoVoice, readSpeakPref, readSpeechLangs, SPEECH_LANGUAGES, writeAutoVoice, writeSpeakPref, writeSpeechLangs, type SpeakPref } from '../assistant/prefs.ts';
 import { Field } from '../components/Field.tsx';
 import { Segmented } from '../components/Segmented.tsx';
 import { Sheet } from '../components/Sheet.tsx';
 import { Button, Press } from '../components/Ui.tsx';
+
+/** Seçilebilir konuşma dilleri: katalog + (katalogda yoksa) cihaz dilleri ve şu an seçili olanlar. */
+function speechLangChoices(selected: string[]): Array<{ tag: string; name: string }> {
+  const out = [...SPEECH_LANGUAGES];
+  for (const tag of [...selected, ...deviceSpeechLangs()]) {
+    if (!out.some((l) => langBase(l.tag) === langBase(tag))) out.push({ tag, name: tag });
+  }
+  return out;
+}
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   const { c } = useTheme();
@@ -68,8 +77,8 @@ export default function SettingsScreen() {
   const assist = assistantNative;
   const [isAssistant, setIsAssistant] = useState(() => assist?.isDefaultAssistant() ?? false);
   const [speakPref, setSpeakPref] = useState<SpeakPref>(readSpeakPref);
-  const [diag, setDiag] = useState<string | null>(null);
   const [autoVoice, setAutoVoice] = useState(readAutoVoice);
+  const [speechLangs, setSpeechLangs] = useState<string[]>(readSpeechLangs);
   // Ayarlar ekranından dönünce asistan durumunu yeniden oku.
   useEffect(() => {
     if (!assist) return;
@@ -261,21 +270,34 @@ export default function SettingsScreen() {
                 ]}
               />
             </View>
-            <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.shot')}</RNText>
-            <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.tile')}</RNText>
-            <Press haptics="tap" scale={0.99} onPress={() => setDiag((d) => (d === null ? formatDiagnostics(assist.getDiagnostics()) : null))}>
-              <RNText style={[type.small, { color: c.text2, textDecorationLine: 'underline' }]}>{t('assist.diag.title')}</RNText>
-            </Press>
-            {diag !== null && (
-              <View style={{ gap: 10 }}>
-                <RNText selectable style={{ fontFamily: fonts.mono, fontSize: 11.5, lineHeight: 17, color: c.text2 }}>{diag}</RNText>
-                <RNText style={[type.small, { color: c.text3 }]}>{t('assist.diag.hint')}</RNText>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  <Button label={t('assist.diag.refresh')} variant="secondary" style={{ flex: 1 }} onPress={() => setDiag(formatDiagnostics(assist.getDiagnostics()))} />
-                  <Button label={t('common.copy')} variant="secondary" style={{ flex: 1 }} onPress={() => void copyText(diag).then((ok) => ok && useUi.getState().toast({ kind: 'success', text: t('common.copied') }))} />
-                </View>
+            <View style={{ gap: 8 }}>
+              <RNText style={[type.small, { color: c.text2 }]}>{t('assist.settings.langs')}</RNText>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {speechLangChoices(speechLangs).map((l) => {
+                  const on = speechLangs.some((x) => langBase(x) === langBase(l.tag));
+                  return (
+                    <Press
+                      key={l.tag}
+                      onPress={() => {
+                        const next = on ? speechLangs.filter((x) => langBase(x) !== langBase(l.tag)) : [...speechLangs, l.tag];
+                        if (next.length === 0) return;
+                        if (next.length > MAX_SPEECH_LANGS) {
+                          useUi.getState().toast({ kind: 'error', text: t('assist.settings.langsMax', { n: MAX_SPEECH_LANGS }) });
+                          return;
+                        }
+                        writeSpeechLangs(next);
+                        setSpeechLangs(next);
+                      }}
+                      style={{ paddingHorizontal: 14, height: 36, justifyContent: 'center', borderRadius: 18, borderWidth: 1, borderColor: on ? c.text : c.line, backgroundColor: on ? c.text : 'transparent' }}
+                    >
+                      <RNText style={[type.small, { color: on ? c.bg : c.text }]}>{l.name}</RNText>
+                    </Press>
+                  );
+                })}
               </View>
-            )}
+              <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.langsHint')}</RNText>
+            </View>
+            <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.shot')}</RNText>
           </Section>
         )}
 

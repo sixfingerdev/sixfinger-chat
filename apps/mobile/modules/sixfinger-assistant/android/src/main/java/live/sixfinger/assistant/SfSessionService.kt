@@ -13,7 +13,6 @@ import android.service.voice.VoiceInteractionSessionService
 
 class SfSessionService : VoiceInteractionSessionService() {
   override fun onNewSession(args: Bundle?): VoiceInteractionSession {
-    AssistDiag.mark(this, "sessionNew")
     return SfSession(this)
   }
 }
@@ -41,16 +40,13 @@ class SfSession(private val ctx: Context) : VoiceInteractionSession(ctx) {
   override fun onShow(args: Bundle?, showFlags: Int) {
     super.onShow(args, showFlags)
     shrinkSessionWindow()
-    AssistDiag.mark(ctx, "show")
     AssistBridge.begin("assistant")
     val intent = Intent(ctx, AssistantActivity::class.java)
       .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       .putExtra(AssistantActivity.EXTRA_SOURCE, "assistant")
     try {
       startAssistantActivity(intent)
-      AssistDiag.mark(ctx, "startActivity")
     } catch (e: Throwable) {
-      AssistDiag.mark(ctx, "startActivityError", e.toString())
       // Asistan etkinliği sistem üzerinden başlatılamadıysa normal yoldan dene.
       try { ctx.startActivity(intent) } catch (_: Throwable) {}
     }
@@ -58,7 +54,6 @@ class SfSession(private val ctx: Context) : VoiceInteractionSession(ctx) {
 
   @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
   override fun onHandleAssist(data: Bundle?, structure: AssistStructure?, content: AssistContent?) {
-    AssistDiag.mark(ctx, "assist")
     try {
       AssistExtractor.extract(structure, content, ctx.packageName)?.let { AssistBridge.setContext(it) }
     } catch (_: Throwable) {
@@ -68,20 +63,17 @@ class SfSession(private val ctx: Context) : VoiceInteractionSession(ctx) {
 
   /** Ekran görüntüsü ("Ekran görüntüsünü kullan" açıksa sistem verir): bölge seçimi için saklanır, önizleme dosyaya yazılır. */
   override fun onHandleScreenshot(screenshot: Bitmap?) {
-    AssistDiag.mark(ctx, "screenshot")
     if (screenshot == null) return
     try {
       val prev = ImageTools.encode(ctx, screenshot, 4_000_000)
       AssistBridge.screenshot = screenshot
       AssistBridge.setScreenshot(mapOf("path" to prev.path, "width" to screenshot.width, "height" to screenshot.height))
     } catch (e: Throwable) {
-      AssistDiag.mark(ctx, "screenshot", "hata: $e")
     }
   }
 
   override fun onHide() {
     super.onHide()
-    AssistDiag.mark(ctx, "hide")
     AssistBridge.hide()
   }
 }

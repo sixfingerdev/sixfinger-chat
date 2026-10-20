@@ -15,7 +15,6 @@ class SfRecognitionService : RecognitionService() {
   private var delegate: SpeechRecognizer? = null
 
   override fun onStartListening(recognizerIntent: Intent, listener: Callback) {
-    AssistDiag.mark(this, "recognizer")
     clear()
     val comp = try { pickRealRecognizer(this) } catch (_: Throwable) { null }
     if (comp == null) {

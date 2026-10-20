@@ -27,7 +27,6 @@ interface Data {
   servers: McpServerDTO[];
   presets: McpPresetView[];
   limits: McpServersResponse['limits'];
-  redirectUrl: string;
 }
 
 type Row =
@@ -35,8 +34,7 @@ type Row =
   | { kind: 'text'; key: string; text: string }
   | { kind: 'server'; key: string; s: McpServerDTO }
   | { kind: 'preset'; key: string; p: McpPresetView }
-  | { kind: 'custom'; key: string }
-  | { kind: 'foot'; key: string };
+  | { kind: 'custom'; key: string };
 
 /** Aynı yetkilendirme dönüşü (state) ikinci kez işlenmesin. */
 const handledStates = new Set<string>();
@@ -66,7 +64,7 @@ export default function Connectors() {
     try {
       const [s, p] = await Promise.all([api.mcpServers(), api.mcpPresets()]);
       setData({ enabled: s.enabled && p.enabled, servers: s.servers, // Kullanılabilir kartlar önce (sıra: popülerlik), yönetici kaydı/yakında olanlar sonda.
-        presets: [...p.presets].sort((a, b) => Number(!a.available) - Number(!b.available) || a.rank - b.rank), limits: s.limits, redirectUrl: s.redirectUrl });
+        presets: [...p.presets].filter((x) => x.available || x.reason === 'soon').sort((a, b) => Number(!a.available) - Number(!b.available) || a.rank - b.rank), limits: s.limits });
       setFailed(false);
     } catch (err) {
       setFailed(true);
@@ -218,7 +216,6 @@ export default function Connectors() {
       ...(full ? [{ kind: 'text' as const, key: 'limit', text: t('mcp.limit', { n: data.limits.servers }) }] : []),
       ...presets.map((p) => ({ kind: 'preset' as const, key: `p-${p.id}`, p })),
       { kind: 'custom', key: 'custom' },
-      ...(data.presets.some((p) => p.reason === 'admin') && data.redirectUrl ? [{ kind: 'foot' as const, key: 'foot' }] : []),
     ];
   }, [data, q, locale, full, t]);
 
@@ -280,12 +277,6 @@ export default function Connectors() {
                   <RNText style={{ flex: 1, fontFamily: fonts.sansMedium, fontSize: 15, color: c.text }}>{t('mcp.custom')}</RNText>
                   <ChevronRight size={16} color={c.text3} />
                 </Press>
-              );
-            case 'foot':
-              return (
-                <RNText selectable style={[type.small, { color: c.text3, paddingHorizontal: 20, paddingTop: 14 }]}>
-                  {t('mcp.redirectHint', { url: data.redirectUrl })}
-                </RNText>
               );
           }
         }}
