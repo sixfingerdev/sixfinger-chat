@@ -6,7 +6,8 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.service.voice.VoiceInteractionSession
-import android.view.View
+import android.view.Gravity
+import android.view.WindowManager
 import android.service.voice.VoiceInteractionSessionService
 
 class SfSessionService : VoiceInteractionSessionService() {
@@ -18,21 +19,31 @@ class SfSessionService : VoiceInteractionSessionService() {
 
 /** Her güç tuşu/kaydırma açılışında bir oturum: şeffaf React penceresini başlatır ve ekran içeriğini köprüye iletir. */
 class SfSession(private val ctx: Context) : VoiceInteractionSession(ctx) {
-  override fun onCreate() {
-    super.onCreate()
-    // Sistemin kendi (boş) oturum penceresi ekranı kaplayıp dokunuşları yutmasın: arayüzü React penceresi çizer.
-    setUiEnabled(false)
+  /**
+   * Sistemin kendi oturum penceresi görünür kalmalı (kapatılırsa sistem asistan penceresini de arka plana atar), ama dokunuşu yutmamalı:
+   * 1x1 piksel, odaklanamaz ve dokunulamaz yaparız. Arayüzü React penceresi (AssistantActivity) çizer.
+   */
+  private fun shrinkSessionWindow() {
+    try {
+      val w = window?.window ?: return
+      w.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
+      val lp = w.attributes
+      lp.width = 1
+      lp.height = 1
+      lp.gravity = Gravity.TOP or Gravity.START
+      w.attributes = lp
+    } catch (_: Throwable) {
+      // pencere henüz yok / sistem izin vermedi: bağlamsız devam
+    }
   }
-
-  override fun onCreateContentView(): View = View(ctx).apply { visibility = View.GONE }
 
   override fun onShow(args: Bundle?, showFlags: Int) {
     super.onShow(args, showFlags)
-    setUiEnabled(false)
+    shrinkSessionWindow()
     AssistDiag.mark(ctx, "show")
     AssistBridge.begin("assistant")
     val intent = Intent(ctx, AssistantActivity::class.java)
-      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       .putExtra(AssistantActivity.EXTRA_SOURCE, "assistant")
     try {
       startAssistantActivity(intent)
