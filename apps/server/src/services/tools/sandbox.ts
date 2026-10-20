@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ToolError } from './errors.ts';
 import { createRateLimiter } from './limits.ts';
+import { imageToolResult, isImagePath, READ_IMAGE_MAX_MB } from './image-file.ts';
 import type { ToolContext, ToolDef } from './types.ts';
 
 /** sandboxd ile konuşan istemci (ana uygulamanın Docker'a doğrudan erişimi yoktur). */
@@ -8,6 +9,10 @@ export interface SandboxClient {
   exec(session: ScopedSession, command: string, timeoutSeconds: number, signal: AbortSignal): Promise<ExecOutcome>;
   read(session: ScopedSession, path: string, signal: AbortSignal): Promise<{ content: string; truncated: boolean }>;
   write(session: ScopedSession, path: string, content: string, signal: AbortSignal): Promise<{ bytes: number }>;
+  /** İkili dosya yazar (kullanıcı yüklemeleri). */
+  upload(session: ScopedSession, path: string, data: Buffer, signal: AbortSignal): Promise<{ bytes: number }>;
+  /** Dosyanın ham baytları (görsel okuma). `maxMb` aşılırsa hata. */
+  raw(session: ScopedSession, path: string, maxMb: number, signal: AbortSignal): Promise<Buffer>;
   edit(session: ScopedSession, args: { path: string; oldString: string; newString: string; replaceAll: boolean }, signal: AbortSignal): Promise<{ replacements: number; snippet: string }>;
 }
 
@@ -26,7 +31,7 @@ export interface ExecOutcome {
 }
 
 export function createSandboxClient(baseUrl: string, token: string, fetchImpl: typeof fetch = fetch): SandboxClient {
-  async function call<T>(path: string, body: object, signal: AbortSignal, timeoutMs: number): Promise<T> {
+  async function call<T>(path: string, body: object, signal: AbortSignal, timeoutMs: number, raw = false): Promise<T> {
     let res: Response;
     try {
       res = await fetchImpl(`${baseUrl.replace(/\/$/, '')}/v1/${path}`, {
@@ -39,7 +44,7 @@ export function createSandboxClient(baseUrl: string, token: string, fetchImpl: t
       if (signal.aborted) throw err;
       throw new ToolError('Sandbox servisine ulaşılamıyor.');
     }
-    if (res.ok) return (await res.json()) as T;
+    if (res.ok) return (raw ? Buffer.from(await res.arrayBuffer()) : await res.json()) as T;
     let message = '';
     try {
       message = ((await res.json()) as { error?: { message?: string } }).error?.message ?? '';
@@ -55,6 +60,8 @@ export function createSandboxClient(baseUrl: string, token: string, fetchImpl: t
     exec: (s, command, timeoutSeconds, signal) => call('exec', { ...s, command, timeout_seconds: timeoutSeconds }, signal, (timeoutSeconds + 40) * 1000),
     read: (s, path, signal) => call('read', { ...s, path }, signal, 30_000),
     write: (s, path, content, signal) => call('write', { ...s, path, content }, signal, 30_000),
+    upload: (s, path, data, signal) => call('write', { ...s, path, content: data.toString('base64'), encoding: 'base64' }, signal, 60_000),
+    raw: (s, path, maxMb, signal) => call('raw', { ...s, path, max_mb: maxMb }, signal, 40_000, true),
     edit: (s, a, signal) => call('edit', { ...s, path: a.path, old_string: a.oldString, new_string: a.newString, replace_all: a.replaceAll }, signal, 40_000),
   };
 }
@@ -114,7 +121,9 @@ export function createSandboxTools(client: SandboxClient): ToolDef[] {
 
   const read: ToolDef = {
     name: 'read',
-    description: 'Çalışma klasöründeki (/work) bir metin dosyasını satır numaralarıyla okur. Düzenlemeden önce dosyayı okumak için kullan.',
+    description:
+      'Çalışma klasöründeki (/work) bir metin dosyasını satır numaralarıyla okur. Düzenlemeden önce dosyayı okumak için kullan. ' +
+      'Görsel dosyalarını (.png, .jpg, .jpeg, .webp; ör. kullanıcının yüklediği /work/uploads/foto.jpg) de okuyabilirsin: görsel sana gösterilir ve içeriğine bakabilirsin.',
     parameters: {
       type: 'object',
       properties: {
@@ -128,6 +137,7 @@ export function createSandboxTools(client: SandboxClient): ToolDef[] {
     async run(raw, ctx) {
       const a = first(readArgs, raw);
       guard(ctx);
+      if (isImagePath(a.path)) return imageToolResult(a.path, await client.raw(scope(ctx), a.path, READ_IMAGE_MAX_MB, ctx.signal));
       const f = await client.read(scope(ctx), a.path, ctx.signal);
       const lines = f.content.split('\n');
       if (lines.at(-1) === '') lines.pop();

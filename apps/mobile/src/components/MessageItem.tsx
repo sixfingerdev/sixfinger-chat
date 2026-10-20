@@ -1,4 +1,5 @@
 import { memo, useState } from 'react';
+import { ChatImage } from './ChatImage.tsx';
 import { Text as RNText, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Check, ChevronLeft, ChevronRight, Copy, FileText, Pencil, RefreshCw, ThumbsDown, ThumbsUp } from 'lucide-react-native';
@@ -94,6 +95,13 @@ function UserMessage({ msg, versions, busy, onEdit, onMenu }: MessageProps) {
   const t = useT();
   return (
     <Animated.View entering={FadeInDown.duration(220)} style={{ alignItems: 'flex-end', paddingHorizontal: 16, paddingVertical: 8 }}>
+      {msg.images && msg.images.length > 0 && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', marginBottom: 6 }}>
+          {msg.images.map((im) => (
+            <ChatImage key={im.id} image={im} />
+          ))}
+        </View>
+      )}
       {msg.attachments.length > 0 && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', marginBottom: 6 }}>
           {msg.attachments.map((a, i) => (

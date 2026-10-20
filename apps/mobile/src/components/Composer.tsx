@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, type ComponentRef } from 'react';
-import { Text as RNText, TextInput, View } from 'react-native';
+import { Image, Text as RNText, TextInput, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { ArrowUp, FileText, Lock, Paperclip, Square, X } from 'lucide-react-native';
+import { ArrowUp, Camera, FileText, Image as ImageIcon, Lock, Paperclip, Square, X } from 'lucide-react-native';
+import { IMAGE_LIMITS, UPLOAD_MAX_BYTES } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
 import type { PendingAttachment } from '../lib/types.ts';
 import { timeUntil } from '../lib/format.ts';
-import { pickTextFiles } from '../lib/files.ts';
+import { pickAnyFiles, pickTextFiles } from '../lib/files.ts';
+import { pickImages, type ImageSource, type PendingImage } from '../lib/images.ts';
 import { useLocale, useT } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
 import { useAuth } from '../store/auth.ts';
@@ -37,6 +39,8 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
 
   const [value, setValue] = useState(() => drafts.get(draftKey) ?? '');
   const [files, setFiles] = useState<PendingAttachment[]>([]);
+  const [images, setImages] = useState<PendingImage[]>([]);
+  const [attachOpen, setAttachOpen] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const input = useRef<ComponentRef<typeof TextInput>>(null);
@@ -44,6 +48,8 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
   const limits = config?.limits;
   const maxChars = limits?.maxMessageChars ?? 4_000;
   const canAttach = Boolean(limits?.features.attachments);
+  const canImage = Boolean(limits?.features.images);
+  const canSandbox = Boolean(limits?.features.sandbox);
   const busy = Boolean(generating);
   const remaining = config ? Math.max(0, config.usage.limit - config.usage.used) : null;
 
@@ -80,39 +86,72 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
     }
   };
 
+  const addImages = async (source: ImageSource) => {
+    setAttachOpen(false);
+    const ui = useUi.getState();
+    const room = IMAGE_LIMITS.perMessage - images.length;
+    if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.imageMax', { n: IMAGE_LIMITS.perMessage }) });
+    try {
+      const next = await pickImages(source, room);
+      if (next.length) setImages((cur) => [...cur, ...next]);
+    } catch {
+      ui.toast({ kind: 'error', text: t('composer.imageFail', { name: '' }) });
+    }
+  };
+
+  /** Ataç: görsel (galeri/kamera) ve dosya seçenekleri; yalnızca birine izni varsa doğrudan onu açar. */
+  const onAttach = () => {
+    if (!canAttach && !canImage) return lockedNotice();
+    if (canImage && canAttach) return setAttachOpen(true);
+    if (canImage) return setAttachOpen(true);
+    void attach();
+  };
+
   const attach = async () => {
+    setAttachOpen(false);
     if (!canAttach) return lockedNotice();
     const ui = useUi.getState();
     const room = (limits?.maxAttachments ?? 0) - files.length;
     if (room <= 0) return ui.toast({ kind: 'info', text: t('composer.attachMax', { n: limits?.maxAttachments ?? 0 }) });
-    const results = await pickTextFiles(room);
     const next: PendingAttachment[] = [];
-    for (const r of results) {
-      if (!r.ok) {
-        ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: r.name }) });
-        continue;
+    if (canSandbox) {
+      // Her tür dosya gönderimde sandbox çalışma alanına yüklenir (model read/bash ile açar).
+      for (const r of await pickAnyFiles(room)) {
+        if (!r.ok) {
+          ui.toast({ kind: 'error', text: r.reason === 'too_big' ? t('composer.uploadTooBig', { name: r.name, n: Math.floor(UPLOAD_MAX_BYTES / 1_048_576) }) : t('composer.attachUnsupported', { name: r.name }) });
+          continue;
+        }
+        next.push(r.file);
       }
-      if (r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: r.file.name, n: r.file.text.length }) });
-      next.push(r.file);
+    } else {
+      for (const r of await pickTextFiles(room)) {
+        if (!r.ok) {
+          ui.toast({ kind: 'error', text: t('composer.attachUnsupported', { name: r.name }) });
+          continue;
+        }
+        if (r.file.truncated) ui.toast({ kind: 'info', text: t('composer.attachTooBig', { name: r.file.name, n: r.file.text.length }) });
+        next.push(r.file);
+      }
     }
     if (next.length) setFiles((cur) => [...cur, ...next]);
   };
 
   const submit = () => {
-    const text = value.trim();
+    const text = value.trim() || (images.length ? t('composer.imageDefault') : '');
     if (!text || busy) return;
     if (text.length > maxChars) return useUi.getState().toast({ kind: 'error', text: t('composer.tooLong') });
     haptic.tap();
-    void useChats.getState().send({ content: text, attachments: files, chatId, onChatCreated });
+    void useChats.getState().send({ content: text, attachments: files, images, chatId, onChatCreated });
     update('');
     drafts.delete(draftKey);
     setFiles([]);
+    setImages([]);
   };
 
   const over = value.length > maxChars;
   const showCounter = value.length > maxChars * 0.8;
   const lowQuota = remaining !== null && (user?.isGuest || remaining <= 5);
-  const canSend = Boolean(value.trim()) && !over && !busy;
+  const canSend = (Boolean(value.trim()) || images.length > 0) && !over && !busy;
 
   // Gönder/durdur düğmesi: etkinleşince hafifçe büyür.
   const sendScale = useSharedValue(1);
@@ -130,6 +169,18 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
     <View style={{ paddingHorizontal: 12, paddingBottom: Math.max(insets.bottom, 8) + 2, paddingTop: 6, backgroundColor: c.bg }}>
       <View style={{ backgroundColor: c.surface, borderRadius: 24, borderWidth: 1, borderColor: c.lineStrong }}>
         <Animated.View pointerEvents="none" style={[{ position: 'absolute', inset: -1, borderRadius: 24, borderWidth: 1.5, borderColor: c.accent }, ringStyle]} />
+        {images.length > 0 && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingTop: 12 }}>
+            {images.map((im, i) => (
+              <View key={`${im.preview}-${i}`} style={{ width: 64, height: 64, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: c.line }}>
+                <Image source={{ uri: im.preview }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                <Press scale={0.85} haptics="tap" onPress={() => setImages((cur) => cur.filter((_, j) => j !== i))} hitSlop={6} style={{ position: 'absolute', top: 3, right: 3, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.62)' }}>
+                  <X size={12} color="#fff" />
+                </Press>
+              </View>
+            ))}
+          </View>
+        )}
         {files.length > 0 && (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 12, paddingTop: 12 }}>
             {files.map((f, i) => (
@@ -161,13 +212,13 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingBottom: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
             <Press
-              accessibilityLabel={canAttach ? t('composer.attach') : t('composer.attachLocked')}
+              accessibilityLabel={canAttach || canImage ? t('composer.attach') : t('composer.attachLocked')}
               haptics="tap"
               scale={0.88}
-              onPress={() => void attach()}
+              onPress={onAttach}
               style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
             >
-              {canAttach ? <Paperclip size={20} color={c.text2} /> : <Lock size={17} color={c.text3} />}
+              {canAttach || canImage ? <Paperclip size={20} color={c.text2} /> : <Lock size={17} color={c.text3} />}
             </Press>
             <Press
               haptics="select"
@@ -214,6 +265,27 @@ export function Composer({ chatId, onChatCreated, seed }: { chatId: string | nul
 
       <Sheet visible={effortOpen} onClose={() => setEffortOpen(false)}>
         <ModePicker mode={mode} effort={effort} onMode={setMode} onEffort={setEffort} />
+      </Sheet>
+      <Sheet visible={attachOpen} onClose={() => setAttachOpen(false)}>
+        <View style={{ paddingHorizontal: 12, paddingBottom: 6 }}>
+          {(
+            [
+              canImage && { key: 'library', Icon: ImageIcon, label: t('composer.attach.photos'), run: () => void addImages('library') },
+              canImage && { key: 'camera', Icon: Camera, label: t('composer.attach.camera'), run: () => void addImages('camera') },
+              canAttach && { key: 'file', Icon: FileText, label: t('composer.attach.file'), run: () => void attach() },
+            ] as const
+          )
+            .filter(Boolean)
+            .map((it) => {
+              const row = it as { key: string; Icon: typeof FileText; label: string; run: () => void };
+              return (
+                <Press key={row.key} haptics="tap" scale={0.985} onPress={row.run} style={{ height: 54, flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 12, borderRadius: radius.md }}>
+                  <row.Icon size={20} color={c.text2} />
+                  <RNText style={[type.body, { color: c.text }]}>{row.label}</RNText>
+                </Press>
+              );
+            })}
+        </View>
       </Sheet>
     </View>
   );

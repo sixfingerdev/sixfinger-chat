@@ -1,5 +1,5 @@
 import { getPersona, MODELS, type MessagePartDTO, type UserSettings } from '@sixfinger/shared';
-import type { AiMessage, AiToolCall } from './ai.ts';
+import type { AiImage, AiMessage, AiToolCall } from './ai.ts';
 import { brandPromptTr } from './brand.ts';
 import { WIDGET_GUIDE } from './widget-guide.ts';
 
@@ -61,7 +61,8 @@ export function buildSystemPrompt(ctx: PromptContext): string {
       `Sandbox: bash, read, write ve edit araçlarıyla izole bir Linux ortamında (/work klasörü) çalışabilirsin: hesaplama, veri işleme, kısa betikler (python3, node, git, curl, jq hazır), ` +
         `dosya üretme/dönüştürme, bir şeyi denemek için. Çalışma klasörü bu sohbet boyunca korunur. İnternet yalnızca 80/443 portlarıyla vardır. Komutlar 30 sn sonra durdurulur; arka planda sunucu başlatma. ` +
         `Büyük proje iskeleti kurma: uygulama, oyun ya da sayfa istenirse artifact (tek dosya) kullan; sandbox yalnızca gerçekten çalıştırman/hesaplaman gerektiğinde. ` +
-        `Hata alırsan çıktıyı oku ve düzelt; aynı komutu körlemesine tekrarlama. Gerekmedikçe araç çağırma. Sandbox'ta sır yok ve ana sisteme erişimin yok.`,
+        `Hata alırsan çıktıyı oku ve düzelt; aynı komutu körlemesine tekrarlama. Gerekmedikçe araç çağırma. Sandbox'ta sır yok ve ana sisteme erişimin yok. ` +
+        `Kullanıcının yüklediği dosyalar /work/uploads/ altındadır (mesajda <ek yol="…"> olarak görürsün): metin dosyalarını read ile, diğerlerini (pdf, zip, xlsx…) bash ile aç; görsel dosyalarını (.png/.jpg/.webp) read ile açarsan görseli sana gösterilir.`,
     );
   }
 
@@ -105,7 +106,12 @@ export interface HistoryItem {
   content: string;
   /** Asistan mesajının sıralı parçaları; araç çağrıları varsa modele de öyle yeniden kurulur. */
   parts?: MessagePartDTO[];
+  /** Yalnızca user: modele gönderilecek görseller (en yeni birkaç görselli mesaj; eskilerin yerine içerikte metin notu vardır). */
+  images?: AiImage[];
 }
+
+/** Bir görselin bağlamdaki yaklaşık maliyeti (token). */
+export const IMAGE_TOKENS = 1_200;
 
 /** Eski turlardaki araç çıktıları bağlamı şişirmesin diye kısaltılır. */
 const HISTORY_TOOL_OUTPUT_CHARS = 2_000;
@@ -156,9 +162,9 @@ export function fitHistory(history: HistoryItem[], budget: number): AiMessage[] 
     } else {
       let content = m.content;
       if (i === history.length - 1 && estimateTokens(content) > budget) content = content.slice(0, Math.floor(budget * 3.5));
-      msgs = [{ role: 'user', content }];
+      msgs = [{ role: 'user', content, ...(m.images?.length ? { images: m.images } : {}) }];
     }
-    const cost = Math.min(costOf(msgs), i === history.length - 1 ? budget : Infinity);
+    const cost = Math.min(costOf(msgs) + (m.images?.length ?? 0) * IMAGE_TOKENS, i === history.length - 1 ? budget : Infinity);
     if (out.length > 0 && used + cost > budget) break;
     out.unshift(...msgs);
     used += cost;
@@ -168,9 +174,14 @@ export function fitHistory(history: HistoryItem[], budget: number): AiMessage[] 
   return out;
 }
 
-export function renderUserContent(content: string, attachments: { name: string; text: string }[]): string {
+export function renderUserContent(content: string, attachments: { name: string; text: string; path?: string; bytes?: number }[]): string {
   if (!attachments.length) return content;
-  const blocks = attachments.map((a) => `<ek ad="${a.name.replace(/"/g, "'")}">\n${a.text}\n</ek>`);
+  const blocks = attachments.map((a) => {
+    const name = a.name.replace(/"/g, "'");
+    // Sandbox'a yüklenen dosya: içerik mesajda yok, model yoldan açar (metin: read/bash; görsel: read görseli gösterir).
+    if (a.path) return `<ek ad="${name}" yol="${a.path.replace(/"/g, "'")}"${a.bytes != null ? ` boyut="${a.bytes} bayt"` : ''}>Kullanıcı bu dosyayı sandbox çalışma alanına yükledi; read ya da bash ile aç.</ek>`;
+    return `<ek ad="${name}">\n${a.text}\n</ek>`;
+  });
   return `${blocks.join('\n\n')}\n\n${content}`;
 }
 

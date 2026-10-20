@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { FileNotFoundError, IsDirectoryError, NotPreparedError, type CodeSandboxClient, type CodeScope } from './code-client.ts';
+import { imageToolResult, isImagePath, READ_IMAGE_MAX_MB } from './image-file.ts';
 import { applyEdit, lineDiffStats } from './edit-match.ts';
 import { ToolError } from './errors.ts';
 import { createRateLimiter } from './limits.ts';
@@ -233,7 +234,7 @@ export function createCodeTools(client: CodeSandboxClient): ToolDef[] {
     name: 'read',
     maxOutputChars: READ_MAX_CHARS + 600,
     description:
-      'Reads a file (or lists a directory) in the workspace. Each line is prefixed with its 1-based line number as `<line>: <content>`; do not include that prefix when you later pass text to edit. ' +
+      'Reads a file (or lists a directory) in the workspace. Image files (.png, .jpg, .jpeg, .webp; e.g. a screenshot the user uploaded to `.sixfinger/uploads/`) are shown to you as an image so you can look at them. Each line is prefixed with its 1-based line number as `<line>: <content>`; do not include that prefix when you later pass text to edit. ' +
       `Returns up to ${READ_MAX_LINES} lines; for longer files continue with offset. Prefer one larger read over many small slices, and use grep to find where to look in big files. Read a file before you edit it.`,
     parameters: {
       type: 'object',
@@ -250,6 +251,14 @@ export function createCodeTools(client: CodeSandboxClient): ToolDef[] {
       const a = parseArgs('read', readArgs, raw);
       const s = scope(ctx);
       guard(ctx);
+      if (isImagePath(a.path)) {
+        try {
+          return imageToolResult(a.path, await withWorkspace(ctx, () => client.raw(s, a.path, READ_IMAGE_MAX_MB, ctx.signal)));
+        } catch (err) {
+          if (err instanceof FileNotFoundError) throw new ToolError(`File not found: ${a.path}`);
+          throw err;
+        }
+      }
       let f;
       try {
         f = await withWorkspace(ctx, () => client.read(s, a.path, ctx.signal));

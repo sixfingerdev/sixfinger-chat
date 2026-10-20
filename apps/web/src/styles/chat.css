@@ -786,3 +786,78 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Görsel ekleri: mesajda ve yazma alanında */
+.msg-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.msg-image {
+  display: block;
+  width: 132px;
+  height: 132px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface-2);
+  cursor: zoom-in;
+}
+.msg-image.loading {
+  animation: sf-pulse 1.2s ease-in-out infinite;
+}
+.msg-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.image-full {
+  display: block;
+  max-width: 100%;
+  max-height: 82vh;
+  margin: 0 auto;
+  border-radius: 12px;
+  cursor: zoom-out;
+}
+.composer-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px 0;
+}
+.composer-images .thumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.composer-images .thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.composer-images .thumb button {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  cursor: pointer;
+}
+@keyframes sf-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}

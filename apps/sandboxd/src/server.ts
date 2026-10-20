@@ -9,7 +9,8 @@ import type { CodeService } from './code.ts';
 const who = { user: z.string().min(1).max(80), session: z.string().min(1).max(200) };
 const execBody = z.object({ ...who, command: z.string().min(1).max(8_000), timeout_seconds: z.number().int().min(1).max(600).optional() });
 const readBody = z.object({ ...who, path: z.string().min(1).max(400) });
-const writeBody = z.object({ ...who, path: z.string().min(1).max(400), content: z.string().max(2_000_000) });
+const writeBody = z.object({ ...who, path: z.string().min(1).max(400), content: z.string().max(14_500_000), encoding: z.enum(['utf8', 'base64']).optional() });
+const rawBody = z.object({ ...who, path: z.string().min(1).max(400), max_mb: z.number().int().min(1).max(64).optional() });
 const editBody = z.object({
   ...who,
   path: z.string().min(1).max(400),
@@ -41,7 +42,7 @@ const prepareBody = z.object({
 });
 const codeExecBody = z.object({ ...codeWho, command: z.string().min(1).max(8_000), timeout_seconds: z.number().int().min(1).max(3_600).optional() });
 const codeReadBody = z.object({ ...codeWho, path: z.string().min(1).max(400) });
-const codeWriteBody = z.object({ ...codeWho, path: z.string().min(1).max(400), content: z.string().max(4_000_000), encoding: z.enum(['utf8', 'base64']).optional() });
+const codeWriteBody = z.object({ ...codeWho, path: z.string().min(1).max(400), content: z.string().max(14_500_000), encoding: z.enum(['utf8', 'base64']).optional() });
 const codeGlobBody = z.object({ ...codeWho, pattern: z.string().min(1).max(300), path: z.string().max(400).optional(), limit: z.number().int().min(1).max(1_000).optional() });
 const codeGrepBody = z.object({
   ...codeWho,
@@ -54,7 +55,7 @@ const codeGrepBody = z.object({
 });
 
 export function buildServer(service: SandboxService, cfg: Config, opts: { logger?: boolean | object; code?: CodeService } = {}): FastifyInstance {
-  const app = Fastify({ logger: opts.logger ?? { level: cfg.LOG_LEVEL }, bodyLimit: 4 * 1024 * 1024 });
+  const app = Fastify({ logger: opts.logger ?? { level: cfg.LOG_LEVEL }, bodyLimit: 16 * 1024 * 1024 });
 
   app.addHook('onRequest', async (req, reply) => {
     if (req.url === '/healthz') return;
@@ -91,7 +92,12 @@ export function buildServer(service: SandboxService, cfg: Config, opts: { logger
   });
   app.post('/v1/write', async (req) => {
     const b = writeBody.parse(req.body);
-    return service.writeFile(b.user, b.session, b.path, b.content);
+    return service.writeFile(b.user, b.session, b.path, b.content, b.encoding);
+  });
+  app.post('/v1/raw', async (req, reply) => {
+    const b = rawBody.parse(req.body);
+    const { data } = await service.rawFile(b.user, b.session, b.path, (b.max_mb ?? 4) * 1_048_576);
+    return reply.type('application/octet-stream').send(data);
   });
   app.post('/v1/edit', async (req) => {
     const b = editBody.parse(req.body);

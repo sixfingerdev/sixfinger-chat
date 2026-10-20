@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { PERSONAS, createChatSchema, listChatsQuery, updateChatSchema } from '@sixfinger/shared';
+import { PERSONAS, UPLOAD_MAX_BYTES, createChatSchema, listChatsQuery, updateChatSchema, uploadFileSchema } from '@sixfinger/shared';
 import type { ChatDetailDTO } from '@sixfinger/shared';
 import type { AppContext } from '../context.ts';
 import type { Guard } from '../guard.ts';
 import { randomSlug } from '../lib/crypto.ts';
-import { badRequest, notFound, tierRestricted } from '../lib/errors.ts';
+import { HttpError, badRequest, notFound, tierRestricted } from '../lib/errors.ts';
+import { ToolError } from '../services/tools/errors.ts';
 import { parse } from '../lib/validate.ts';
 import {
   MESSAGE_COLUMNS,
@@ -16,6 +17,7 @@ import {
   type ChatRow,
   type MessageRow,
 } from '../services/chats.ts';
+import { imageRefs } from '../services/images.ts';
 import { findUserById, settingsOf } from '../services/users.ts';
 import { destroyCodeWorkspaces } from '../services/code-cleanup.ts';
 
@@ -94,7 +96,38 @@ export function chatRoutes(ctx: AppContext, guard: Guard) {
         `select ${MESSAGE_COLUMNS} from messages where chat_id = $1 order by seq`,
         [chat.id],
       );
-      return { chat: toChatDTO(chat), messages: m.rows.map(toMessageDTO) };
+      const refs = await imageRefs(db, m.rows.filter((r) => r.role === 'user').map((r) => r.id));
+      return { chat: toChatDTO(chat), messages: m.rows.map((r) => toMessageDTO(r, refs.get(r.id))) };
+    });
+
+    // Dosya yükleme: dosya sohbetin sandbox çalışma alanına (/work/uploads/) yazılır; model read/bash ile açar. Yalnızca sandbox hakkı olan üyeler.
+    app.post<{ Params: { id: string } }>('/chats/:id/upload', { bodyLimit: 15 * 1024 * 1024, config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
+      const user = req.user!;
+      const body = parse(uploadFileSchema, req.body);
+      const chat = await getOwnedChat(db, req.params.id, user.id);
+      if (!chat || chat.kind !== 'chat') throw notFound('Sohbet bulunamadı.');
+      if (!user.limits.features.sandbox) throw tierRestricted('Dosya yüklemek için e-postanı doğrulamış bir hesap gerekir.');
+      if (!ctx.sandbox) throw new HttpError(503, 'upstream_unavailable', 'Dosya yükleme şu an kullanılamıyor.');
+      const data = Buffer.from(body.dataBase64, 'base64');
+      if (!data.length) throw badRequest('Dosya boş.');
+      if (data.length > UPLOAD_MAX_BYTES) throw badRequest(`Dosya çok büyük (en fazla ${Math.floor(UPLOAD_MAX_BYTES / 1_048_576)} MB).`);
+      const name = body.name.split(/[\\/]/).pop()!.replace(/[^\p{L}\p{N}._ -]/gu, '_').replace(/^\.+/, '').trim().slice(0, 100) || 'dosya';
+      const path = `/work/uploads/${name}`;
+      try {
+        await ctx.sandbox.upload({ user: user.id, session: `${user.id}:${chat.id}` }, path, data, AbortSignal.timeout(60_000));
+      } catch (err) {
+        throw new HttpError(err instanceof ToolError ? 503 : 502, 'upstream_unavailable', err instanceof ToolError ? err.message : 'Dosya sandbox\'a yazılamadı.');
+      }
+      return { path, name, bytes: data.length };
+    });
+
+    // Mesaja eklenmiş görselin baytları (yalnızca sahibi). Değişmez: uzun süre önbelleğe alınır.
+    app.get<{ Params: { id: string } }>('/images/:id', async (req, reply) => {
+      if (!/^[0-9a-f-]{36}$/i.test(req.params.id)) throw notFound('Görsel bulunamadı.');
+      const r = await db.query<{ mime: string; data: Buffer }>('select mime, data from message_images where id = $1 and user_id = $2', [req.params.id, req.user!.id]);
+      const row = r.rows[0];
+      if (!row) throw notFound('Görsel bulunamadı.');
+      return reply.header('cache-control', 'private, max-age=31536000, immutable').header('x-content-type-options', 'nosniff').type(row.mime).send(row.data);
     });
 
     app.patch<{ Params: { id: string } }>('/chats/:id', async (req) => {

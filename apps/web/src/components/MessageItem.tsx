@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
+import { ChatImage } from './ChatImage.tsx';
 import { Check, ChevronLeft, ChevronRight, Copy, FileText, Pencil, RefreshCw, ThumbsDown, ThumbsUp, Volume2, Square } from 'lucide-react';
 import type { MessageDTO } from '@sixfinger/shared';
 import { clsx, copyText } from '../lib/format.ts';
@@ -130,6 +131,13 @@ function UserMessage({ msg, versions, busy }: Props) {
 
   return (
     <div className="msg msg-user">
+      {msg.images && msg.images.length > 0 && (
+        <div className="msg-images">
+          {msg.images.map((im) => (
+            <ChatImage key={im.id} image={im} />
+          ))}
+        </div>
+      )}
       {msg.attachments.length > 0 && (
         <div className="msg-attachments">
           {msg.attachments.map((a, i) => (

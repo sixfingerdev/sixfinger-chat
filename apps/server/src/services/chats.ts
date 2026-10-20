@@ -1,4 +1,4 @@
-import type { AttachmentDTO, ChatDTO, MessageDTO, MessagePartDTO } from '@sixfinger/shared';
+import type { AttachmentDTO, ChatDTO, ImageRefDTO, MessageDTO, MessagePartDTO } from '@sixfinger/shared';
 import type { Queryable } from '../db/pool.ts';
 
 export interface ChatRow {
@@ -14,6 +14,7 @@ export interface ChatRow {
   created_at: Date;
   updated_at: Date;
   last_message_at: Date | null;
+  task_id?: string | null;
   share_slug?: string | null;
   snippet?: string | null;
 }
@@ -50,11 +51,12 @@ export function toChatDTO(c: ChatRow, query?: string): ChatDTO {
     createdAt: c.created_at.toISOString(),
     updatedAt: c.updated_at.toISOString(),
     lastMessageAt: c.last_message_at?.toISOString() ?? null,
+    ...(c.task_id ? { taskId: c.task_id } : {}),
     ...(c.snippet ? { snippet: makeSnippet(c.snippet, query) } : {}),
   };
 }
 
-export function toMessageDTO(m: MessageRow): MessageDTO {
+export function toMessageDTO(m: MessageRow, images?: ImageRefDTO[]): MessageDTO {
   return {
     id: m.id,
     chatId: m.chat_id,
@@ -65,6 +67,7 @@ export function toMessageDTO(m: MessageRow): MessageDTO {
     status: m.status,
     model: m.model,
     attachments: m.attachments ?? [],
+    ...(images?.length ? { images } : {}),
     feedback: m.feedback === 1 ? 1 : m.feedback === -1 ? -1 : null,
     reasoningMs: m.reasoning_ms,
     parts: m.parts ?? [],

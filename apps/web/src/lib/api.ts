@@ -33,6 +33,11 @@ import type {
   StreamEvent,
   UserDTO,
   UsageDTO,
+  ArtifactListItemDTO,
+  CreateScheduledTaskBody,
+  ScheduledRunDTO,
+  ScheduledTaskDTO,
+  UpdateScheduledTaskInput,
 } from '@sixfinger/shared';
 
 /** Derleme sırasında verilen varsayılan sunucu (VITE_API_URL). Web'de boş: aynı kaynak (/api). */
@@ -250,6 +255,13 @@ async function readEvents(res: Response, onEvent: (e: StreamEvent) => void): Pro
 }
 
 /** SSE akışı (POST): sunucu olaylarını tek tek `onEvent`'e verir. */
+/** Mesaja eklenmiş görselin baytları (kimlik doğrulamalı). */
+export async function fetchImageBlob(id: string): Promise<Blob> {
+  const res = await send('GET', `/images/${id}`, undefined, {});
+  if (!res.ok) throw new ApiError(res.status, 'not_found', 'Görsel alınamadı.');
+  return res.blob();
+}
+
 export async function streamRequest(
   path: string,
   body: unknown,
@@ -352,6 +364,7 @@ export const api = {
     if (!res.ok) throw await parseError(res);
     return { blob: await res.blob(), filename: path.split('/').pop() ?? 'file' };
   },
+  chatUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/chats/${id}/upload`, { name, dataBase64 }),
   codeUpload: (id: string, name: string, dataBase64: string) => request<CodeUploadDTO>('POST', `/code/sessions/${id}/upload`, { name, dataBase64 }),
   // ---- skill'ler ----
   codeSkills: () => request<{ skills: SkillListItemDTO[]; limits: { perUser: number; own: number } }>('GET', '/code/skills'),
@@ -363,6 +376,14 @@ export const api = {
   codeShareSkill: (name: string, enabled: boolean) => request<{ shareToken: string | null }>('POST', `/code/skills/${encodeURIComponent(name)}/share`, { enabled }),
   codeSharedSkill: (token: string) => request<SkillDetailDTO>('GET', `/code/skills/shared/${encodeURIComponent(token)}`),
   codeImportShared: (token: string, overwrite = false) => request<SkillDetailDTO>('POST', `/code/skills/shared/${encodeURIComponent(token)}/import`, { overwrite }),
+  // ---- zamanlanmış görevler + artifacts ----
+  schedules: () => request<{ tasks: ScheduledTaskDTO[] }>('GET', '/schedule'),
+  scheduleCreate: (body: CreateScheduledTaskBody) => request<{ task: ScheduledTaskDTO }>('POST', '/schedule', body),
+  scheduleUpdate: (id: string, body: UpdateScheduledTaskInput) => request<{ task: ScheduledTaskDTO }>('PATCH', `/schedule/${id}`, body),
+  scheduleDelete: (id: string) => request<void>('DELETE', `/schedule/${id}`),
+  scheduleRun: (id: string) => request<{ ok: boolean }>('POST', `/schedule/${id}/run`),
+  scheduleRuns: (id: string) => request<{ runs: ScheduledRunDTO[] }>('GET', `/schedule/${id}/runs`),
+  artifacts: (q?: string) => request<{ artifacts: ArtifactListItemDTO[] }>('GET', '/artifacts', undefined, { query: { q } }),
   // ---- MCP bağlayıcıları ----
   mcpPresets: () => request<McpPresetsResponse>('GET', '/mcp/presets'),
   mcpServers: () => request<McpServersResponse>('GET', '/mcp/servers'),
@@ -384,7 +405,7 @@ export const api = {
   codeOpenPr: (id: string) => request<{ pull: CodePullDTO | null; created: boolean; existed: boolean; sha: string }>('POST', `/code/sessions/${id}/pr`, {}),
   /** Sunucu tarafı mesaj kuyruğu (Code): çalışırken eklenen mesajlar sunucuda bekler, tur bitince sunucu başlatır. */
   codeQueue: (id: string) => request<{ queue: CodeQueueItemDTO[] }>('GET', `/chats/${id}/queue`),
-  codeEnqueue: (id: string, body: { content: string; planMode?: boolean; mode?: 'fast' | 'deep'; attachments?: Array<{ name: string; mime: string; text: string }> }) =>
+  codeEnqueue: (id: string, body: { content: string; planMode?: boolean; mode?: 'fast' | 'deep'; attachments?: Array<{ name: string; mime: string; text: string; path?: string; bytes?: number }> }) =>
     request<{ queue: CodeQueueItemDTO[]; started: boolean }>('POST', `/chats/${id}/queue`, body),
   codeQueueRemove: (id: string, queueId: string) => request<void>('DELETE', `/chats/${id}/queue/${queueId}`),
   deleteCodeSession: (id: string) => request<void>('DELETE', `/code/sessions/${id}`),

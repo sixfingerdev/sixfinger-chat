@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ScrollView, Switch, Text as RNText, View } from 'react-native';
+import { AppState, ScrollView, Switch, Text as RNText, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
@@ -11,12 +11,14 @@ import { type } from '../theme/type.ts';
 import { api, ApiError } from '../lib/api.ts';
 import { reportError } from '../lib/errors.ts';
 import { shareText } from '../lib/export.ts';
-import { timeUntil } from '../lib/format.ts';
+import { copyText, timeUntil } from '../lib/format.ts';
 import { setLocale, useLocale, useT, type Locale } from '../lib/i18n/index.ts';
 import { haptic } from '../lib/haptics.ts';
 import { useAuth } from '../store/auth.ts';
 import { useChats } from '../store/chats.ts';
 import { useUi, type ThemePref } from '../store/ui.ts';
+import { assistantNative, formatDiagnostics } from '../assistant/native.ts';
+import { readAutoVoice, readSpeakPref, writeAutoVoice, writeSpeakPref, type SpeakPref } from '../assistant/prefs.ts';
 import { Field } from '../components/Field.tsx';
 import { Segmented } from '../components/Segmented.tsx';
 import { Sheet } from '../components/Sheet.tsx';
@@ -63,6 +65,19 @@ export default function SettingsScreen() {
   const setTheme = useUi((s) => s.setTheme);
   const guest = user.isGuest;
   const member = user.tier === 'member';
+  const assist = assistantNative;
+  const [isAssistant, setIsAssistant] = useState(() => assist?.isDefaultAssistant() ?? false);
+  const [speakPref, setSpeakPref] = useState<SpeakPref>(readSpeakPref);
+  const [diag, setDiag] = useState<string | null>(null);
+  const [autoVoice, setAutoVoice] = useState(readAutoVoice);
+  // Ayarlar ekranından dönünce asistan durumunu yeniden oku.
+  useEffect(() => {
+    if (!assist) return;
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') setIsAssistant(assist.isDefaultAssistant());
+    });
+    return () => sub.remove();
+  }, [assist]);
 
   const [form, setForm] = useState({ customName: user.settings.customName, about: user.settings.about, instructions: user.settings.instructions, defaultPersona: user.settings.defaultPersona });
   const [busy, setBusy] = useState(false);
@@ -199,6 +214,70 @@ export default function SettingsScreen() {
             />
           </View>
         </Section>
+
+        {/* Asistan (güç tuşu penceresi) */}
+        {assist && (
+          <Section title={t('assist.settings.title')}>
+            <RNText style={[type.small, { color: c.text2 }]}>{t('assist.settings.intro')}</RNText>
+            <Row label={isAssistant ? t('assist.settings.status.on') : t('assist.settings.status.off')} hint={isAssistant ? undefined : t('assist.settings.setHint')} />
+            {!isAssistant && (
+              <Button
+                label={t('assist.settings.set')}
+                onPress={() => {
+                  if (!assist.openAssistantSettings()) useUi.getState().toast({ kind: 'error', text: t('assist.settings.unavailable') });
+                }}
+              />
+            )}
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <Button label={t('assist.settings.try')} variant="secondary" style={{ flex: 1 }} onPress={() => assist.launchOverlay(false)} />
+              <Button label={t('assist.settings.tryVoice')} variant="secondary" style={{ flex: 1 }} onPress={() => assist.launchOverlay(true)} />
+            </View>
+            <Row
+              label={t('assist.settings.autoVoice')}
+              hint={t('assist.settings.autoVoiceHint')}
+              right={
+                <Switch
+                  value={autoVoice}
+                  onValueChange={(v) => {
+                    writeAutoVoice(v);
+                    setAutoVoice(v);
+                  }}
+                  trackColor={{ true: c.accent, false: c.surface3 }}
+                />
+              }
+            />
+            <View style={{ gap: 8 }}>
+              <RNText style={[type.small, { color: c.text2 }]}>{t('assist.settings.speak')}</RNText>
+              <Segmented<SpeakPref>
+                value={speakPref}
+                onChange={(v) => {
+                  writeSpeakPref(v);
+                  setSpeakPref(v);
+                }}
+                options={[
+                  { id: 'auto', label: t('assist.settings.speak.auto') },
+                  { id: 'on', label: t('assist.settings.speak.on') },
+                  { id: 'off', label: t('assist.settings.speak.off') },
+                ]}
+              />
+            </View>
+            <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.shot')}</RNText>
+            <RNText style={[type.small, { color: c.text3 }]}>{t('assist.settings.tile')}</RNText>
+            <Press haptics="tap" scale={0.99} onPress={() => setDiag((d) => (d === null ? formatDiagnostics(assist.getDiagnostics()) : null))}>
+              <RNText style={[type.small, { color: c.text2, textDecorationLine: 'underline' }]}>{t('assist.diag.title')}</RNText>
+            </Press>
+            {diag !== null && (
+              <View style={{ gap: 10 }}>
+                <RNText selectable style={{ fontFamily: fonts.mono, fontSize: 11.5, lineHeight: 17, color: c.text2 }}>{diag}</RNText>
+                <RNText style={[type.small, { color: c.text3 }]}>{t('assist.diag.hint')}</RNText>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <Button label={t('assist.diag.refresh')} variant="secondary" style={{ flex: 1 }} onPress={() => setDiag(formatDiagnostics(assist.getDiagnostics()))} />
+                  <Button label={t('common.copy')} variant="secondary" style={{ flex: 1 }} onPress={() => void copyText(diag).then((ok) => ok && useUi.getState().toast({ kind: 'success', text: t('common.copied') }))} />
+                </View>
+              </View>
+            )}
+          </Section>
+        )}
 
         {/* Kişiselleştirme */}
         <Section title={t('settings.personal')}>

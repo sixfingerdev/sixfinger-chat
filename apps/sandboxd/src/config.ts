@@ -34,6 +34,8 @@ const schema = z.object({
   EXEC_MAX_SECONDS: int(120, 1),
   OUTPUT_MAX_BYTES: int(65_536, 1024),
   FILE_MAX_BYTES: int(1_000_000, 1024),
+  /** Kullanıcının yüklediği (ikili olabilir) dosyanın en büyük boyutu: hem sohbet hem Code sandbox'ı. */
+  UPLOAD_MAX_BYTES: int(10_485_760, 1024),
 
   // ---- SixFinger Code çalışma alanları (kalıcı, diskte; sohbet sandbox'larından ayrı havuz) ----
   /** Çalışma alanlarının sandboxd içinden görünen dizini (içinde `workspaces/<kimlik>`). */

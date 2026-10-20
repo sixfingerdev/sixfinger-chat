@@ -46,6 +46,8 @@ E-posta doğrulama ve şifre sıfırlama 6 haneli kodla (SMTP).
 - **Artifact'lar** (herkes): model tek dosyalık uygulama/oyun/SVG/diyagram/belge üretir; web'de yan panelde, mobilde tam ekranda, izole iframe/WebView içinde çalışır.
 - **Widget'lar** (herkes): mesajın içinde küçük etkileşimli parçalar (grafik, hesaplayıcı); uygulama temasına uyar.
 - **Code** (izin listesi): GitHub reposu seçip kendi branch'inde çalışan bulut kodlama oturumları; ortamlar, disk ve kredi sınırları. Faz 1 (hesap bağlama, ortamlar, oturumlar) hazır, ajan çalıştırması Faz 2. Kurulum: [docs/code.md](docs/code.md), tasarım notları: [docs/code-agent.md](docs/code-agent.md).
+- **Zamanlanmış görevler ve Artifacts**: belirli zamanlarda bir isteği otomatik çalıştır (elle ya da asistana söyleyerek), sonuç yeni sohbet olarak gelir; sohbetlerde ürettiğin tüm artifact'lar tek yerde. Bkz. [docs/schedule.md](docs/schedule.md).
+- **Asistan** (Android): güç tuşuna uzun basınca açık uygulamanın üstünde açılan SixFinger penceresi; yazarak/sesle sor, ekrandaki metni ekle, yanıtı dinle. Bkz. [docs/assistant.md](docs/assistant.md).
 - **Sandbox** (yalnızca doğrulanmış üyeler): `bash`, `read`, `write`, `edit` — izole Docker konteynerinde, kaynak sınırlı, isteğe bağlı kısıtlı internet. Kurulum ve güvenlik modeli: [docs/sandbox.md](docs/sandbox.md).
 
 ## Mimari

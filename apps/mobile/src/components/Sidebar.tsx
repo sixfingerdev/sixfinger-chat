@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { SectionList, Text as RNText, TextInput, View } from 'react-native';
 import { router, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Archive, ArchiveRestore, ChevronDown, ChevronUp, MessageSquare, Pencil, Pin, PinOff, Plug, Plus, Search, Settings, SquareCode, Trash2 } from 'lucide-react-native';
+import { Archive, ArchiveRestore, CalendarClock, ChevronDown, ChevronUp, MessageSquare, Pencil, Pin, PinOff, Plug, Plus, Search, Settings, Shapes, SquareCode, Trash2 } from 'lucide-react-native';
 import type { ChatDTO } from '@sixfinger/shared';
 import { fonts, radius, useTheme } from '../theme/index.tsx';
 import { type } from '../theme/type.ts';
@@ -57,10 +57,22 @@ const ChatRow = memo(function ChatRow({
       <RNText numberOfLines={1} style={[type.body, { flex: 1, fontSize: 14.5, color: active ? c.text : c.text2, fontFamily: active ? fonts.sansMedium : fonts.sans }]}>
         {chat.title || t('chat.untitled')}
       </RNText>
+      {chat.taskId && <CalendarClock size={13} color={c.text3} />}
       {chat.pinned && <Pin size={13} color={c.text3} />}
     </Press>
   );
 });
+
+/** Çekmecedeki gezinme satırı (Zamanlanmış, Artifacts). */
+function NavRow({ Icon, label, onPress }: { Icon: typeof Plug; label: string; onPress: () => void }) {
+  const { c } = useTheme();
+  return (
+    <Press scale={0.985} haptics={false} onPress={onPress} style={{ height: 44, borderRadius: radius.sm, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <Icon size={18} color={c.text2} />
+      <RNText style={[type.body, { flex: 1, fontSize: 14.5, color: c.text2 }]}>{label}</RNText>
+    </Press>
+  );
+}
 
 type Section = { key: GroupKey | 'archived'; data: ChatDTO[] };
 
@@ -101,6 +113,11 @@ export function Sidebar() {
     useChats.getState().newChat();
     drawer.close();
     if (inCode) leaveCode();
+  };
+  const go = (path: '/scheduled' | '/artifacts') => {
+    haptic.tap();
+    drawer.close();
+    router.push(path as never);
   };
   const goTab = (tab: 'chat' | 'code') => {
     haptic.select();
@@ -197,6 +214,13 @@ export function Sidebar() {
           />
         </View>
       </View>
+
+      {!inCode && (
+        <View style={{ paddingHorizontal: 8, paddingBottom: 4 }}>
+          {!user?.isGuest && <NavRow Icon={CalendarClock} label={t('sched.nav')} onPress={() => go('/scheduled')} />}
+          <NavRow Icon={Shapes} label={t('art.nav')} onPress={() => go('/artifacts')} />
+        </View>
+      )}
 
       <SectionList
         sections={sections}

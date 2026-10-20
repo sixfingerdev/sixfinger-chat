@@ -1,0 +1,80 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+  <queries>
+    <!-- Sesle sorma için cihazdaki konuşma tanıma servisini (Google) bulmak. -->
+    <intent>
+      <action android:name="android.speech.RecognitionService" />
+    </intent>
+  </queries>
+
+  <application>
+    <!-- Dijital asistan: güç tuşuna uzun basma / kenardan kaydırma SixFinger'ı açar (Ayarlar → Varsayılan uygulamalar → Dijital asistan). -->
+    <service
+      android:name=".SfVoiceInteractionService"
+      android:exported="true"
+      android:permission="android.permission.BIND_VOICE_INTERACTION">
+      <meta-data
+        android:name="android.voice_interaction"
+        android:resource="@xml/sf_interaction_service" />
+      <intent-filter>
+        <action android:name="android.service.voice.VoiceInteractionService" />
+      </intent-filter>
+    </service>
+    <service
+      android:name=".SfSessionService"
+      android:exported="true"
+      android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
+    <!-- Asistan servisinin geçerli sayılması için konuşma tanıma servisi (isteği cihazdaki gerçek tanıyıcıya iletir). -->
+    <service
+      android:name=".SfRecognitionService"
+      android:exported="true"
+      android:label="SixFinger">
+      <intent-filter>
+        <action android:name="android.speech.RecognitionService" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+      <meta-data
+        android:name="android.speech"
+        android:resource="@xml/sf_recognition_service" />
+    </service>
+
+    <!-- Diğer uygulamaların üstünde açılan yarı saydam asistan penceresi. -->
+    <activity
+      android:name=".AssistantActivity"
+      android:exported="true"
+      android:excludeFromRecents="true"
+      android:taskAffinity=""
+      android:launchMode="singleTask"
+      android:theme="@style/Theme.SixfingerAssistant"
+      android:windowSoftInputMode="adjustResize"
+      android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|locale|layoutDirection">
+      <intent-filter>
+        <action android:name="android.intent.action.ASSIST" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+      <!-- Üreticilerin güç/ana ekran uzun basma ve kulaklık düğmesi yolları. -->
+      <intent-filter>
+        <action android:name="android.intent.action.SEARCH_LONG_PRESS" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.VOICE_COMMAND" />
+        <category android:name="android.intent.category.DEFAULT" />
+      </intent-filter>
+    </activity>
+
+    <!-- Hızlı Ayarlar karosu: asistanı tek dokunuşla açar (asistan seçilmemiş olsa da çalışır). -->
+    <service
+      android:name=".SfTileService"
+      android:exported="true"
+      android:icon="@drawable/sf_ic_tile"
+      android:label="@string/sf_tile_label"
+      android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+      <intent-filter>
+        <action android:name="android.service.quicksettings.action.QS_TILE" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>

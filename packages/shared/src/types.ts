@@ -59,6 +59,8 @@ export interface ChatDTO {
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string | null;
+  /** Zamanlanmış görevin çalıştırması olarak oluşan sohbette görevin kimliği. */
+  taskId?: string | null;
   /** Arama sonuçlarında eşleşen mesajdan kesit. */
   snippet?: string;
 }
@@ -67,6 +69,9 @@ export interface AttachmentDTO {
   name: string;
   mime: string;
   text: string;
+  /** Sandbox'a yüklenmişse çalışma alanındaki yol (içerik mesajda yok; model okur). */
+  path?: string;
+  bytes?: number;
 }
 
 export type MessageStatus = 'complete' | 'streaming' | 'error' | 'stopped';
@@ -100,6 +105,13 @@ export type MessagePartDTO =
       ms?: number;
     };
 
+/** Mesaja eklenmiş görselin başvurusu; baytlar `GET /api/images/:id` ile alınır. */
+export interface ImageRefDTO {
+  id: string;
+  name: string;
+  mime: string;
+}
+
 export interface MessageDTO {
   id: string;
   chatId: string;
@@ -110,6 +122,8 @@ export interface MessageDTO {
   status: MessageStatus;
   model: string | null;
   attachments: AttachmentDTO[];
+  /** Eklenen görseller (yoksa boş ya da yok). */
+  images?: ImageRefDTO[];
   feedback: 1 | -1 | null;
   /** Düşünme süresi (ms) */
   reasoningMs: number | null;

@@ -168,4 +168,19 @@ describe('kabul kontrolü', () => {
     expect(await service.reapIdle(t)).toBe(1);
     expect(service.stats().containers).toBe(1);
   });
+
+  it('base64 yükleme ikili dosyayı bozmadan yazar; rawFile baytları aynen döner; büyük yükleme reddedilir', async () => {
+    const { service } = svc();
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+    const bin = Buffer.concat([png, Buffer.from([0, 255, 0, 1])]);
+    const w = await service.writeFile('u1', 'c', 'uploads/a.png', bin.toString('base64'), 'base64');
+    expect(w.bytes).toBe(bin.length);
+    const { data } = await service.rawFile('u1', 'c', '/work/uploads/a.png', 1_048_576);
+    expect(data.equals(bin)).toBe(true);
+    await expect(service.rawFile('u1', 'c', 'uploads/a.png', 8)).rejects.toMatchObject({ code: 'too_large' });
+    await expect(service.rawFile('u1', 'c', 'yok.png', 1000)).rejects.toMatchObject({ code: 'not_found' });
+    // Metin yazma sınırı eskisi gibi (1 MB); base64 yükleme UPLOAD_MAX_BYTES'a kadar.
+    await expect(service.writeFile('u1', 'c', 'big.txt', 'x'.repeat(1_000_001))).rejects.toMatchObject({ code: 'too_large' });
+    await expect(service.writeFile('u1', 'c', 'big.bin', Buffer.alloc(10_485_761).toString('base64'), 'base64')).rejects.toMatchObject({ code: 'too_large' });
+  });
 });

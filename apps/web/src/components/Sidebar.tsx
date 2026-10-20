@@ -3,6 +3,7 @@ import { NavLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Archive,
   ArchiveRestore,
+  CalendarClock,
   ChevronDown,
   Code2,
   Ellipsis,
@@ -14,6 +15,7 @@ import {
   Search,
   Plug,
   Settings,
+  Shapes,
   SquarePen,
   Trash2,
   PanelLeftClose,
@@ -75,6 +77,7 @@ function ChatRow({ chat, active }: { chat: ChatDTO; active: boolean }) {
     <div className={clsx('chat-row', active && 'active')}>
       <NavLink to={`/c/${chat.id}`} className="chat-link" title={chat.title} onClick={() => setMobile(false)}>
         {chat.pinned && <Pin size={12} className="pin-ico" />}
+        {chat.taskId && <CalendarClock size={12} className="pin-ico" aria-label={t('sched.chat')} />}
         <span className="chat-title">{chat.title}</span>
       </NavLink>
       <Popover
@@ -247,6 +250,7 @@ export function Sidebar() {
   const [filter, setFilter] = useState('');
   const toggleSidebar = useUi((s) => s.toggleSidebar);
   const setPalette = useUi((s) => s.setPalette);
+  const isGuest = Boolean(useAuth((s) => s.user?.isGuest));
   const mobileOpen = useUi((s) => s.mobileSidebarOpen);
   const collapsed = useUi((s) => s.sidebarCollapsed);
   const setMobile = useUi((s) => s.setMobileSidebar);
@@ -303,6 +307,17 @@ export function Sidebar() {
           <button className="search-btn" onClick={() => setPalette(true)} aria-label={t('palette.hint')} title={t('palette.hint')}>
             <Search size={17} />
           </button>
+        </div>
+
+        <div className="sidebar-nav">
+          {!isGuest && (
+            <NavLink to="/scheduled" className={({ isActive }) => clsx('sidebar-nav-link', isActive && 'active')} onClick={() => setMobile(false)}>
+              <CalendarClock size={16} /> {t('sched.nav')}
+            </NavLink>
+          )}
+          <NavLink to="/artifacts" className={({ isActive }) => clsx('sidebar-nav-link', isActive && 'active')} onClick={() => setMobile(false)}>
+            <Shapes size={16} /> {t('art.nav')}
+          </NavLink>
         </div>
 
         <div className="sidebar-filter">

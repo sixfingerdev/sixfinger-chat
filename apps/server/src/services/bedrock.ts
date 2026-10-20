@@ -44,7 +44,12 @@ export function toConverse(messages: AiMessage[]): { system: Array<{ text: strin
     if (m.role === 'system') {
       if (m.content.trim()) system.push({ text: m.content });
     } else if (m.role === 'user') {
-      push('user', m.content.trim() ? [text(m.content)] : []);
+      const blocks: ContentBlock[] = m.content.trim() ? [text(m.content)] : [];
+      for (const img of m.images ?? []) {
+        const format = img.mime === 'image/png' ? 'png' : img.mime === 'image/webp' ? 'webp' : 'jpeg';
+        blocks.push({ image: { format, source: { bytes: Buffer.from(img.data, 'base64') } } });
+      }
+      push('user', blocks);
     } else if (m.role === 'assistant') {
       const blocks: ContentBlock[] = [];
       if (m.content.trim()) blocks.push(text(m.content));

@@ -35,6 +35,8 @@ import { createGithub } from './services/github.ts';
 import { createSecretBox } from './lib/secretbox.ts';
 import { codeRoutes } from './routes/code.ts';
 import { mcpRoutes } from './routes/mcp.ts';
+import { scheduleRoutes } from './routes/schedule.ts';
+import { createSchedule, startScheduler } from './services/schedule.ts';
 import { createMcp } from './services/mcp/index.ts';
 import type { FetchLike } from './services/mcp/guarded-fetch.ts';
 
@@ -48,6 +50,8 @@ export interface BuildOptions {
   github?: ReturnType<typeof createGithub>;
   /** sandboxd Code istemcisi (testlerde sahte). */
   codeSandbox?: import('./services/tools/code-client.ts').CodeSandboxClient | null;
+  /** sandboxd sohbet istemcisi (testlerde gerçek sandboxd'ye). */
+  sandbox?: import('./services/tools/sandbox.ts').SandboxClient | null;
   /** Yerleşik skill'ler (testlerde sabit küme). */
   skills?: import('./services/skills.ts').Skills;
   /** MCP istekleri için fetch (testlerde korumasız yerel sunucuya; üretimde SSRF korumalı). */
@@ -66,7 +70,8 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     trustProxy: config.TRUST_PROXY,
     // Önizleme adresindeki imzalı token (oturum + kök/port) varsayılan 100 karakter sınırından uzundur.
     maxParamLength: 2_000,
-    bodyLimit: 1_048_576 * 2,
+    // Görselli mesajlar: en fazla 4 görsel × ~1,2 MB base64.
+    bodyLimit: 1_048_576 * 6,
     genReqId: () => crypto.randomUUID(),
   });
 
@@ -80,6 +85,7 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
   const secrets = config.CODE_SECRET_KEY ? createSecretBox(config.CODE_SECRET_KEY) : null;
   const sandboxUrl = config.SANDBOXD_URL && config.SANDBOXD_TOKEN ? { url: config.SANDBOXD_URL, token: config.SANDBOXD_TOKEN } : null;
   const codeSandbox = opts.codeSandbox ?? (sandboxUrl ? createCodeClient(sandboxUrl.url, sandboxUrl.token) : null);
+  const chatSandbox = opts.sandbox ?? (sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : null);
   const ctx: AppContext = {
     config,
     db,
@@ -96,10 +102,12 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
     ai: opts.ai ?? createAi(config, app.log),
     codeQueue: new CodeQueue({ maxRuns: config.CODE_MAX_RUNS, maxQueue: config.CODE_MAX_QUEUE }),
     codeSandbox,
-    tools: opts.tools ?? createTools([], { sandbox: sandboxUrl ? createSandboxClient(sandboxUrl.url, sandboxUrl.token) : undefined, code: codeSandbox ?? undefined, searxngUrl: config.SEARXNG_URL || undefined }),
+    sandbox: chatSandbox,
+    tools: opts.tools ?? createTools([], { sandbox: chatSandbox ?? undefined, code: codeSandbox ?? undefined, searxngUrl: config.SEARXNG_URL || undefined }),
     codeGit: undefined as never,
     codePreview: undefined as never,
     skills: opts.skills ?? createSkills({ db, log: app.log }),
+    schedule: createSchedule(db),
     mcp: createMcp({ db, secrets, config, log: app.log, fetchImpl: opts.mcpFetch }),
   };
   ctx.codeGit = createCodeGit({ db, ai: ctx.ai, code: ctx.code, github: ctx.github, sandbox: codeSandbox, runs: ctx.runs, config, skills: ctx.skills });
@@ -181,9 +189,16 @@ export async function buildApp(opts: BuildOptions = {}): Promise<{ app: FastifyI
       await api.register(messageRoutes(ctx, guard));
       await api.register(codeRoutes(ctx, guard));
       await api.register(mcpRoutes(ctx, guard));
+      await api.register(scheduleRoutes(ctx, guard));
     },
     { prefix: '/api' },
   );
+
+  // Zamanlanmış görevler: sunucu açıkken her 30 sn'de zamanı gelenleri çalıştırır.
+  if (config.SCHEDULER_ENABLED !== 'false' && !config.isTest) {
+    const scheduler = startScheduler({ schedule: ctx.schedule, run: (t) => ctx.runScheduled!(t), log: app.log });
+    app.addHook('onClose', async () => scheduler.stop());
+  }
 
   app.addHook('onClose', async () => {
     if (!opts.db) await db.end();

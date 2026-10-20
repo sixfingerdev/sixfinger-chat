@@ -1,6 +1,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   ATTACHMENT_MAX_CHARS,
+  IMAGE_LIMITS,
+  type ImageInput,
+  type ImageRefDTO,
   DEFAULT_THINKING_LEVEL,
   feedbackSchema,
   legacyModeFromEffort,
@@ -19,7 +22,7 @@ import type { Run } from '../services/runs.ts';
 import { runCodeGeneration, type CodeRunInput } from '../services/code-run.ts';
 import { HttpError, badRequest, conflict, forbidden, notFound, tierRestricted } from '../lib/errors.ts';
 import { parse } from '../lib/validate.ts';
-import type { AiMessage, AiToolCall, Effort } from '../services/ai.ts';
+import type { AiImage, AiMessage, AiToolCall, Effort } from '../services/ai.ts';
 import { isMcpToolName, type McpApprovalMeta } from '@sixfinger/shared';
 import { connectorsSection } from '../services/mcp/prompt.ts';
 import { runToolCall, toolSpecs } from '../services/tools/index.ts';
@@ -32,6 +35,7 @@ import {
   type MessageRow,
 } from '../services/chats.ts';
 import { addMemory, listMemories } from '../services/memories.ts';
+import { checkImages, imageRefs, loadImages, saveImages, trimOldImages } from '../services/images.ts';
 import {
   MODEL_ID,
   buildSystemPrompt,
@@ -172,11 +176,13 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
 
   interface TurnBody {
     content: string;
-    attachments?: Array<{ name: string; mime: string; text: string }>;
+    attachments?: Array<{ name: string; mime: string; text: string; path?: string; bytes?: number }>;
+    images?: ImageInput[];
     parentId?: string | null;
   }
   interface BegunTurn {
     userRow: MessageRow;
+    images: ImageRefDTO[];
     assistantId: string;
     history: HistoryItem[];
     isFirstExchange: boolean;
@@ -194,7 +200,10 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         throw badRequest(`En fazla ${user.limits.maxAttachments} dosya eklenebilir.`);
       }
       if (attachments.some((a) => a.text.length > ATTACHMENT_MAX_CHARS)) throw badRequest('Dosya çok büyük.');
+      // Yüklenmiş dosyanın yolu yalnızca yükleme klasörlerinden olabilir (modele giden not bu yolu içerir).
+      if (attachments.some((a) => a.path && !/^(\/work\/uploads\/|\.sixfinger\/uploads\/)[^\0]+$/.test(a.path))) throw badRequest('Geçersiz dosya yolu.');
     }
+    if (body.images?.length && !user.limits.features.images) throw tierRestricted('Görsel eklemek için e-postanı doğrulamış bir hesap gerekir.');
   }
 
   /** Kullanıcı mesajını ve boş asistan yanıtını yazar, modele gidecek geçmişi hazırlar (doğrulamalar dahil). Hem istek hem sunucu kuyruğu kullanır. */
@@ -202,6 +211,9 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     const isCode = chat.kind === 'code';
     assertTurnBody(user, body);
     const attachments = body.attachments ?? [];
+    if (isCode && body.images?.length) throw badRequest('Code oturumlarında görsel eklenemez.');
+    // Görseller kota düşülmeden önce doğrulanır (boyut, tür, dosya imzası).
+    const checkedImages = body.images?.length ? checkImages(body.images) : [];
 
     // Yeni mesajın ebeveyni: açıkça verilmişse o, yoksa sohbetin ucu.
     const parentId = body.parentId === undefined ? chat.leaf_id : body.parentId;
@@ -219,6 +231,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     if (!isCode) await usage.consume(user.id, user.tier, user.isGuest ? ip : null);
 
     let userRow: MessageRow, assistantId: string;
+    let images: ImageRefDTO[] = [];
     let isFirstExchange = false;
     try {
       const count = await db.query<{ n: number }>('select count(*)::int as n from messages where chat_id = $1', [chat.id]);
@@ -229,6 +242,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         [chat.id, parentId, body.content, JSON.stringify(attachments)],
       );
       userRow = u.rows[0]!;
+      if (checkedImages.length) images = await saveImages(db, userRow.id, user.id, checkedImages);
       const a = await db.query<{ id: string }>(
         `insert into messages (chat_id, parent_id, role, status, model)
          values ($1, $2, 'assistant', 'streaming', $3) returning id`,
@@ -244,23 +258,37 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       throw err;
     }
 
-    const path = await getPath(db, userRow.id);
-    const history = path.map((m) => ({
-      role: m.role,
-      content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
-      parts: m.role === 'assistant' ? m.parts : undefined,
-    }));
-    return { userRow, assistantId, history, isFirstExchange };
+    const history = await buildHistory(await getPath(db, userRow.id));
+    return { userRow, images, assistantId, history, isFirstExchange };
+  }
+
+  /**
+   * Yoldaki mesajlardan modele gidecek geçmiş. Görseller bağlamı şişirir: yalnızca en yeni birkaç görselli kullanıcı mesajında taşınır,
+   * eskilerin yerine metin notu girer.
+   */
+  async function buildHistory(path: Array<Pick<MessageRow, 'id' | 'role' | 'content' | 'attachments' | 'parts'>>): Promise<HistoryItem[]> {
+    const refs = await imageRefs(db, path.filter((m) => m.role === 'user').map((m) => m.id));
+    const withImages = path.filter((m) => m.role === 'user' && refs.has(m.id));
+    const keep = new Set(withImages.slice(-IMAGE_LIMITS.historyMessages).map((m) => m.id));
+    const loaded = await loadImages(db, [...keep]);
+    return path.map((m): HistoryItem => {
+      if (m.role === 'assistant') return { role: 'assistant', content: m.content, parts: m.parts };
+      let content = renderUserContent(m.content, m.attachments ?? []);
+      const r = refs.get(m.id);
+      if (r && !keep.has(m.id)) content += `\n\n[Eklenen görsel: ${r.map((x) => x.name).join(', ')} — eski olduğu için bu turda gösterilmiyor]`;
+      const imgs = loaded.get(m.id);
+      return { role: 'user', content, ...(imgs?.length ? { images: imgs } : {}) };
+    });
   }
 
   /** Üretimi başlatır, istek sahibini ona bağlar ve beklemeden döner; üretim arka planda sürer. */
-  function generate(req: FastifyRequest, reply: FastifyReply, g: GenerationInput) {
+  function generate(req: FastifyRequest | null, reply: FastifyReply | null, g: GenerationInput): Promise<void> {
     const run = runs.start(g.chat.id, g.user.id, g.assistantId);
-    attach(reply, run, false);
-    const ip = req.ip;
+    if (reply) attach(reply, run, false);
+    const ip = req?.ip ?? '';
     // Tek bir yanıt için mutlak üst süre: takılı kalan bir üretim sonsuza dek yer tutmasın.
     const cap = setTimeout(() => run.stop(), config.AI_TOTAL_TIMEOUT_MS + 60_000);
-    void (async () => {
+    return (async () => {
       try {
         await runGeneration(ip, run, g);
       } catch (err) {
@@ -274,6 +302,38 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       }
     })();
   }
+
+  /** Zamanı gelen görevi çalıştırır: yeni bir sohbet açar, istemi kullanıcı mesajı olarak yazar ve yanıtı üretir (istemci gerekmez). */
+  ctx.runScheduled = async (task) => {
+    const user = await ctx.schedule.authUser(task.user_id);
+    if (!user || user.isGuest) return void (await ctx.schedule.recordRun(task.id, { chatId: null, status: 'skipped', error: 'Hesap bulunamadı.' }));
+    const created = await db.query<ChatRow>(
+      `insert into chats (user_id, title, title_generated, task_id) values ($1, $2, true, $3) returning *`,
+      [user.id, task.title, task.id],
+    );
+    const chat = created.rows[0]!;
+    try {
+      const turn = await beginTurn(chat, user, { content: task.prompt }, null);
+      await generate(null, null, {
+        chat,
+        user,
+        userMessage: toMessageDTO(turn.userRow, turn.images),
+        assistantId: turn.assistantId,
+        history: turn.history,
+        mode: task.mode,
+        effort: DEFAULT_THINKING_LEVEL,
+        isFirstExchange: false,
+        userText: task.prompt,
+      });
+      const st = await db.query<{ status: string }>('select status from messages where id = $1', [turn.assistantId]);
+      const ok = st.rows[0]?.status === 'complete';
+      await ctx.schedule.recordRun(task.id, { chatId: chat.id, status: ok ? 'ok' : 'error', error: ok ? null : 'Yanıt tamamlanamadı.' });
+    } catch (err) {
+      // Günlük mesaj hakkı bitti vb.: boş sohbeti bırakma.
+      await db.query('delete from chats where id = $1', [chat.id]).catch(() => {});
+      await ctx.schedule.recordRun(task.id, { chatId: null, status: 'error', error: err instanceof HttpError ? err.message : 'Çalıştırılamadı.' });
+    }
+  };
 
   /** Code oturumunda üretimi başlatır (ajan döngüsü); arka planda sürer, istemci kopsa da bitmez. */
   function generateCode(reply: FastifyReply | null, g: CodeRunInput) {
@@ -305,7 +365,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     content: string;
     plan_mode: boolean;
     mode: string;
-    attachments: Array<{ name: string; mime: string; text: string }>;
+    attachments: Array<{ name: string; mime: string; text: string; path?: string; bytes?: number }>;
     created_at: Date;
   }
   const queueDto = (r: QueueRow): CodeQueueItemDTO => ({ id: r.id, text: r.content, plan: r.plan_mode, attachments: (r.attachments ?? []).map((a) => a.name) });
@@ -341,7 +401,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         generateCode(null, {
           chat,
           user,
-          userMessage: toMessageDTO(turn.userRow),
+          userMessage: toMessageDTO(turn.userRow, turn.images),
           assistantId: turn.assistantId,
           history: turn.history,
           userText: item.content,
@@ -372,7 +432,13 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
     // Bağlayıcılar (MCP): araç listesi veritabanı önbelleğinden gelir; misafir kullanamaz.
     const mcpSet = user.isGuest ? null : await ctx.mcp.toolsFor(user.id, 'chat').catch(() => null);
     const connectors = mcpSet ? connectorsSection(mcpSet) : '';
-    const system = ((await loadPromptContext(user, chat.persona_id).catch(() => '')) + (connectors ? `\n\n${connectors}` : '')).trim();
+    // Zamanlanmış görev araçları: üyeler kullanır; görevin kendi çalıştırmasında (zincirleme zamanlamayı önlemek için) yok.
+    const scheduleDefs = user.isGuest || chat.task_id ? [] : ctx.schedule.tools().filter((t) => t.available(user));
+    const scheduleNote = scheduleDefs.length
+      ? 'Zamanlanmış görevler: Kullanıcı bir işin belirli zamanda ya da düzenli (her sabah, haftalık, yarın 9\'da…) yapılmasını isterse schedule_create ile görev oluştur; mevcutları schedule_list, değişiklik için schedule_update, silmek için schedule_delete kullan. Saatler İstanbul saatidir. İstem (prompt) kullanıcı olmadan çalışacağı için kendi başına eksiksiz olmalı. Oluşturduktan sonra ne zaman çalışacağını kısaca söyle; görev sonuçları "Zamanlanmış" bölümünde ve yeni bir sohbet olarak görünür.'
+      : '';
+    const runNote = chat.task_id ? 'Bu yanıt zamanlanmış bir görev olarak, kullanıcı başında olmadan otomatik üretiliyor: soru sorma, ek bilgi bekleme; istemi mevcut bilgi ve araçlarla doğrudan yerine getirip sonucu yaz.' : '';
+    const system = ((await loadPromptContext(user, chat.persona_id).catch(() => '')) + (connectors ? `\n\n${connectors}` : '') + (scheduleNote ? `\n\n${scheduleNote}` : '') + (runNote ? `\n\n${runNote}` : '')).trim();
     const assistantRow = await db.query<MessageRow>(`select ${MESSAGE_COLUMNS} from messages where id = $1`, [g.assistantId]);
     stream.send({ type: 'start', userMessage: g.userMessage, assistantMessage: toMessageDTO(assistantRow.rows[0]!) });
 
@@ -411,7 +477,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
       ]).catch(() => {});
     };
 
-    const defs = [...toolsFor(user), ...(mcpSet?.defs ?? [])];
+    const defs = [...toolsFor(user), ...scheduleDefs, ...(mcpSet?.defs ?? [])];
     const specs = toolSpecs(defs);
     // Araç yoksa tek tur; varsa kullanıcı katmanının izin verdiği kadar tur. Son turda araç verilmez:
     // model elindekiyle cevabı yazmak zorunda kalır.
@@ -436,7 +502,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         }
 
         for await (const chunk of ai.stream({
-          messages,
+          messages: trimOldImages(messages),
           signal: stream.signal,
           mode: g.mode,
           effort: g.effort,
@@ -487,6 +553,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         // Modelin araç isteğini konuşmaya ekle, sonra çalıştır.
         messages.push({ role: 'assistant', content: stepText, tool_calls: calls });
         let waitingApproval: McpApprovalMeta | null = null;
+        const shownImages: AiImage[] = [];
         for (const call of calls.slice(0, 4)) {
           let shownArgs: Record<string, unknown> = {};
           try {
@@ -526,6 +593,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
           if (mcpMeta) part.meta = mcpMeta;
           stream.send({ type: 'tool_end', id: part.id, status: run.status, output: run.output, summary: run.summary, ms: run.ms, ...(mcpMeta ? { meta: mcpMeta } : {}) });
           messages.push({ role: 'tool', tool_call_id: call.id, content: run.output });
+          if ('images' in run && run.images?.length) shownImages.push(...run.images);
           if (mcpMeta?.terminal === true && mcpMeta.approval) {
             waitingApproval = mcpMeta.approval as McpApprovalMeta;
             break;
@@ -534,6 +602,8 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         for (const extra of calls.slice(4)) {
           messages.push({ role: 'tool', tool_call_id: extra.id, content: 'Hata: Aynı turda en fazla 4 araç çağrılabilir.' });
         }
+        // `read` ile açılan görseller araç sonucuna (metin) girmez; hemen ardından kullanıcı mesajı olarak modele gösterilir.
+        if (shownImages.length) messages.push({ role: 'user', content: '[read ile açılan görsel dosyası]', images: shownImages });
         await saveParts();
         if (waitingApproval) {
           // Onay bekleniyor: tur biter, kullanıcı kartta karar verince yeni mesajla devam eder.
@@ -647,14 +717,14 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         }
 
         const turn = await beginTurn(chat, user, body, req.ip);
-        const { userRow, assistantId, history, isFirstExchange } = turn;
+        const { userRow, images, assistantId, history, isFirstExchange } = turn;
         if (isCode) {
           return generateCode(reply, { chat, user, userMessage: toMessageDTO(userRow), assistantId, history, userText: body.content, isFirstExchange, planMode: body.planMode === true, codeMode: body.mode === 'fast' ? 'fast' : 'deep' });
         }
         generate(req, reply, {
           chat,
           user,
-          userMessage: toMessageDTO(userRow),
+          userMessage: toMessageDTO(userRow, images),
           assistantId,
           history,
           ...chosenMode(body),
@@ -742,11 +812,7 @@ export function messageRoutes(ctx: AppContext, guard: Guard) {
         }
 
         const path = await getPath(db, t.parent_id);
-        const history = path.map((m) => ({
-          role: m.role,
-          content: m.role === 'user' ? renderUserContent(m.content, m.attachments ?? []) : m.content,
-          parts: m.role === 'assistant' ? m.parts : undefined,
-        }));
+        const history = await buildHistory(path);
         const lastUser = [...path].reverse().find((m) => m.role === 'user');
         generate(req, reply, {
           chat,

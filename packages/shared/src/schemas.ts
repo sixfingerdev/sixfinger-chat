@@ -76,9 +76,41 @@ export const listChatsQuery = z.object({
 export const attachmentSchema = z.object({
   name: z.string().trim().min(1).max(160),
   mime: z.string().max(100).default('text/plain'),
-  text: z.string().max(ATTACHMENT_MAX_CHARS),
+  /** Satır içi metin. Dosya sandbox'a yüklendiyse (`path` dolu) boştur. */
+  text: z.string().max(ATTACHMENT_MAX_CHARS).default(''),
+  /** Sandbox çalışma alanındaki yol (ör. `/work/uploads/rapor.pdf`, Code'da `.sixfinger/uploads/x.png`). Doluysa model dosyayı read/bash ile açar. */
+  path: z.string().max(400).optional(),
+  /** Yüklenen dosyanın boyutu (bayt). */
+  bytes: z.number().int().min(0).max(100_000_000).optional(),
+});
+
+/** Sandbox'a yüklenebilecek en büyük dosya (bayt): sohbet ve Code ortak. */
+export const UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+export const uploadFileSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  /** Base64 (başlıksız). */
+  dataBase64: z.string().min(1).max(Math.ceil((UPLOAD_MAX_BYTES * 4) / 3) + 8),
 });
 export type AttachmentInput = z.infer<typeof attachmentSchema>;
+
+/** Mesaja eklenen görseller (istemcide küçültülmüş JPEG/PNG/WebP). */
+export const IMAGE_LIMITS = {
+  /** Bir mesajdaki en fazla görsel. */
+  perMessage: 4,
+  /** Çözülmüş tek görselin en büyük boyutu (bayt). İstemci uzun kenarı ~1280 px'e küçültüp JPEG sıkıştırır (genelde 100–400 KB). */
+  maxBytes: 900_000,
+  /** Modele yeniden gönderilen geçmişte görselli en fazla kaç kullanıcı mesajı taşınır (eskilerin yerine metin notu girer). */
+  historyMessages: 2,
+  mimes: ['image/jpeg', 'image/png', 'image/webp'],
+} as const;
+
+export const imageInputSchema = z.object({
+  name: z.string().trim().min(1).max(160).default('gorsel'),
+  mime: z.enum(IMAGE_LIMITS.mimes),
+  /** Base64 (başlıksız). */
+  data: z.string().min(16).max(Math.ceil((IMAGE_LIMITS.maxBytes * 4) / 3) + 8),
+});
+export type ImageInput = z.infer<typeof imageInputSchema>;
 
 /** Düşünme düzeyi (`reasoning_effort`). */
 export const effortSchema = z.enum(['low', 'medium', 'high']);
@@ -94,6 +126,8 @@ export const sendMessageSchema = z.object({
   /** Yeni mesajın bağlanacağı mesaj. Verilmezse sohbetin aktif ucu. Düzenlemede, düzenlenen mesajın üstü. */
   parentId: z.string().uuid().nullable().optional(),
   attachments: z.array(attachmentSchema).max(8).optional(),
+  /** Görseller (yalnızca sohbette; görsel destekleyen modele yönlendirilir). */
+  images: z.array(imageInputSchema).max(IMAGE_LIMITS.perMessage).optional(),
   /** Code: plan modu (yalnızca okuma araçları; ajan değişiklik yapmaz, plan sunar). */
   planMode: z.boolean().optional(),
 });
@@ -183,7 +217,7 @@ export const previewSchema = z
   })
   .refine((v) => Boolean(v.path) !== Boolean(v.port), { message: 'path ya da port verilmeli (ikisi birden değil).' });
 /** Kullanıcının çalışma alanına dosya yüklemesi (base64). */
-export const uploadSchema = z.object({ name: z.string().trim().min(1).max(200), dataBase64: z.string().min(1).max(3_000_000) });
+export const uploadSchema = z.object({ name: z.string().trim().min(1).max(200), dataBase64: z.string().min(1).max(Math.ceil((UPLOAD_MAX_BYTES * 4) / 3) + 8) });
 export const diffQuery = z.object({ path: z.string().trim().min(1).max(500).optional() });
 export const listReposQuery = z.object({ q: z.string().trim().max(100).optional() });
 export const branchesQuery = z.object({ repo: createCodeSessionSchema.shape.repo });
