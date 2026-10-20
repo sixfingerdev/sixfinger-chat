@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.service.voice.VoiceInteractionSession
+import android.view.View
 import android.service.voice.VoiceInteractionSessionService
 
 class SfSessionService : VoiceInteractionSessionService() {
@@ -17,8 +18,17 @@ class SfSessionService : VoiceInteractionSessionService() {
 
 /** Her güç tuşu/kaydırma açılışında bir oturum: şeffaf React penceresini başlatır ve ekran içeriğini köprüye iletir. */
 class SfSession(private val ctx: Context) : VoiceInteractionSession(ctx) {
+  override fun onCreate() {
+    super.onCreate()
+    // Sistemin kendi (boş) oturum penceresi ekranı kaplayıp dokunuşları yutmasın: arayüzü React penceresi çizer.
+    setUiEnabled(false)
+  }
+
+  override fun onCreateContentView(): View = View(ctx).apply { visibility = View.GONE }
+
   override fun onShow(args: Bundle?, showFlags: Int) {
     super.onShow(args, showFlags)
+    setUiEnabled(false)
     AssistDiag.mark(ctx, "show")
     AssistBridge.begin("assistant")
     val intent = Intent(ctx, AssistantActivity::class.java)
