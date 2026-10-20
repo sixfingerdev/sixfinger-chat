@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, normalize, sep } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { notFound } from '../lib/errors.ts';
+import { CLI_PROMPT, CLI_PROMPT_VERSION } from '../services/cli-prompt.ts';
 import { defaultSkillsDir, walkFiles } from '../services/skills.ts';
 
 /**
@@ -41,6 +42,12 @@ export function skillsPublicRoutes(dir = defaultSkillsDir()) {
   }
 
   return async function (app: FastifyInstance) {
+    /** SixFinger Code CLI'nın sistem istemi: kimlik/davranış sunucudan gelir (CLI açılışta alır ve önbelleğe yazar). */
+    app.get('/cli/prompt', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (_req, reply) => {
+      reply.header('cache-control', 'public, max-age=300');
+      return { version: CLI_PROMPT_VERSION, text: CLI_PROMPT };
+    });
+
     app.get('/skills/index.json', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (_req, reply) => {
       reply.header('cache-control', 'public, max-age=60');
       return { skills: list() };

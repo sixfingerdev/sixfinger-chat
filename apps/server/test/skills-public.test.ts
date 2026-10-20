@@ -31,4 +31,13 @@ describe('herkese açık skill kataloğu', () => {
     expect((await env.app.inject({ method: 'GET', url: `/api/skills/${s.name}/..%2F..%2Fpackage.json` })).statusCode).toBe(404);
     expect((await env.app.inject({ method: 'GET', url: '/api/skills/yok-skill/SKILL.md' })).statusCode).toBe(404);
   });
+
+  it('CLI sistem istemi sürümle birlikte gelir ve kimliği SixFinger Code olarak koyar', async () => {
+    const r = await env.app.inject({ method: 'GET', url: '/api/cli/prompt' });
+    expect(r.statusCode).toBe(200);
+    const j = r.json();
+    expect(j.version).toBeGreaterThan(0);
+    expect(j.text).toContain('You are SixFinger Code');
+    expect(j.text.toLowerCase()).not.toContain('opencode');
+  });
 });

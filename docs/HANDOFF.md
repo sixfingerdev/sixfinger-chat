@@ -60,3 +60,10 @@ Sınırlar: tek süreçli uyandırma kanalı (EventEmitter; Pi'de tek sunucu iç
 
 ## 6. Lisans
 opencode MIT'tir. Menü/başlıklarda iz kalmaması hedeflendi ama `LICENSE` dosyası ve `site/index.html` altbilgisindeki atıf (opencode, MIT) **kalmalıdır**; kaldırmak lisans ihlalidir.
+
+## 7. Son eklemeler (aynı gün)
+- **Sistem istemi sunucudan:** `GET /api/cli/prompt` (`services/cli-prompt.ts`, `version`'ı artırınca CLI yeniler); CLI'da `src/sixfinger/prompt.ts` (önbellek + asgari yedek), opencode'un modele göre sekiz istemi silindi. Alt ajan rol istemleri (`agent/prompt/*.txt`) hâlâ çatalda.
+- **Skill kataloğu:** `GET /api/skills/index.json` + `/api/skills/:ad/*`; CLI açılışta eşitler (`SIXFINGER_NO_SKILL_SYNC=1` kapatır).
+- **Web araması:** CLI `websearch` artık `POST /api/llm/v1/web_search` (sunucunun SearXNG/DDG/Bing birleşik araması); Exa/Parallel dış hizmetleri kaldırıldı. `mcp-websearch.ts` ve `runtime-flags` içindeki Exa/Parallel bayrakları artık kullanılmıyor (temizlenebilir).
+- **`moa` aracı kaldırıldı** (tek sağlayıcıda anlamsız). `team`, `cron`, `memory` yerelde duruyor.
+- Bilinen, bu işlerden bağımsız 2 test hatası (çatal): `tool.write … OS denies write access` (sandbox'ta root olunduğu için) ve `continues loading tui config when legacy source cannot be stripped`.
